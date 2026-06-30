@@ -1,0 +1,13 @@
+{
+  "name": "smart-village-telehealth",
+  "version": "1.0.0",
+  "description": "Smart Village Digital Tele-Health Dispensary Dashboard with Low-Bandwidth Video Failovers",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

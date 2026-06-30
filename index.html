@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Village Tele-Health Dispensary Dashboard</title>
+  <meta name="description" content="Low-Bandwidth Failover Tele-health System for Rural Dispensaries">
+  <link rel="stylesheet" href="/styles.css">
+  <!-- Agora Web SDK CDN -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
+</head>
+<body>
+
+  <!-- Global Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">✚</div>
+      <div class="brand-info">
+        <h1>VillageMed Tele-Health</h1>
+        <p>Smart Dispensary Network & Failover Suite</p>
+      </div>
+    </div>
+
+    <!-- Developer Quick Login Panel -->
+    <div class="dev-switcher">
+      <span class="dev-btn" id="dev-btn-login" onclick="logout()">🔒 Log Out</span>
+      <span class="dev-btn" id="dev-btn-patient" onclick="quickLogin('patient')">Patient Portal</span>
+      <span class="dev-btn" id="dev-btn-vhw" onclick="quickLogin('vhw')">Health Worker</span>
+      <span class="dev-btn" id="dev-btn-doctor" onclick="quickLogin('doctor')">Doctor Portal</span>
+      <span class="dev-btn" id="dev-btn-admin" onclick="quickLogin('admin')">Admin Panel</span>
+      <span class="dev-btn" id="dev-btn-agora" onclick="toggleAgoraConfig()">⚙️ Agora Settings</span>
+    </div>
+
+    <div class="nav-controls">
+      <div class="current-time" id="live-clock">June 30, 2026 09:30 AM</div>
+      
+      <!-- User profile state -->
+      <div class="user-profile" id="header-user-profile" style="display: none;">
+        <div class="avatar" id="header-user-avatar">?</div>
+        <div class="user-info">
+          <span class="user-name" id="header-user-name">Guest User</span>
+          <span class="user-role" id="header-user-role">Guest</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Agora configuration settings bar -->
+  <div id="agora-config-bar" style="display: none; background-color: var(--primary-light); padding: 12px 24px; border-bottom: 1px solid var(--border-color); font-size: 13px;">
+    <div style="max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+      <div style="font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 6px;">
+        📡 Agora Video SDK Credentials:
+      </div>
+      <div style="display: flex; gap: 12px; align-items: center; flex: 1; min-width: 300px;">
+        <input type="text" id="agora-appid" class="form-input" style="padding: 6px 10px; font-size: 12px; margin-bottom: 0;" placeholder="Agora App ID (e.g. 8da0...)">
+        <input type="text" id="agora-token" class="form-input" style="padding: 6px 10px; font-size: 12px; margin-bottom: 0;" placeholder="Temp RTC Token (Optional)">
+        <input type="text" id="agora-channel" class="form-input" style="padding: 6px 10px; font-size: 12px; margin-bottom: 0;" placeholder="Channel Name" value="telehealth-room">
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <input type="checkbox" id="agora-enabled" style="width: 16px; height: 16px; margin: 0;">
+        <label for="agora-enabled" style="font-weight: 600; margin-bottom: 0;">Enable Real Agora WebRTC</label>
+      </div>
+      <button class="btn-action success" onclick="saveAgoraConfig()">Save Config</button>
+    </div>
+  </div>
+
+  <!-- Main View Frame -->
+  <main>
+
+    <!-- 0. LOGIN MODULE -->
+    <section id="view-login" class="view-section active">
+      <div class="login-container">
+        <div class="login-card">
+          <div class="logo-pulse">✚</div>
+          <h2>Welcome Back</h2>
+          <p>Sign in to the Tele-Health Dispensary System</p>
+          
+          <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+              <label for="login-email">Email Address</label>
+              <input type="email" id="login-email" class="form-input" placeholder="doctor@hospital.com" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="login-password">Password</label>
+              <input type="password" id="login-password" class="form-input" placeholder="••••••••" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="login-role">Sign In As</label>
+              <select id="login-role" class="form-input">
+                <option value="patient">Patient</option>
+                <option value="vhw">Village Health Worker / Nurse</option>
+                <option value="doctor" selected>Medical Doctor</option>
+                <option value="admin">System Administrator</option>
+              </select>
+            </div>
+            
+            <button type="submit" class="btn-primary">Sign In</button>
+          </form>
+
+          <div class="quick-login-divider">DEVELOPER QUICK LOGIN</div>
+          <div class="quick-login-grid">
+            <button class="btn-secondary" onclick="quickLogin('patient')">Patient</button>
+            <button class="btn-secondary" onclick="quickLogin('vhw')">Health Worker</button>
+            <button class="btn-secondary" onclick="quickLogin('doctor')">Doctor</button>
+            <button class="btn-secondary" onclick="quickLogin('admin')">Admin</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 1. PATIENT MODULE -->
+    <section id="view-patient" class="view-section">
+      <div class="stats-strip">
+        <div class="metric-card">
+          <div class="metric-icon blue">🎫</div>
+          <div class="metric-info">
+            <span class="label">Your Active Token</span>
+            <div class="value" id="pat-token-val">No Token</div>
+            <span class="subtext" id="pat-token-sub">No active appointment</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon amber">⏳</div>
+          <div class="metric-info">
+            <span class="label">Estimated Wait</span>
+            <div class="value" id="pat-wait-val">-- mins</div>
+            <span class="subtext">Based on queue length</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon green">👨‍⚕️</div>
+          <div class="metric-info">
+            <span class="label">Assigned Doctor</span>
+            <div class="value" id="pat-doc-val">Dr. Vikram</div>
+            <span class="subtext">General Medicine Clinic</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon red">📶</div>
+          <div class="metric-info">
+            <span class="label">Failover Auto-Failback</span>
+            <div class="value">Ready</div>
+            <span class="subtext">Active monitoring</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Live Call Join Panel -->
+        <div class="card col-12" id="pat-active-call-card" style="display: none; background-color: var(--primary-light); border-color: var(--primary);">
+          <div class="card-title-bar" style="border-bottom-color: rgba(79, 70, 229, 0.2);">
+            <h3 style="color: var(--primary);">🎥 Consultation Ready</h3>
+            <span class="badge badge-success">Doctor is Online</span>
+          </div>
+          <p style="margin-bottom: 12px; font-size: 14px; color: var(--text-medium);">Your tele-health consultation with <strong id="pat-active-doc-name">Dr. Vikram</strong> is ready. Please click the button below to connect with full low-bandwidth auto-failover capabilities.</p>
+          <button class="btn-primary" style="width: auto; display: inline-flex;" onclick="joinPatientCall()">Join Consultation Call</button>
+        </div>
+
+        <!-- Appointment Booking Form -->
+        <div class="card col-4">
+          <div class="card-title-bar">
+            <h3>📅 Book Appointment</h3>
+          </div>
+          <form id="pat-booking-form" onsubmit="bookPatientAppointment(event)">
+            <div class="form-group">
+              <label for="pat-book-symptoms">Primary Symptoms</label>
+              <input type="text" id="pat-book-symptoms" class="form-input" placeholder="e.g., Fever, cough, high blood pressure" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="pat-book-specialty">Required Clinic/Specialty</label>
+              <select id="pat-book-specialty" class="form-input">
+                <option value="General Medicine">General Medicine (Dr. Vikram)</option>
+                <option value="Cardiology">Cardiology (Dr. Dharani)</option>
+                <option value="Neurology">Neurology (Dr. Naveen)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="pat-book-urgency">Estimated Urgency (Optional)</label>
+              <select id="pat-book-urgency" class="form-input">
+                <option value="Normal">Routine Checkup</option>
+                <option value="Moderate">Mild discomfort / Pain</option>
+                <option value="Severe">Severe symptoms (requires immediate triage)</option>
+              </select>
+            </div>
+
+            <button type="submit" class="btn-primary">Request Booking & Token</button>
+            <button type="button" id="pat-cancel-appointment-btn" class="btn-secondary" style="width:100%; margin-top: 8px; display: none;" onclick="cancelActiveAppointment()">Cancel Active Appointment</button>
+          </form>
+        </div>
+
+        <!-- Profile Update -->
+        <div class="card col-4">
+          <div class="card-title-bar">
+            <h3>👤 Patient Profile Info</h3>
+          </div>
+          <form id="pat-profile-form" onsubmit="updatePatientProfile(event)">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input type="text" id="pat-prof-name" class="form-input" readonly>
+            </div>
+            <div class="form-group">
+              <label>Age & Gender</label>
+              <input type="text" id="pat-prof-age" class="form-input" readonly>
+            </div>
+            <div class="form-group">
+              <label for="pat-prof-phone">Phone Number</label>
+              <input type="text" id="pat-prof-phone" class="form-input" placeholder="Update phone...">
+            </div>
+            <div class="form-group">
+              <label for="pat-prof-address">Address / Village Name</label>
+              <input type="text" id="pat-prof-address" class="form-input" placeholder="Update village...">
+            </div>
+            <button type="submit" class="btn-primary">Update Profile</button>
+          </form>
+        </div>
+
+        <!-- Medical History & Prescriptions -->
+        <div class="card col-4">
+          <div class="card-title-bar">
+            <h3>📜 Consultation History</h3>
+          </div>
+          <div class="table-wrapper" style="max-height: 280px; overflow-y: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Clinic</th>
+                  <th>Prescription</th>
+                </tr>
+              </thead>
+              <tbody id="pat-history-tbody">
+                <!-- Filled dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Active Patient Videocall Frame (Initially hidden, loads on call start) -->
+        <div class="card col-12" id="pat-telehealth-box" style="display: none;">
+          <div class="card-title-bar">
+            <h3>🎥 Live Video Consultation</h3>
+            <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
+          </div>
+          
+          <div class="telemedicine-suite">
+            <!-- Call Feed Viewport -->
+            <div class="call-viewport" id="pat-viewport-container">
+              <div class="main-feed-container">
+                <!-- Simulated Remote doctor Webcam -->
+                <canvas id="pat-remote-canvas" class="main-canvas"></canvas>
+                <!-- Real Remote doctor Webcam (Agora) -->
+                <div id="pat-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
+                <!-- Voice avatar fallback when video fails -->
+                <div class="remote-avatar-fallback" id="pat-remote-audio-fallback">
+                  <div class="remote-avatar-circle" id="pat-doctor-initials">DV</div>
+                  <h4 style="color: white; margin-bottom: 4px;">Dr. Vikram (Audio-Only Mode)</h4>
+                  <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">Low-bandwidth audio stream active</p>
+                  <div class="audio-waves-container">
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Local Patient PIP webcam -->
+              <div class="local-pip-feed">
+                <canvas id="pat-local-canvas" class="local-pip-canvas"></canvas>
+                <div id="pat-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+              </div>
+
+              <!-- Controls -->
+              <div class="call-control-bar">
+                <div class="call-status-badge">
+                  <span id="pat-conn-text">HD Call Connected</span>
+                  <div class="signal-bar-group" id="pat-sig-bars">
+                    <div class="sig-bar sig-1 active"></div>
+                    <div class="sig-bar sig-2 active"></div>
+                    <div class="sig-bar sig-3 active"></div>
+                    <div class="sig-bar sig-4 active"></div>
+                  </div>
+                </div>
+                
+                <div class="call-btns">
+                  <button class="btn-circle active" id="pat-mic-toggle" onclick="toggleAudioState('pat')">🎙️</button>
+                  <button class="btn-circle active" id="pat-cam-toggle" onclick="toggleVideoState('pat')">📷</button>
+                  <button class="btn-circle hangup" onclick="leaveConsultation()">❌</button>
+                </div>
+
+                <div class="simulator-controls">
+                  <label for="pat-net-sim">Network Simulator:</label>
+                  <select id="pat-net-sim" onchange="simulateNetworkChange(this.value)">
+                    <option value="good">Good Network (HD Video)</option>
+                    <option value="poor">Poor Network (Low-Res)</option>
+                    <option value="verypoor">Very Poor (Audio + Chat)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sidebar (Chat + Shared Files) -->
+            <div class="telehealth-sidebar">
+              <div class="sidebar-tab-headers">
+                <button class="sidebar-tab-btn active" id="pat-tab-chat" onclick="switchCallTab('pat', 'chat')">Chat</button>
+                <button class="sidebar-tab-btn" id="pat-tab-files" onclick="switchCallTab('pat', 'files')">Vitals & Files</button>
+              </div>
+              <div class="sidebar-tab-content">
+                <!-- Chat Tab -->
+                <div class="tab-pane active" id="pat-pane-chat">
+                  <div class="chat-history" id="pat-chat-box">
+                    <!-- Dynamic chat -->
+                  </div>
+                  <div class="chat-input-bar">
+                    <input type="text" id="pat-chat-input" class="chat-input" placeholder="Type message..." onkeydown="if(event.key === 'Enter') sendChatMessage('pat')">
+                    <button class="chat-send-btn" onclick="sendChatMessage('pat')">➔</button>
+                  </div>
+                </div>
+                <!-- Files Tab -->
+                <div class="tab-pane" id="pat-pane-files">
+                  <div class="shared-files-section" style="margin-bottom: 16px;">
+                    <h4>Consultation Vitals</h4>
+                    <div class="vitals-grid" style="grid-template-columns: repeat(2, 1fr); gap: 8px;" id="pat-call-vitals-box">
+                      <!-- Filled by JS -->
+                    </div>
+                  </div>
+                  <div class="shared-files-section">
+                    <h4>Shared Images / Reports</h4>
+                    <div class="file-sharing-grid" id="pat-call-files-box">
+                      <!-- File lists -->
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. VILLAGE HEALTH WORKER (VHW) MODULE -->
+    <section id="view-vhw" class="view-section">
+      <div class="stats-strip">
+        <div class="metric-card">
+          <div class="metric-icon blue">📋</div>
+          <div class="metric-info">
+            <span class="label">Registered Today</span>
+            <div class="value" id="vhw-stat-registered">4 Patients</div>
+            <span class="subtext">Active village population</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon amber">🎫</div>
+          <div class="metric-info">
+            <span class="label">Active Queue Size</span>
+            <div class="value" id="vhw-stat-queue">2 Patients</div>
+            <span class="subtext">Waiting for doctor call</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon green">🚨</div>
+          <div class="metric-info">
+            <span class="label">Triage Priority Flag</span>
+            <div class="value" id="vhw-stat-alerts">0 Alerts</div>
+            <span class="subtext">Critical vital indicators</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon red">📶</div>
+          <div class="metric-info">
+            <span class="label">Low-Bandwidth Suite</span>
+            <div class="value">Ready</div>
+            <span class="subtext">1.2 Mbps fallback sensor</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Register Patient Form -->
+        <div class="card col-4">
+          <div class="card-title-bar">
+            <h3>👤 Patient Registration</h3>
+          </div>
+          <form id="vhw-reg-form" onsubmit="vhwRegisterPatient(event)">
+            <div class="form-group">
+              <label for="vhw-reg-name">Full Name</label>
+              <input type="text" id="vhw-reg-name" class="form-input" placeholder="Enter patient name..." required>
+            </div>
+            
+            <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div>
+                <label for="vhw-reg-age">Age (Years)</label>
+                <input type="number" id="vhw-reg-age" class="form-input" placeholder="Age" required>
+              </div>
+              <div>
+                <label for="vhw-reg-gender">Gender</label>
+                <select id="vhw-reg-gender" class="form-input">
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="vhw-reg-phone">Phone Number</label>
+              <input type="text" id="vhw-reg-phone" class="form-input" placeholder="10 digit number" required>
+            </div>
+
+            <div class="form-group">
+              <label for="vhw-reg-village">Dispensary / Village</label>
+              <select id="vhw-reg-village" class="form-input">
+                <!-- Villages injected by JS -->
+              </select>
+            </div>
+
+            <button type="submit" class="btn-primary">Register Patient Account</button>
+          </form>
+        </div>
+
+        <!-- Registered Patient List (Click to Triage Vitals) -->
+        <div class="card col-8">
+          <div class="card-title-bar">
+            <h3>📁 Patient Directory & Token Dispatch</h3>
+            <div class="search-bar-wrapper" style="margin-bottom: 0;">
+              <input type="text" id="vhw-search-patient" class="search-input" placeholder="Search by name, ID or phone..." oninput="vhwSearchPatients(this.value)">
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient ID</th>
+                  <th>Name</th>
+                  <th>Age/Gender</th>
+                  <th>Village Clinic</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="vhw-patient-list-tbody">
+                <!-- Injected dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Consultation Queue Management -->
+        <div class="card col-12">
+          <div class="card-title-bar">
+            <h3>⏱️ Active Consultation Queue</h3>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Token</th>
+                  <th>Patient</th>
+                  <th>Symptoms</th>
+                  <th>Vitals (BP/Sugar/Temp/SpO2)</th>
+                  <th>Priority Triage</th>
+                  <th>Doctor Assigned</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="vhw-queue-tbody">
+                <!-- Injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Live VHW Call Interface (Loads inside VHW Dashboard to assist during calls) -->
+        <div class="card col-12" id="vhw-telehealth-box" style="display: none;">
+          <div class="card-title-bar">
+            <h3>🎥 Live Video Consultation (Nurse Assistant Panel)</h3>
+            <button class="btn-action danger" onclick="leaveConsultation()">Disconnect Call</button>
+          </div>
+          
+          <div class="telemedicine-suite">
+            <!-- Call Feed Viewport -->
+            <div class="call-viewport" id="vhw-viewport-container">
+              <div class="main-feed-container">
+                <canvas id="vhw-remote-canvas" class="main-canvas"></canvas>
+                <div id="vhw-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
+                <div class="remote-avatar-fallback" id="vhw-remote-audio-fallback">
+                  <div class="remote-avatar-circle" id="vhw-doctor-initials">DV</div>
+                  <h4 style="color: white; margin-bottom: 4px;">Dr. Vikram (Audio-Only Mode)</h4>
+                  <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">Low-bandwidth audio stream active</p>
+                  <div class="audio-waves-container">
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Local VHW PIP webcam -->
+              <div class="local-pip-feed">
+                <canvas id="vhw-local-canvas" class="local-pip-canvas"></canvas>
+                <div id="vhw-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+              </div>
+
+              <!-- Controls -->
+              <div class="call-control-bar">
+                <div class="call-status-badge">
+                  <span id="vhw-conn-text">HD Call Connected</span>
+                  <div class="signal-bar-group" id="vhw-sig-bars">
+                    <div class="sig-bar sig-1 active"></div>
+                    <div class="sig-bar sig-2 active"></div>
+                    <div class="sig-bar sig-3 active"></div>
+                    <div class="sig-bar sig-4 active"></div>
+                  </div>
+                </div>
+                
+                <div class="call-btns">
+                  <button class="btn-circle active" id="vhw-mic-toggle" onclick="toggleAudioState('vhw')">🎙️</button>
+                  <button class="btn-circle active" id="vhw-cam-toggle" onclick="toggleVideoState('vhw')">📷</button>
+                  <button class="btn-circle hangup" onclick="leaveConsultation()">❌</button>
+                </div>
+
+                <div class="simulator-controls">
+                  <label for="vhw-net-sim">Network Simulator:</label>
+                  <select id="vhw-net-sim" onchange="simulateNetworkChange(this.value)">
+                    <option value="good">Good Network (HD Video)</option>
+                    <option value="poor">Poor Network (Low-Res)</option>
+                    <option value="verypoor">Very Poor (Audio + Chat)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sidebar (Chat + Shared Files) -->
+            <div class="telehealth-sidebar">
+              <div class="sidebar-tab-headers">
+                <button class="sidebar-tab-btn active" id="vhw-tab-chat" onclick="switchCallTab('vhw', 'chat')">Chat</button>
+                <button class="sidebar-tab-btn" id="vhw-tab-files" onclick="switchCallTab('vhw', 'files')">Vitals & Files</button>
+              </div>
+              <div class="sidebar-tab-content">
+                <!-- Chat Tab -->
+                <div class="tab-pane active" id="vhw-pane-chat">
+                  <div class="chat-history" id="vhw-chat-box">
+                    <!-- Dynamic chat -->
+                  </div>
+                  <div class="chat-input-bar">
+                    <input type="text" id="vhw-chat-input" class="chat-input" placeholder="Type message..." onkeydown="if(event.key === 'Enter') sendChatMessage('vhw')">
+                    <button class="chat-send-btn" onclick="sendChatMessage('vhw')">➔</button>
+                  </div>
+                </div>
+                <!-- Files Tab -->
+                <div class="tab-pane" id="vhw-pane-files">
+                  <div class="shared-files-section" style="margin-bottom: 16px;">
+                    <h4>Active Consultation Vitals</h4>
+                    <div class="vitals-grid" style="grid-template-columns: repeat(2, 1fr); gap: 8px;" id="vhw-call-vitals-box">
+                      <!-- Filled by JS -->
+                    </div>
+                  </div>
+                  <div class="shared-files-section">
+                    <h4>Shared Images / Wound Photos</h4>
+                    <div class="file-sharing-grid" id="vhw-call-files-box">
+                      <!-- File lists -->
+                    </div>
+                    <button class="btn-secondary" style="width: 100%; margin-top: 12px; font-size: 11px;" onclick="document.getElementById('vhw-call-file-upload').click()">📎 Upload Wound Image</button>
+                    <input type="file" id="vhw-call-file-upload" style="display: none;" accept="image/*" onchange="vhwUploadWoundImage(event)">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 3. DOCTOR MODULE -->
+    <section id="view-doctor" class="view-section">
+      <div class="stats-strip">
+        <div class="metric-card">
+          <div class="metric-icon blue">👨‍⚕️</div>
+          <div class="metric-info">
+            <span class="label">Patient Queue</span>
+            <div class="value" id="doc-stat-queue">0 Waiting</div>
+            <span class="subtext">Ordered by vital urgency</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon red">🚨</div>
+          <div class="metric-info">
+            <span class="label">Critical Priority</span>
+            <div class="value" id="doc-stat-critical">0 Cases</div>
+            <span class="subtext">Flagged SpO2 & BP anomalies</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon green">✅</div>
+          <div class="metric-info">
+            <span class="label">Consulted Today</span>
+            <div class="value" id="doc-stat-consulted">0 Patients</div>
+            <span class="subtext">Digital prescriptions saved</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon amber">📶</div>
+          <div class="metric-info">
+            <span class="label">Auto Failover Status</span>
+            <div class="value" id="doc-network-lbl">Good (HD)</div>
+            <span class="subtext">Network quality monitor</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Critical Vitals Alerts Strip -->
+      <div id="doc-critical-alerts-strip"></div>
+
+      <div class="dashboard-grid">
+        <!-- Patient Queue List -->
+        <div class="card col-12" id="doc-queue-section">
+          <div class="card-title-bar">
+            <h3>⌛ Patient Waiting Queue (Urgency Sorted Triage)</h3>
+            <div class="search-bar-wrapper" style="margin-bottom: 0;">
+              <input type="text" id="doc-search-patient" class="search-input" placeholder="Search patient name, ID or symptom..." oninput="docSearchQueue(this.value)">
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Token ID</th>
+                  <th>Patient</th>
+                  <th>Age/Sex</th>
+                  <th>Dispensary</th>
+                  <th>Vitals Symptoms</th>
+                  <th>Triage Level</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="doc-queue-tbody">
+                <!-- Injected dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Main Video Call Panel & Prescription Section -->
+        <div class="card col-12" id="doc-consultation-section" style="display: none;">
+          <div class="card-title-bar">
+            <h3>🎥 Live Consultation Room - <span id="doc-call-pat-name">Jane Doe</span></h3>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
+              <button class="btn-action danger" onclick="leaveConsultation()">Hang Up / Suspend</button>
+            </div>
+          </div>
+
+          <div class="telemedicine-suite">
+            <!-- Call Feed Viewport -->
+            <div class="call-viewport" id="doc-viewport-container">
+              <div class="main-feed-container">
+                <!-- Simulated Remote Patient Webcam -->
+                <canvas id="doc-remote-canvas" class="main-canvas"></canvas>
+                <div id="doc-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
+                <!-- Voice avatar fallback when video fails -->
+                <div class="remote-avatar-fallback" id="doc-remote-audio-fallback">
+                  <div class="remote-avatar-circle" id="doc-patient-initials">JD</div>
+                  <h4 style="color: white; margin-bottom: 4px;" id="doc-call-pat-audio-name">Jane Doe (Audio-Only Mode)</h4>
+                  <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">Vitals shared below. Video closed to sustain call.</p>
+                  <div class="audio-waves-container">
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                    <div class="wave-bar"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Local Doctor PIP webcam -->
+              <div class="local-pip-feed">
+                <canvas id="doc-local-canvas" class="local-pip-canvas"></canvas>
+                <div id="doc-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+              </div>
+
+              <!-- Controls -->
+              <div class="call-control-bar">
+                <div class="call-status-badge">
+                  <span id="doc-conn-text">HD Call Connected</span>
+                  <div class="signal-bar-group" id="doc-sig-bars">
+                    <div class="sig-bar sig-1 active"></div>
+                    <div class="sig-bar sig-2 active"></div>
+                    <div class="sig-bar sig-3 active"></div>
+                    <div class="sig-bar sig-4 active"></div>
+                  </div>
+                </div>
+                
+                <div class="call-btns">
+                  <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')">🎙️</button>
+                  <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')">📷</button>
+                  <button class="btn-circle hangup" onclick="leaveConsultation()">❌</button>
+                </div>
+
+                <div class="simulator-controls">
+                  <label for="doc-net-sim">Force Network Bandwidth:</label>
+                  <select id="doc-net-sim" onchange="simulateNetworkChange(this.value)">
+                    <option value="good">Good Network (HD Video)</option>
+                    <option value="poor">Poor Network (Low-Res)</option>
+                    <option value="verypoor">Very Poor (Audio + Chat)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sidebar (Chat + Shared Files) -->
+            <div class="telehealth-sidebar">
+              <div class="sidebar-tab-headers">
+                <button class="sidebar-tab-btn active" id="doc-tab-chat" onclick="switchCallTab('doc', 'chat')">Chat</button>
+                <button class="sidebar-tab-btn" id="doc-tab-files" onclick="switchCallTab('doc', 'files')">Vitals & Reports</button>
+              </div>
+              <div class="sidebar-tab-content">
+                <!-- Chat Tab -->
+                <div class="tab-pane active" id="doc-pane-chat">
+                  <div class="chat-history" id="doc-chat-box">
+                    <!-- Dynamic chat -->
+                  </div>
+                  <div class="chat-input-bar">
+                    <input type="text" id="doc-chat-input" class="chat-input" placeholder="Type message..." onkeydown="if(event.key === 'Enter') sendChatMessage('doc')">
+                    <button class="chat-send-btn" onclick="sendChatMessage('doc')">➔</button>
+                  </div>
+                </div>
+                <!-- Files Tab -->
+                <div class="tab-pane" id="doc-pane-files">
+                  <div class="shared-files-section" style="margin-bottom: 16px;">
+                    <h4>Consultation Vitals Summary</h4>
+                    <div class="vitals-grid" style="grid-template-columns: repeat(2, 1fr); gap: 8px;" id="doc-call-vitals-box">
+                      <!-- Filled by JS -->
+                    </div>
+                  </div>
+                  <div class="shared-files-section">
+                    <h4>Shared Images / Wound Photos</h4>
+                    <div class="file-sharing-grid" id="doc-call-files-box">
+                      <!-- File lists -->
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Digital Prescription Workspace -->
+          <div class="prescription-container" style="margin-top: 24px;">
+            <!-- Input Panel -->
+            <div class="card">
+              <div class="card-title-bar">
+                <h3>📝 Digital Prescription Form</h3>
+              </div>
+              <form id="doc-prescription-form" onsubmit="submitDigitalPrescription(event)">
+                <div class="form-group">
+                  <label for="pres-diagnosis">Diagnosis / Findings</label>
+                  <textarea id="pres-diagnosis" class="form-input" placeholder="Write diagnosis notes here..." rows="3" required></textarea>
+                </div>
+                
+                <div class="form-group">
+                  <label>Add Medicines</label>
+                  <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                    <select id="pres-med-name" class="form-input">
+                      <option value="Paracetamol 500mg">Paracetamol 500mg</option>
+                      <option value="Amoxicillin 250mg">Amoxicillin 250mg</option>
+                      <option value="Metoprolol 50mg">Metoprolol 50mg</option>
+                      <option value="Metformin 500mg">Metformin 500mg</option>
+                      <option value="Cough Syrup 100ml">Cough Syrup 100ml</option>
+                      <option value="ORSL Hydration Sachet">ORSL Hydration Sachet</option>
+                    </select>
+                    <input type="text" id="pres-med-freq" class="form-input" placeholder="e.g. 1-0-1 (BID)">
+                    <input type="text" id="pres-med-duration" class="form-input" placeholder="e.g. 5 days">
+                  </div>
+                  <button type="button" class="btn-secondary" style="width: 100%; border-style: dashed;" onclick="addMedicineRow()">➕ Add Medicine to prescription</button>
+                </div>
+
+                <div class="form-group">
+                  <label for="pres-advice">Special Instructions / General Advice</label>
+                  <input type="text" id="pres-advice" class="form-input" placeholder="e.g. Drink plenty of water, avoid spicy food">
+                </div>
+
+                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                  <input type="checkbox" id="pres-referral-check" style="width: 16px; height: 16px;">
+                  <label for="pres-referral-check" style="margin-bottom: 0;">Refer to District Specialist Hospital (Critical escalation)</label>
+                </div>
+
+                <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <button type="submit" class="btn-primary">Generate Prescription</button>
+                  <button type="button" class="btn-secondary" onclick="resetPrescriptionForm()">Clear Form</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Preview Panel -->
+            <div class="prescription-preview-panel" id="prescription-print-zone">
+              <div>
+                <div class="prescription-header">
+                  <div class="dispensary-meta">
+                    <h4>VILLAGEMED SMART DISPENSARY</h4>
+                    <p id="pres-lbl-village">Village Clinic A, Smart Village Network</p>
+                  </div>
+                  <div class="doctor-stamp">
+                    <div class="doc-name" id="pres-lbl-doc">Dr. Vikram</div>
+                    <div style="font-size: 10px; color: var(--text-muted);">MD, General Medicine</div>
+                  </div>
+                </div>
+
+                <div class="prescription-meta-grid">
+                  <div class="meta-field"><span>Patient:</span> <span id="pres-lbl-pat-name">--</span></div>
+                  <div class="meta-field"><span>Age/Gender:</span> <span id="pres-lbl-pat-age">--</span></div>
+                  <div class="meta-field"><span>Date:</span> <span id="pres-lbl-date">--</span></div>
+                  <div class="meta-field"><span>Token ID:</span> <span id="pres-lbl-token">--</span></div>
+                  <div class="meta-field"><span>Clinician BP:</span> <span id="pres-lbl-bp">--</span></div>
+                  <div class="meta-field"><span>SpO2 / HR:</span> <span id="pres-lbl-spo2">--</span></div>
+                </div>
+
+                <div class="prescription-body">
+                  <h5>Rx (Prescribed Medications)</h5>
+                  <ul class="prescription-meds-list" id="pres-lbl-meds-list">
+                    <!-- Meds rows dynamically inserted -->
+                  </ul>
+
+                  <h5>Diagnosis Summary</h5>
+                  <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500;" id="pres-lbl-diagnosis">--</div>
+
+                  <h5>Advice & Instructions</h5>
+                  <div class="prescription-notes" id="pres-lbl-advice">--</div>
+                </div>
+              </div>
+
+              <div class="prescription-footer">
+                <div>* Electronic Prescription generated via VillageMed Tele-Health Suite.</div>
+                <div class="signature-line">Authorized Clinician</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Historical Consultations list -->
+        <div class="card col-12" id="doc-history-section">
+          <div class="card-title-bar">
+            <h3>📜 Completed Consultations Log</h3>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Patient ID</th>
+                  <th>Patient Name</th>
+                  <th>Diagnosis</th>
+                  <th>Medicines Dispensed</th>
+                  <th>Referral Escalation</th>
+                  <th>Print Pres.</th>
+                </tr>
+              </thead>
+              <tbody id="doc-completed-tbody">
+                <!-- Injected dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. ADMIN MODULE -->
+    <section id="view-admin" class="view-section">
+      <div class="stats-strip">
+        <div class="metric-card">
+          <div class="metric-icon blue">🏥</div>
+          <div class="metric-info">
+            <span class="label">Total Villages</span>
+            <div class="value" id="adm-stat-villages">3 Clinics</div>
+            <span class="subtext">Smart Dispensary clinics</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon green">👨‍⚕️</div>
+          <div class="metric-info">
+            <span class="label">Active Doctors</span>
+            <div class="value" id="adm-stat-doctors">3 Online</div>
+            <span class="subtext">Consulting on network</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon amber">📞</div>
+          <div class="metric-info">
+            <span class="label">Total Consultations</span>
+            <div class="value" id="adm-stat-calls">8 Complete</div>
+            <span class="subtext">Current billing cycle</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon red">📶</div>
+          <div class="metric-info">
+            <span class="label">Low Bandwidth Events</span>
+            <div class="value" id="adm-stat-failovers">12 Flags</div>
+            <span class="subtext">Auto failover triggers</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Village Clinics Management -->
+        <div class="card col-6">
+          <div class="card-title-bar">
+            <h3>🏢 Manage Village Dispensary Clinics</h3>
+          </div>
+          <form id="adm-village-form" onsubmit="adminAddVillage(event)" style="display: flex; gap: 8px; margin-bottom: 16px;">
+            <input type="text" id="adm-village-name" class="form-input" placeholder="New Village Clinic Name..." required>
+            <button type="submit" class="btn-primary" style="width: auto; white-space: nowrap;">Add Clinic</button>
+          </form>
+          <div class="table-wrapper" style="max-height: 250px; overflow-y: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Clinic Name</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="adm-village-tbody">
+                <!-- Injected dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Doctor Directory Management -->
+        <div class="card col-6">
+          <div class="card-title-bar">
+            <h3>👨‍⚕️ Manage Medical Doctor Staff</h3>
+          </div>
+          <form id="adm-doc-form" onsubmit="adminAddDoctor(event)" style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px; margin-bottom: 16px;">
+            <input type="text" id="adm-doc-name" class="form-input" placeholder="Dr. Full Name..." required>
+            <select id="adm-doc-specialty" class="form-input">
+              <option value="General Medicine">General Medicine</option>
+              <option value="Cardiology">Cardiology</option>
+              <option value="Neurology">Neurology</option>
+            </select>
+            <button type="submit" class="btn-primary" style="grid-column: span 2;">Add Doctor</button>
+          </form>
+          <div class="table-wrapper" style="max-height: 250px; overflow-y: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Doctor Name</th>
+                  <th>Specialty</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="adm-doctor-tbody">
+                <!-- Injected dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Admin Appointment Booking Form -->
+        <div class="card col-12">
+          <div class="card-title-bar">
+            <h3>📅 Book Appointment (Admin override)</h3>
+          </div>
+          <form id="adm-booking-form" onsubmit="adminBookAppointment(event)" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: end;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="adm-book-patient">Select Patient</label>
+              <select id="adm-book-patient" class="form-input" required>
+                <!-- Injected dynamically by JS -->
+              </select>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="adm-book-doctor">Assign Doctor</label>
+              <select id="adm-book-doctor" class="form-input" required>
+                <!-- Injected dynamically by JS -->
+              </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="adm-book-urgency">Triage Urgency</label>
+              <select id="adm-book-urgency" class="form-input">
+                <option value="Normal">Normal Checkup</option>
+                <option value="Moderate">Moderate Warning</option>
+                <option value="Severe">Severe Emergency</option>
+              </select>
+            </div>
+
+            <div class="form-group" style="grid-column: span 2; margin-bottom: 0;">
+              <label for="adm-book-symptoms">Patient Symptoms / Reason</label>
+              <input type="text" id="adm-book-symptoms" class="form-input" placeholder="e.g. Chronic chest pains, high fever..." required>
+            </div>
+
+            <button type="submit" class="btn-primary" style="width: 100%;">Book & Dispatch Token</button>
+          </form>
+        </div>
+
+        <!-- Consultation History Analytics logs -->
+        <div class="card col-12">
+          <div class="card-title-bar">
+            <h3>📋 Smart Village Clinic Analytics Logs</h3>
+            <button class="btn-secondary" onclick="exportReportsCSV()">📥 Export Monthly report CSV</button>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Consultation ID</th>
+                  <th>Village Clinic</th>
+                  <th>Doctor</th>
+                  <th>Patient</th>
+                  <th>Failover Status During Call</th>
+                  <th>Prescription Prescribed</th>
+                </tr>
+              </thead>
+              <tbody id="adm-logs-tbody">
+                <!-- Injected dynamically by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SVG Charts Dashboard (Placed at Bottom) -->
+        <div class="card col-6">
+          <div class="card-title-bar">
+            <h3>📈 Consultation Volume (Last 5 Days)</h3>
+          </div>
+          <div class="chart-container" id="admin-volume-chart">
+            <!-- Rendered by JS SVG -->
+          </div>
+        </div>
+
+        <div class="card col-6">
+          <div class="card-title-bar">
+            <h3>📶 Bandwidth Failover Distribution</h3>
+          </div>
+          <div class="chart-container" id="admin-network-chart">
+            <!-- Rendered by JS SVG -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- VITALS ENTRY MODAL (VHW USES TO LOG VITALS FOR TOKEN DISPATCH) -->
+  <div class="modal-overlay" id="vitals-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="vitals-modal-title">Log Vitals & Urgency Triage</h3>
+        <button class="modal-close-btn" onclick="closeVitalsModal()">×</button>
+      </div>
+      <form id="vitals-form" onsubmit="vhwSubmitVitals(event)">
+        <input type="hidden" id="vitals-pat-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Symptoms / Primary Complaint</label>
+            <input type="text" id="vitals-symptoms" class="form-input" placeholder="e.g. Chronic chest pain, high fever..." required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Systolic Blood Pressure (mmHg)</label>
+              <input type="number" id="vitals-bp-systolic" class="form-input" placeholder="e.g. 120" required>
+            </div>
+            <div class="form-group">
+              <label>Diastolic Blood Pressure (mmHg)</label>
+              <input type="number" id="vitals-bp-diastolic" class="form-input" placeholder="e.g. 80" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Blood Sugar Level (mg/dL)</label>
+              <input type="number" id="vitals-sugar" class="form-input" placeholder="e.g. 110" required>
+            </div>
+            <div class="form-group">
+              <label>Body Temperature (°C)</label>
+              <input type="number" step="0.1" id="vitals-temp" class="form-input" placeholder="e.g. 36.8" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Oxygen Saturation SpO2 (%)</label>
+              <input type="number" id="vitals-spo2" class="form-input" placeholder="e.g. 98" required>
+            </div>
+            <div class="form-group">
+              <label>Heart Rate / Pulse (BPM)</label>
+              <input type="number" id="vitals-hr" class="form-input" placeholder="e.g. 75" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="vitals-pain">Pain Intensity Level (0-10)</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input type="range" id="vitals-pain" min="0" max="10" value="0" style="flex: 1;" oninput="document.getElementById('pain-lbl-val').innerText = this.value">
+              <span id="pain-lbl-val" style="font-weight: bold; font-size: 14px;">0</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Assigned Clinic</label>
+            <select id="vitals-specialty" class="form-input">
+              <option value="General Medicine">General Medicine (Dr. Vikram)</option>
+              <option value="Cardiology">Cardiology (Dr. Dharani)</option>
+              <option value="Neurology">Neurology (Dr. Naveen)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Patient Photo / Clinical Wound Image (Optional)</label>
+            <input type="file" id="vitals-photo" class="form-input" accept="image/*">
+            <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Used for remote diagnostics during high video failover.</div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="closeVitalsModal()">Cancel</button>
+          <button type="submit" class="btn-primary">Generate Token & Queue</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- DIGITAL PRESCRIPTION POPUP (PRINT VIEW) -->
+  <div class="modal-overlay" id="pres-view-modal">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3>E-Prescription Viewer</h3>
+        <button class="modal-close-btn" onclick="closePresModal()">×</button>
+      </div>
+      <div class="modal-body" id="modal-pres-print-content">
+        <!-- Exact clone of prescription card for printing -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closePresModal()">Close</button>
+        <button class="btn-primary" onclick="printPrescription()">🖨️ Print / Download Prescription</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST ALERTS SYSTEM -->
+  <div class="toast-container" id="toast-bin"></div>
+
+  <!-- Core App Controller JS -->
+  <script type="module" src="/app.js"></script>
+
+</body>
+</html>
