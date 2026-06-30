@@ -1,4 +1,5 @@
 // Smart Village Tele-Health Dispensary Dashboard Controller
+import { supabase } from './supabaseClient.js';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -69,19 +70,71 @@ let localAudioTrack = null;
 let localVideoTrack = null;
 
 // Initialize Database
-function initDB() {
-  if (!localStorage.getItem("telehealth_db")) {
-    db = {
-      villages: DEFAULT_VILLAGES,
-      doctors: DEFAULT_DOCTORS,
-      patients: DEFAULT_PATIENTS,
-      appointments: DEFAULT_APPOINTMENTS,
-      consultations: DEFAULT_CONSULTATIONS,
-      failoverLogs: DEFAULT_FAILOVER_LOGS
-    };
-    saveDB();
-  } else {
-    db = JSON.parse(localStorage.getItem("telehealth_db"));
+async function initDB() {
+  let loadedFromSupabase = false;
+
+  if (supabase) {
+    try {
+      console.log("Supabase connection detected. Fetching data...");
+      const [patientsRes, doctorsRes, appointmentsRes, consultationsRes] = await Promise.all([
+        supabase.from("patients").select("*"),
+        supabase.from("doctors").select("*"),
+        supabase.from("appointments").select("*"),
+        supabase.from("consultations").select("*")
+      ]);
+
+      if (!patientsRes.error && !doctorsRes.error && !appointmentsRes.error && !consultationsRes.error) {
+        if (patientsRes.data.length === 0 && doctorsRes.data.length === 0) {
+          console.log("Supabase database is empty. Seeding defaults...");
+          db = {
+            villages: DEFAULT_VILLAGES,
+            doctors: DEFAULT_DOCTORS,
+            patients: DEFAULT_PATIENTS,
+            appointments: DEFAULT_APPOINTMENTS,
+            consultations: DEFAULT_CONSULTATIONS,
+            failoverLogs: DEFAULT_FAILOVER_LOGS
+          };
+          await saveDB();
+        } else {
+          db = {
+            villages: DEFAULT_VILLAGES,
+            doctors: doctorsRes.data.length > 0 ? doctorsRes.data : DEFAULT_DOCTORS,
+            patients: patientsRes.data.length > 0 ? patientsRes.data : DEFAULT_PATIENTS,
+            appointments: appointmentsRes.data || [],
+            consultations: consultationsRes.data || [],
+            failoverLogs: DEFAULT_FAILOVER_LOGS
+          };
+        }
+        loadedFromSupabase = true;
+        console.log("Data successfully loaded from Supabase.");
+      } else {
+        console.warn("Error fetching from Supabase, falling back to localStorage.", {
+          patients: patientsRes.error,
+          doctors: doctorsRes.error,
+          appointments: appointmentsRes.error,
+          consultations: consultationsRes.error
+        });
+      }
+    } catch (err) {
+      console.error("Failed to connect to Supabase, falling back to localStorage:", err);
+    }
+  }
+
+  if (!loadedFromSupabase) {
+    console.log("Running in offline/local storage fallback mode.");
+    if (!localStorage.getItem("telehealth_db")) {
+      db = {
+        villages: DEFAULT_VILLAGES,
+        doctors: DEFAULT_DOCTORS,
+        patients: DEFAULT_PATIENTS,
+        appointments: DEFAULT_APPOINTMENTS,
+        consultations: DEFAULT_CONSULTATIONS,
+        failoverLogs: DEFAULT_FAILOVER_LOGS
+      };
+      saveDB();
+    } else {
+      db = JSON.parse(localStorage.getItem("telehealth_db"));
+    }
   }
 
   // Load Agora Config
@@ -101,8 +154,29 @@ function initDB() {
   }, 500);
 }
 
-function saveDB() {
+async function saveDB(tableName = null) {
+  // Always update local cache instantly for smooth UI
   localStorage.setItem("telehealth_db", JSON.stringify(db));
+
+  if (supabase) {
+    try {
+      if (tableName === "patients" || !tableName) {
+        await supabase.from("patients").upsert(db.patients);
+      }
+      if (tableName === "doctors" || !tableName) {
+        await supabase.from("doctors").upsert(db.doctors);
+      }
+      if (tableName === "appointments" || !tableName) {
+        await supabase.from("appointments").upsert(db.appointments);
+      }
+      if (tableName === "consultations" || !tableName) {
+        await supabase.from("consultations").upsert(db.consultations);
+      }
+      console.log(`Supabase synced successfully: ${tableName || 'all tables'}`);
+    } catch (err) {
+      console.error("Supabase sync failed:", err);
+    }
+  }
 }
 
 // Clock updates

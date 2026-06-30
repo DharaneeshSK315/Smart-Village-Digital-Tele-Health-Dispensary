@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+.vite/
+dist/
+
+# Local Environment Secrets
+.env
+.env.local
+.env.*.local
+
+# Editor Configurations
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
