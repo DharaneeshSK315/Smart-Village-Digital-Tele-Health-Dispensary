@@ -1,7 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Hardcoded credentials for static environments like GitHub Pages
-const supabaseUrl = 'https://lydwpejysaqkjkhwlgib.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc2MiOiJzdXBhYmFzZSIsInJlZiI6Imx5ZHdwZWp5c2Fxa2praHdsZ2liIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTk3NDg1MTYsImV4cCI6MjAzNTMyNDUxNn0.8c5f5U05iB939Z_FvL3O1xG7_N9zQoNq-n6c5Z-X8o0';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Verify if the credentials have been configured with real values
+const isConfigured = supabaseUrl && 
+                     supabaseKey && 
+                     supabaseUrl !== 'your_copied_project_url' && 
+                     supabaseKey !== 'your_copied_anon_key';
+
+export const supabase = isConfigured ? createClient(supabaseUrl, supabaseKey) : null;

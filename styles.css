@@ -1298,3 +1298,253 @@ tr:hover td {
     padding: 0;
   }
 }
+
+/* --- TELEHEALTH NETWORK TELEMETRY HUD OVERLAY --- */
+.telemetry-hud {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px;
+  color: white;
+  font-family: monospace;
+  font-size: 11px;
+  width: 190px;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.hud-header {
+  font-weight: bold;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hud-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.hud-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.hud-item span {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.hud-item strong {
+  color: #38bdf8;
+}
+
+.hud-prediction-bar {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+}
+
+.pred-good { color: #4ade80; font-weight: bold; }
+.pred-warn { color: #fbbf24; font-weight: bold; }
+.pred-danger { color: #f87171; font-weight: bold; }
+
+/* --- AI NETWORK PREDICTOR PULSING NOTIFIER --- */
+.ai-predict-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 8px;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.ai-pulse {
+  width: 8px;
+  height: 8px;
+  background-color: #f59e0b;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  animation: pulse-orange 1.2s infinite;
+}
+
+@keyframes pulse-orange {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+
+/* --- TELEHEALTH VOICE TRANSLATION TRANSCRIPT BOX --- */
+.translation-transcript-box {
+  position: absolute;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 85%;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 8px 16px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 15;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  text-align: center;
+}
+
+.translation-original {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.translation-arrow {
+  font-size: 10px;
+  color: #64748b;
+  margin: 2px 0;
+}
+
+.translation-result {
+  font-size: 13px;
+  color: #38bdf8;
+  font-weight: bold;
+}
+
+/* --- EMERGENCY RED ALERT HEADER BANNER --- */
+.emergency-alert-banner {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 800px;
+  background: #dc2626;
+  color: white;
+  padding: 14px 24px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(220, 38, 38, 0.4);
+  z-index: 99999;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 2px solid #ef4444;
+}
+
+@keyframes slideDown {
+  from { top: -80px; opacity: 0; }
+  to { top: 20px; opacity: 1; }
+}
+
+.emergency-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dispatch-badge {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  width: fit-content;
+}
+
+/* Flashing Queue Highlight */
+.queue-row.emergency-high {
+  background: rgba(220, 38, 38, 0.08) !important;
+  border-left: 5px solid #dc2626 !important;
+  animation: flash-red-row 2s infinite ease-in-out;
+}
+
+@keyframes flash-red-row {
+  0%, 100% { background: rgba(220, 38, 38, 0.08); }
+  50% { background: rgba(220, 38, 38, 0.18); }
+}
+
+/* --- CONNECTION STATUS PILL IN HEADER --- */
+.connection-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.3s ease;
+  margin-right: 12px;
+}
+
+.connection-status-pill.online {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.connection-status-pill.offline {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  animation: pulse-border-red 2.0s infinite;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+@keyframes pulse-border-red {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Simulated QR Scanner Animation styles */
+@keyframes laser-sweep {
+  0% { top: 10px; }
+  50% { top: 220px; }
+  100% { top: 10px; }
+}
+
+.scanner-laser-line {
+  animation: laser-sweep 2s infinite linear;
+}
+
+

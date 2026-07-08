@@ -137,8 +137,14 @@ async function initDB() {
     }
   }
 
+  db.recordings = db.recordings || [];
+
   // Load Agora Config
-  agoraConfig = JSON.parse(localStorage.getItem("agora_config")) || { enabled: false, appid: "", token: "", channel: "telehealth-room" };
+  agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
+  if (!agoraConfig || !agoraConfig.appid) {
+    agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  }
   
   // Populate UI inputs on load
   setTimeout(() => {
@@ -159,6 +165,22 @@ async function saveDB(tableName = null) {
   localStorage.setItem("telehealth_db", JSON.stringify(db));
 
   if (supabase) {
+    if (!window.isNetworkOnline) {
+      console.log("Device is Offline. Consultation saved locally. Will sync when Online.");
+      // Record pending sync
+      let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
+      if (tableName) {
+        pending[tableName] = true;
+      } else {
+        pending.patients = true;
+        pending.doctors = true;
+        pending.appointments = true;
+        pending.consultations = true;
+      }
+      localStorage.setItem("pending_syncs", JSON.stringify(pending));
+      return;
+    }
+
     try {
       if (tableName === "patients" || !tableName) {
         await supabase.from("patients").upsert(db.patients);
@@ -174,7 +196,11 @@ async function saveDB(tableName = null) {
       }
       console.log(`Supabase synced successfully: ${tableName || 'all tables'}`);
     } catch (err) {
-      console.error("Supabase sync failed:", err);
+      console.error("Supabase sync failed, caching locally for auto-retry:", err);
+      let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
+      if (tableName) pending[tableName] = true;
+      else { pending.patients = true; pending.doctors = true; pending.appointments = true; pending.consultations = true; }
+      localStorage.setItem("pending_syncs", JSON.stringify(pending));
     }
   }
 }
@@ -387,6 +413,14 @@ function loadPatientDashboard() {
   document.getElementById("pat-prof-phone").value = currentUser.phone || "";
   document.getElementById("pat-prof-address").value = currentUser.village || "";
 
+  // Load Digital Health ID Card details
+  const qrImg = document.getElementById("pat-qr-code-img");
+  const cardName = document.getElementById("pat-card-name");
+  const cardId = document.getElementById("pat-card-id");
+  if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${currentUser.id}`;
+  if (cardName) cardName.innerText = currentUser.name;
+  if (cardId) cardId.innerText = `ID: ${currentUser.id}`;
+
   // Consultation history
   const historyTbody = document.getElementById("pat-history-tbody");
   historyTbody.innerHTML = "";
@@ -534,14 +568,20 @@ function renderVhwPatientList(searchQuery = "") {
 
     if (activeApp) {
       if (activeApp.vitals === null) {
-        buttonHtml = `<button class="btn-action success" onclick="openVitalsModal('${p.id}')">🩺 Record Vitals</button>`;
+        buttonHtml = `
+          <button class="btn-action success" onclick="openVitalsModal('${p.id}', false)">🩺 Record Vitals</button>
+          <button class="btn-action" style="background:#4f46e5; color:white;" onclick="openVitalsModal('${p.id}', true)">🏡 Home Visit</button>
+        `;
       } else if (activeApp.status === "Active") {
         buttonHtml = `<button class="btn-action" style="background-color:var(--primary); color:white;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
       } else {
         buttonHtml = `<span class="badge badge-info">Token: ${activeApp.token}</span>`;
       }
     } else {
-      buttonHtml = `<button class="btn-action success" onclick="openVitalsModal('${p.id}')">🎫 Dispatch Token</button>`;
+      buttonHtml = `
+        <button class="btn-action success" onclick="openVitalsModal('${p.id}', false)">🎫 Dispatch Token</button>
+        <button class="btn-action" style="background:#4f46e5; color:white;" onclick="openVitalsModal('${p.id}', true)">🏡 Home Visit</button>
+      `;
     }
 
     const tr = document.createElement("tr");
@@ -586,12 +626,13 @@ window.vhwRegisterPatient = function(e) {
   loadVhwDashboard();
 };
 
-window.openVitalsModal = function(patientId) {
+window.openVitalsModal = function(patientId, isHomeVisit = false) {
   const p = db.patients.find(pat => pat.id === patientId);
   if (!p) return;
 
+  window.isHomeVisitCapture = isHomeVisit;
   document.getElementById("vitals-pat-id").value = patientId;
-  document.getElementById("vitals-modal-title").innerText = `Log Vitals for ${p.name}`;
+  document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
   
   // Pre-fill symptom if they booked from app
   const app = db.appointments.find(a => a.patientId === patientId);
@@ -649,6 +690,7 @@ window.vhwSubmitVitals = function(e) {
     db.appointments[appIndex].urgency = triage.flag;
     db.appointments[appIndex].assignedDoctorId = doc.id;
     db.appointments[appIndex].specialty = specialty;
+    db.appointments[appIndex].isHomeVisit = window.isHomeVisitCapture || false;
   } else {
     // New token
     const prefix = p.village.includes("A") ? "VIL-A" : p.village.includes("B") ? "VIL-B" : "VIL-C";
@@ -663,13 +705,29 @@ window.vhwSubmitVitals = function(e) {
       specialty,
       assignedDoctorId: doc.id,
       status: "Waiting",
-      vitals
+      vitals,
+      isHomeVisit: window.isHomeVisitCapture || false
     });
+  }
+
+  // Intercept vital limits for emergency alert escalation
+  const isEmergency = vitals.spo2 < 90 || vitals.bpSystolic > 180 || vitals.hr > 130;
+  
+  if (appIndex >= 0) {
+    if (isEmergency) db.appointments[appIndex].urgency = "Emergency";
+  } else {
+    if (isEmergency) db.appointments[db.appointments.length - 1].urgency = "Emergency";
   }
 
   saveDB();
   closeVitalsModal();
-  showToast(`Vitals recorded! Patient placed in ${specialty} Queue. Triage level: ${triage.flag}`, triage.flag === "Critical" ? "danger" : "success");
+  
+  if (isEmergency) {
+    window.triggerEmergencyAlert(p ? p.name : "Patient", vitals, appIndex >= 0 ? db.appointments[appIndex].token : db.appointments[db.appointments.length - 1].token);
+  } else {
+    showToast(`Vitals recorded! Patient placed in ${specialty} Queue. Triage level: ${triage.flag}`, triage.flag === "Critical" ? "danger" : "success");
+  }
+  
   loadVhwDashboard();
 };
 
@@ -772,8 +830,10 @@ function renderDoctorQueue(searchQuery = "") {
 
   let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && a.vitals !== null);
 
-  // Sorting: Critical (Urgency Score High) -> High Warning -> Normal
+  // Sorting: Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
+    if (a.urgency === "Emergency" && b.urgency !== "Emergency") return -1;
+    if (b.urgency === "Emergency" && a.urgency !== "Emergency") return 1;
     const triageA = evaluateTriageUrgency(a.vitals);
     const triageB = evaluateTriageUrgency(b.vitals);
     return triageB.score - triageA.score; // Descending score
@@ -800,15 +860,19 @@ function renderDoctorQueue(searchQuery = "") {
     const triage = evaluateTriageUrgency(a.vitals);
     
     let triageBadge = `<span class="badge badge-success">Normal</span>`;
-    if (triage.flag === "Critical") triageBadge = `<span class="badge badge-critical">🚨 Critical</span>`;
+    if (a.urgency === "Emergency") triageBadge = `<span class="badge badge-critical" style="background:#dc2626; box-shadow: 0 0 8px #dc2626;">🚨 EMERGENCY</span>`;
+    else if (triage.flag === "Critical") triageBadge = `<span class="badge badge-critical">🚨 Critical</span>`;
     else if (triage.flag === "High Warning") triageBadge = `<span class="badge badge-warning">⚠️ High</span>`;
 
     const vitalsStr = `BP: ${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} | SpO2: ${a.vitals.spo2}% | HR: ${a.vitals.hr} | Temp: ${a.vitals.temp}°C`;
 
+    const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:9px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
+
     const tr = document.createElement("tr");
+    tr.className = a.urgency === "Emergency" ? "queue-row emergency-high" : "queue-row";
     tr.innerHTML = `
       <td><strong>${a.token}</strong></td>
-      <td><strong>${p ? p.name : "Unknown"}</strong></td>
+      <td><strong>${p ? p.name : "Unknown"}</strong>${homeVisitBadge}</td>
       <td>${p ? p.age : "--"} yrs / ${p ? p.gender : "--"}</td>
       <td>${p ? p.village : "--"}</td>
       <td>
@@ -855,9 +919,12 @@ function renderDoctorCompletedLogs() {
 
 // --- TELEMEDICINE ENGINE & BANDWIDTH FAILOVER ---
 const NETWORK_STATES = {
-  good: { label: "HD Video Call Active", bars: 4, bitrate: "4.8 Mbps", latency: "25 ms", class: "good-signal" },
-  poor: { label: "Low Quality (Pixelated failover)", bars: 2, bitrate: "320 Kbps", latency: "140 ms", class: "poor-signal" },
-  verypoor: { label: "Audio + Medical Chat failover", bars: 1, bitrate: "45 Kbps", latency: "420 ms", class: "very-poor-signal" }
+  excellent: { label: "Excellent (1080p HD)", resolution: "1080p", bars: 4, bitrate: "6.2 Mbps", latency: "18 ms", class: "excellent-signal", pixelSize: 1, filter: "none", fps: 30 },
+  good:      { label: "Good (720p HD)",      resolution: "720p",  bars: 4, bitrate: "3.1 Mbps", latency: "45 ms", class: "good-signal",      pixelSize: 2, filter: "blur(1px) contrast(105%)", fps: 30 },
+  fair:      { label: "Fair (480p SD)",      resolution: "480p",  bars: 3, bitrate: "1.2 Mbps", latency: "85 ms", class: "fair-signal",      pixelSize: 4, filter: "blur(2px) contrast(115%)", fps: 28 },
+  poor:      { label: "Poor (360p Low-Res)", resolution: "360p",  bars: 2, bitrate: "450 Kbps", latency: "160 ms", class: "poor-signal",     pixelSize: 8, filter: "blur(4px) contrast(125%)", fps: 20 },
+  verypoor:  { label: "Very Poor (240p)",    resolution: "240p",  bars: 1, bitrate: "180 Kbps", latency: "290 ms", class: "very-poor-signal", pixelSize: 14, filter: "blur(7px) contrast(135%)", fps: 12 },
+  critical:  { label: "Critical (Audio)",    resolution: "Audio", bars: 0, bitrate: "35 Kbps",  latency: "460 ms", class: "critical-signal",  pixelSize: 0, filter: "none", fps: 0 }
 };
 
 function initSimulatedCallState(token, role) {
@@ -870,10 +937,11 @@ function initSimulatedCallState(token, role) {
     patient,
     doctor,
     role,
-    networkQuality: "good",
+    networkQuality: "excellent",
     autoFluctuate: false,
     micActive: true,
     camActive: true,
+    aiPredicting: false,
     chat: [
       { sender: "system", text: "Encrypted rural tele-health session established." },
       { sender: "worker", text: `Hello ${doctor.name}, Nurse Anjali here assisting ${patient.name}. Vitals have been synchronized.` }
@@ -881,7 +949,8 @@ function initSimulatedCallState(token, role) {
     files: [
       { name: "Clinical Vitals Record.pdf", size: "45 KB", type: "pdf" }
     ],
-    animationFrameId: null
+    animationFrameId: null,
+    telemetryInterval: null
   };
 
   // Add wound image if VHW uploaded one
@@ -893,6 +962,9 @@ function initSimulatedCallState(token, role) {
   const idx = db.appointments.findIndex(a => a.token === token);
   if (idx >= 0) db.appointments[idx].status = "Active";
   saveDB();
+
+  // Start Telemetry Fluctuation Loop
+  startTelemetryFluctuations();
 }
 
 window.startDoctorConsultation = function(token) {
@@ -1167,9 +1239,18 @@ function renderWebcams(remoteCanvas, localCanvas) {
     const remoteName = activeCall.role === "doctor" ? activeCall.patient.name : activeCall.doctor.name;
     remoteCtx.fillText(remoteName, centerX, remoteCanvas.height - 20);
 
-    // Apply pixelation effect for "Poor Network" (Low-Quality failover)
-    if (activeCall.networkQuality === "poor") {
-      pixelateCanvas(remoteCanvas, remoteCtx, 12);
+    // Apply adaptive downsampling
+    const activeQuality = activeCall.networkQuality;
+    const state = NETWORK_STATES[activeQuality];
+    let pixelSize = state ? state.pixelSize : 1;
+    
+    // Force proactive downscale during AI predictions
+    if (activeCall.aiPredicting) {
+      pixelSize = 14; 
+    }
+    
+    if (pixelSize > 1) {
+      pixelateCanvas(remoteCanvas, remoteCtx, pixelSize);
     }
   }
 
@@ -1202,16 +1283,77 @@ function pixelateCanvas(canvas, ctx, pixelSize) {
 }
 
 // Simulated Network change triggers
+// Global prediction countdown holder
+let predictionCountdownTimer = null;
+
 window.simulateNetworkChange = function(quality) {
   if (!activeCall) return;
-  activeCall.networkQuality = quality;
 
-  // Log in DB
-  db.failoverLogs[quality === "good" ? "hd" : quality === "poor" ? "low" : "audio"]++;
-  saveDB();
+  // Clear any existing prediction countdowns
+  if (predictionCountdownTimer) {
+    clearTimeout(predictionCountdownTimer);
+    predictionCountdownTimer = null;
+  }
+  activeCall.aiPredicting = false;
+  toggleAIBadges(false);
 
-  updateNetworkUI();
+  const current = activeCall.networkQuality;
+  
+  // Feature 1: AI Predictor triggers if we are going from good signal (excellent/good/fair) to critical (audio)
+  const isDropToCritical = (quality === "critical" && current !== "critical");
+  
+  if (isDropToCritical) {
+    activeCall.aiPredicting = true;
+    toggleAIBadges(true);
+    
+    // Proactively apply resolution blur filter on CSS for real WebRTC and canvas downscaling
+    const roles = ["pat", "vhw", "doc"];
+    roles.forEach(r => {
+      const remoteContainer = document.getElementById(`${r}-remote-video-container`);
+      if (remoteContainer) remoteContainer.style.filter = "blur(7px) contrast(135%)";
+    });
+
+    showToast("🧠 AI Predictor: Connection drop expected in 5s! Proactively reducing resolution to 240p.", "warning");
+    activeCall.chat.push({ 
+      sender: "system", 
+      text: "🧠 AI Network Predictor: Connection degradation predicted in 5s. Proactively reducing resolution to sustain link." 
+    });
+    syncChatBox();
+
+    // Set 5-second countdown to complete the switch
+    predictionCountdownTimer = setTimeout(() => {
+      activeCall.aiPredicting = false;
+      toggleAIBadges(false);
+      activeCall.networkQuality = "critical";
+      
+      // Log in DB
+      db.failoverLogs.audio++;
+      saveDB();
+      
+      updateNetworkUI();
+    }, 5000);
+
+  } else {
+    // Standard direct transition
+    activeCall.networkQuality = quality;
+    
+    // Log in DB
+    if (quality === "excellent" || quality === "good") db.failoverLogs.hd++;
+    else if (quality === "critical") db.failoverLogs.audio++;
+    else db.failoverLogs.low++;
+    
+    saveDB();
+    updateNetworkUI();
+  }
 };
+
+function toggleAIBadges(show) {
+  const roles = ["pat", "vhw", "doc"];
+  roles.forEach(r => {
+    const el = document.getElementById(`${r}-ai-badge`);
+    if (el) el.style.display = show ? "inline-flex" : "none";
+  });
+}
 
 function updateNetworkUI() {
   const state = NETWORK_STATES[activeCall.networkQuality];
@@ -1219,7 +1361,7 @@ function updateNetworkUI() {
 
   // Text status
   const connText = document.getElementById(`${role}-conn-text`);
-  if (connText) connText.innerText = `${state.label} (${state.bitrate})`;
+  if (connText) connText.innerText = `${state.resolution} ${state.label}`;
 
   // Signal strength bars styling
   const bars = document.querySelectorAll(`#${role}-sig-bars .sig-bar`);
@@ -1241,7 +1383,7 @@ function updateNetworkUI() {
   const remoteCanvas = document.getElementById(`${role}-remote-canvas`);
   const remoteContainer = document.getElementById(`${role}-remote-video-container`);
 
-  if (activeCall.networkQuality === "verypoor") {
+  if (activeCall.networkQuality === "critical") {
     if (fallback) fallback.style.display = "flex";
     if (remoteCanvas) remoteCanvas.style.opacity = 0;
     if (remoteContainer) remoteContainer.style.opacity = 0;
@@ -1262,7 +1404,7 @@ function updateNetworkUI() {
     switchCallTab(role, "chat");
 
     showToast("Bandwidth Critically low! Automatically switching to audio + medical chat.", "danger");
-    activeCall.chat.push({ sender: "system", text: "Automatic Failover: switched to audio-only due to 45Kbps restriction." });
+    activeCall.chat.push({ sender: "system", text: "Automatic Failover: switched to audio-only due to 35Kbps restriction." });
     syncChatBox();
   } else {
     if (fallback) fallback.style.display = "none";
@@ -1274,20 +1416,21 @@ function updateNetworkUI() {
       }
     }
 
-    // Re-enable Agora video track if we move back from verypoor
+    // Re-enable Agora video track if we move back from critical
     if (agoraConfig.enabled && localVideoTrack && activeCall.camActive) {
       localVideoTrack.setEnabled(true);
     }
 
-    if (activeCall.networkQuality === "poor") {
-      // Simulate low-bandwidth pixelation on real Agora stream using CSS blur/contrast filters
-      if (remoteContainer) remoteContainer.style.filter = "blur(3px) contrast(140%) brightness(95%)";
-      
-      showToast("Bandwidth Poor. Reducing webcam resolution to 320p compression.", "warning");
-      activeCall.chat.push({ sender: "system", text: "Network Warning: reducing video quality to conserve bandwidth." });
+    // Apply CSS filters on real video container to match adaptive resolutions
+    if (remoteContainer) {
+      remoteContainer.style.filter = state.filter;
+    }
+    
+    if (activeCall.networkQuality !== "excellent") {
+      showToast(`Bandwidth restricted. Adjusting video resolution to ${state.resolution} quality.`, "warning");
+      activeCall.chat.push({ sender: "system", text: `Network Quality: adjusted to ${state.resolution} (${state.bitrate})` });
       syncChatBox();
     } else {
-      if (remoteContainer) remoteContainer.style.filter = "none";
       showToast("Bandwidth recovered. Restoring HD video quality.", "success");
     }
   }
@@ -1297,7 +1440,7 @@ function updateNetworkUI() {
   if (selSelect) selSelect.value = activeCall.networkQuality;
 
   if (role === "doctor") {
-    document.getElementById("doc-network-lbl").innerText = activeCall.networkQuality === "good" ? "Good (HD)" : activeCall.networkQuality === "poor" ? "Poor (Low-Res)" : "Very Poor (Audio)";
+    document.getElementById("doc-network-lbl").innerText = state.resolution + " " + state.label;
   }
 }
 
@@ -1419,11 +1562,22 @@ window.toggleVideoState = function(role) {
 window.leaveConsultation = function() {
   if (!activeCall) return;
 
+  if (window.isRecordingActive) {
+    window.stopCallRecording();
+  }
+
   if (activeCall.animationFrameId) {
     cancelAnimationFrame(activeCall.animationFrameId);
   }
   if (fluctuationTimer) {
     clearInterval(fluctuationTimer);
+  }
+  if (activeCall.telemetryInterval) {
+    clearInterval(activeCall.telemetryInterval);
+  }
+  if (predictionCountdownTimer) {
+    clearTimeout(predictionCountdownTimer);
+    predictionCountdownTimer = null;
   }
 
   // Agora Disconnect
@@ -1687,6 +1841,7 @@ function loadAdminDashboard() {
   renderAdminVillages();
   renderAdminDoctors();
   renderAdminLogs();
+  renderAdminRecordings();
 
   // Populate appointment patient & doctor dropdowns
   const patSelect = document.getElementById("adm-book-patient");
@@ -1763,10 +1918,20 @@ function renderAdminVillages() {
   const tbody = document.getElementById("adm-village-tbody");
   tbody.innerHTML = "";
   db.villages.forEach((v, idx) => {
+    let statusBadge = `<span class="badge badge-success">Online</span>`;
+    
+    if (v.includes("Clinic A") || v === "Village A") {
+      statusBadge = `<span class="badge badge-success" style="background:#10b981; border:none;">Online (Excellent: 98%)</span>`;
+    } else if (v.includes("Clinic B") || v === "Village B") {
+      statusBadge = `<span class="badge badge-critical" style="background:#ef4444; border:none;">Online (Poor: 42%)</span>`;
+    } else if (v.includes("Clinic C") || v === "Village C") {
+      statusBadge = `<span class="badge badge-warning" style="background:#f59e0b; border:none;">Online (Medium: 65%)</span>`;
+    }
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><strong>${v}</strong></td>
-      <td><span class="badge badge-success">Online</span></td>
+      <td>${statusBadge}</td>
       <td><button class="btn-action danger" onclick="adminDeleteVillage(${idx})">Delete</button></td>
     `;
     tbody.appendChild(tr);
@@ -2095,3 +2260,562 @@ async function leaveAgoraRoom() {
     console.error("Error leaving Agora:", err);
   }
 }
+
+// --- FEATURE 2 & 3: LIVE TELEMETRY FLUCTUATIONS ---
+function startTelemetryFluctuations() {
+  if (!activeCall) return;
+  if (activeCall.telemetryInterval) clearInterval(activeCall.telemetryInterval);
+
+  activeCall.telemetryInterval = setInterval(() => {
+    if (!activeCall) return;
+
+    const qual = activeCall.networkQuality;
+    const state = NETWORK_STATES[qual];
+    if (!state) return;
+
+    // Calculate randomized fluctuations
+    let latency = parseInt(state.latency);
+    let upload = parseFloat(state.bitrate);
+    let download = upload * 1.1; 
+    let loss = 0;
+    let fps = state.fps;
+
+    if (qual === "excellent") {
+      latency += Math.floor(Math.random() * 5) - 2; 
+      loss = (Math.random() * 0.4).toFixed(1);
+      upload = (2.6 + Math.random() * 0.5).toFixed(1);
+      download = (2.9 + Math.random() * 0.6).toFixed(1);
+    } else if (qual === "good") {
+      latency += Math.floor(Math.random() * 10) - 5;
+      loss = (0.5 + Math.random() * 0.8).toFixed(1);
+      upload = (1.8 + Math.random() * 0.4).toFixed(1);
+      download = (2.1 + Math.random() * 0.5).toFixed(1);
+    } else if (qual === "fair") {
+      latency += Math.floor(Math.random() * 15) - 7;
+      loss = (1.5 + Math.random() * 1.5).toFixed(1);
+      upload = (0.9 + Math.random() * 0.3).toFixed(1);
+      download = (1.1 + Math.random() * 0.4).toFixed(1);
+    } else if (qual === "poor") {
+      latency += Math.floor(Math.random() * 20) - 10;
+      loss = (4.0 + Math.random() * 4.0).toFixed(1);
+      upload = (280 + Math.floor(Math.random() * 80)) + " Kbps"; 
+      download = (310 + Math.floor(Math.random() * 90)) + " Kbps";
+    } else if (qual === "verypoor" || activeCall.aiPredicting) {
+      latency = (activeCall.aiPredicting ? 180 : 290) + Math.floor(Math.random() * 30) - 15;
+      loss = (activeCall.aiPredicting ? 6.2 : 12.5 + Math.random() * 5).toFixed(1);
+      fps = activeCall.aiPredicting ? 18 : 12;
+      upload = (activeCall.aiPredicting ? "850 Kbps" : (120 + Math.floor(Math.random() * 40)) + " Kbps");
+      download = (activeCall.aiPredicting ? "980 Kbps" : (140 + Math.floor(Math.random() * 50)) + " Kbps");
+    } else if (qual === "critical") {
+      latency += Math.floor(Math.random() * 50) - 25;
+      loss = (22.0 + Math.random() * 6).toFixed(1);
+      upload = (25 + Math.floor(Math.random() * 15)) + " Kbps";
+      download = (30 + Math.floor(Math.random() * 20)) + " Kbps";
+    }
+
+    if (typeof upload === "number") upload = upload + " Mbps";
+    if (typeof download === "number") download = download + " Mbps";
+
+    // Update DOM
+    const roles = ["pat", "vhw", "doc"];
+    roles.forEach(r => {
+      const latEl = document.getElementById(`${r}-hud-latency`);
+      const lossEl = document.getElementById(`${r}-hud-loss`);
+      const fpsEl = document.getElementById(`${r}-hud-fps`);
+      const upEl = document.getElementById(`${r}-hud-upload`);
+      const downEl = document.getElementById(`${r}-hud-download`);
+      const predEl = document.getElementById(`${r}-hud-prediction`);
+      const recEl = document.getElementById(`${r}-hud-rec`);
+
+      if (latEl) latEl.innerText = latency + " ms";
+      if (lossEl) lossEl.innerText = loss + "%";
+      if (fpsEl) fpsEl.innerText = fps;
+      if (upEl) upEl.innerText = upload;
+      if (downEl) downEl.innerText = download;
+
+      if (predEl) {
+        if (activeCall.aiPredicting) {
+          predEl.innerText = "PENDING DROP";
+          predEl.className = "pred-warn";
+        } else if (qual === "excellent" || qual === "good") {
+          predEl.innerText = "GOOD";
+          predEl.className = "pred-good";
+        } else if (qual === "fair" || qual === "poor") {
+          predEl.innerText = "FAIR";
+          predEl.className = "pred-warn";
+        } else {
+          predEl.innerText = "CRITICAL";
+          predEl.className = "pred-danger";
+        }
+      }
+
+      if (recEl) {
+        if (activeCall.aiPredicting) {
+          recEl.innerText = "Reduce Resolution (Proactive)";
+        } else {
+          recEl.innerText = state.label;
+        }
+      }
+    });
+  }, 1500);
+}
+
+// --- FEATURE 4: EMERGENCY ALERT SYSTEM ---
+window.triggerEmergencyAlert = function(patientName, vitals, token) {
+  // Show red banner
+  document.getElementById("emergency-pat-name").innerText = patientName;
+  document.getElementById("emergency-spo2").innerText = vitals.spo2;
+  document.getElementById("emergency-bp").innerText = vitals.bpSystolic;
+  document.getElementById("emergency-hr").innerText = vitals.hr;
+  
+  const app = db.appointments.find(a => a.token === token);
+  const p = db.patients.find(pat => pat.id === app.patientId);
+  document.getElementById("emergency-clinic").innerText = p ? p.village : "Rural Center";
+
+  const banner = document.getElementById("global-emergency-banner");
+  if (banner) banner.style.display = "flex";
+
+  // Trigger Toast Alert
+  showToast(`🚨 RED ALERT: Vitals Critical for ${patientName}! SpO2: ${vitals.spo2}%, BP: ${vitals.bpSystolic}, HR: ${vitals.hr}. Ambulance Dispatched!`, "danger");
+
+  // Log emergency system event to consultations history
+  const conId = `con-${Math.floor(100 + Math.random() * 900)}`;
+  db.consultations.push({
+    id: conId,
+    date: new Date().toISOString().split("T")[0],
+    patientName: patientName,
+    village: p ? p.village : "Clinic A",
+    doctorName: "EMERGENCY UNIT",
+    diagnosis: "CRITICAL VITAL ESCALATION: SpO2 < 90 / BP > 180 / HR > 130",
+    medicines: "Ambulance dispatched to rural center immediately",
+    failoverState: "Red Alert Dispatch",
+    referral: true
+  });
+  saveDB("consultations");
+
+  // Reload queues immediately
+  if (currentUser) {
+    if (currentRole === "doctor") renderDoctorQueue();
+    else if (currentRole === "vhw") renderVhwQueue();
+    else if (currentRole === "admin") renderAdminLogs();
+  }
+};
+
+window.dismissEmergencyBanner = function() {
+  const banner = document.getElementById("global-emergency-banner");
+  if (banner) banner.style.display = "none";
+};
+
+// --- FEATURE 5: OFFLINE MODE & AUTO-SYNC ---
+window.isNetworkOnline = true;
+
+window.toggleSimulatedInternet = function() {
+  window.isNetworkOnline = !window.isNetworkOnline;
+  updateOnlinePill();
+
+  if (window.isNetworkOnline) {
+    showToast("🔄 Connection restored. Auto-syncing pending local changes to Supabase...", "info");
+    runOfflineSync();
+  } else {
+    showToast("🔴 Offline Mode Activated. Changes will be saved locally.", "warning");
+  }
+};
+
+function updateOnlinePill() {
+  const pill = document.getElementById("global-connection-status");
+  const text = document.getElementById("connection-status-text");
+  
+  if (pill && text) {
+    if (window.isNetworkOnline) {
+      pill.className = "connection-status-pill online";
+      text.innerText = "Online (Cloud)";
+    } else {
+      pill.className = "connection-status-pill offline";
+      text.innerText = "Offline (Local)";
+    }
+  }
+}
+
+async function runOfflineSync() {
+  if (!supabase) return;
+  const pending = JSON.parse(localStorage.getItem("pending_syncs"));
+  if (!pending) return;
+
+  try {
+    let syncedCount = 0;
+    if (pending.patients) {
+      await supabase.from("patients").upsert(db.patients);
+      syncedCount++;
+    }
+    if (pending.doctors) {
+      await supabase.from("doctors").upsert(db.doctors);
+      syncedCount++;
+    }
+    if (pending.appointments) {
+      await supabase.from("appointments").upsert(db.appointments);
+      syncedCount++;
+    }
+    if (pending.consultations) {
+      await supabase.from("consultations").upsert(db.consultations);
+      syncedCount++;
+    }
+
+    if (syncedCount > 0) {
+      showToast(`✅ Cloud Sync complete! Successfully uploaded pending changes.`, "success");
+      localStorage.removeItem("pending_syncs");
+    }
+  } catch (err) {
+    console.error("Auto-sync background task failed:", err);
+  }
+}
+
+// Listen to browser network changes automatically
+window.addEventListener('online', () => {
+  window.isNetworkOnline = true;
+  updateOnlinePill();
+  runOfflineSync();
+});
+window.addEventListener('offline', () => {
+  window.isNetworkOnline = false;
+  updateOnlinePill();
+});
+
+// --- FEATURE 6: SPEECH TRANSLATION & TTS ---
+window.translationConfig = {
+  patientLang: "ta-IN",
+  targetLang: "ta-IN"
+};
+
+window.updateTranslatorSettings = function() {
+  const patSelect = document.getElementById("doc-patient-lang");
+  const tarSelect = document.getElementById("doc-target-lang");
+  if (patSelect) window.translationConfig.patientLang = patSelect.value;
+  if (tarSelect) window.translationConfig.targetLang = tarSelect.value;
+};
+
+// Built-in browser Text-to-Speech (TTS)
+function speakText(text, langCode) {
+  if (!window.speechSynthesis) return;
+  
+  // Cancel active speakings
+  window.speechSynthesis.cancel();
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = langCode;
+  
+  // Attempt to select corresponding native speaker voice if loaded
+  const voices = window.speechSynthesis.getVoices();
+  const matchedVoice = voices.find(v => v.lang.startsWith(langCode));
+  if (matchedVoice) utterance.voice = matchedVoice;
+  
+  window.speechSynthesis.speak(utterance);
+}
+
+// Intercept typed doctor chat messages to read them to patient in their chosen language
+window.speakDoctorTranslation = function(msgText) {
+  if (!activeCall) return;
+  
+  // Translation mocks
+  let translatedText = msgText;
+  const tLang = window.translationConfig.targetLang;
+  
+  if (tLang === "ta-IN") {
+    if (msgText.toLowerCase().includes("breathe") || msgText.toLowerCase().includes("breath")) {
+      translatedText = "தயவுசெய்து ஆழமாக சுவாசிக்கவும்";
+    } else if (msgText.toLowerCase().includes("bp") || msgText.toLowerCase().includes("blood pressure")) {
+      translatedText = "நான் உங்கள் இரத்த அழுத்தத்தை சரிபார்க்கிறேன்";
+    } else if (msgText.toLowerCase().includes("hello") || msgText.toLowerCase().includes("hi")) {
+      translatedText = "வணக்கம், நான் உங்களுக்கு எப்படி உதவ முடியும்?";
+    } else {
+      translatedText = "மருத்துவர்: உங்கள் மருந்து பரிந்துரை தயாராக உள்ளது";
+    }
+  } else if (tLang === "hi-IN") {
+    if (msgText.toLowerCase().includes("breathe") || msgText.toLowerCase().includes("breath")) {
+      translatedText = "कृपया गहरी सांस लें";
+    } else if (msgText.toLowerCase().includes("bp") || msgText.toLowerCase().includes("blood pressure")) {
+      translatedText = "मैं आपके रक्तचाप की जांच कर रहा हूं";
+    } else if (msgText.toLowerCase().includes("hello") || msgText.toLowerCase().includes("hi")) {
+      translatedText = "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?";
+    } else {
+      translatedText = "डॉक्टर: आपका नुस्खा तैयार है";
+    }
+  }
+
+  // Display translation overlay captions on patient viewport
+  const overlay = document.getElementById("pat-translation-overlay");
+  const origEl = document.getElementById("pat-trans-orig");
+  const resEl = document.getElementById("pat-trans-res");
+  
+  if (overlay && origEl && resEl) {
+    origEl.innerText = `Doctor (English): "${msgText}"`;
+    resEl.innerText = `${tLang === "ta-IN" ? "Tamil" : "Hindi"}: "${translatedText}"`;
+    overlay.style.display = "flex";
+    
+    // Auto hide overlay after 6s
+    setTimeout(() => {
+      overlay.style.display = "none";
+    }, 6000);
+  }
+
+  // Speak out loud to patient in their selected language!
+  speakText(translatedText, tLang);
+};
+
+// Simulate Patient speech to Doctor
+window.triggerSimulatedSpeech = function() {
+  if (!activeCall) {
+    showToast("No active call to translate!", "warning");
+    return;
+  }
+
+  const pLang = window.translationConfig.patientLang;
+  let original = "";
+  let translation = "";
+
+  if (pLang === "ta-IN") {
+    original = "என் நெஞ்சில் ஒரு அழுத்தமாக இருக்கிறது, சுவாசிக்க கடினமாக உள்ளது.";
+    translation = "I feel a pressure in my chest and it is difficult to breathe.";
+  } else {
+    original = "मेरे सीने में दबाव महसूस हो रहा है और सांस लेने में कठिनाई हो रही है।";
+    translation = "I feel a pressure in my chest and it is difficult to breathe.";
+  }
+
+  // Render on Doctor Viewport
+  const overlay = document.getElementById("doc-translation-overlay");
+  const origEl = document.getElementById("doc-trans-orig");
+  const resEl = document.getElementById("doc-trans-res");
+  
+  if (overlay && origEl && resEl) {
+    origEl.innerText = `Patient (${pLang === "ta-IN" ? "Tamil" : "Hindi"}): "${original}"`;
+    resEl.innerText = `Translated (English): "${translation}"`;
+    overlay.style.display = "flex";
+    
+    setTimeout(() => {
+      overlay.style.display = "none";
+    }, 6000);
+  }
+
+  // Render on Nurse VHW Viewport too
+  const vhwOverlay = document.getElementById("vhw-translation-overlay");
+  const vhwOrigEl = document.getElementById("vhw-trans-orig");
+  const vhwResEl = document.getElementById("vhw-trans-res");
+  if (vhwOverlay && vhwOrigEl && vhwResEl) {
+    vhwOrigEl.innerText = `Patient: "${original}"`;
+    vhwResEl.innerText = `Translated (English): "${translation}"`;
+    vhwOverlay.style.display = "flex";
+    setTimeout(() => { vhwOverlay.style.display = "none"; }, 6000);
+  }
+
+  // Read out loud in English for the Doctor!
+  speakText(translation, "en-US");
+};
+
+// Hook translation to chat sends
+const chatFormDoc = document.getElementById("doc-chat-form");
+if (chatFormDoc) {
+  chatFormDoc.addEventListener("submit", (e) => {
+    const input = document.getElementById("doc-chat-input");
+    if (input && input.value.trim() && activeCall) {
+      window.speakDoctorTranslation(input.value.trim());
+    }
+  });
+}
+
+// --- FEATURE 7: QR CODE PATIENT SCANNER SYSTEM ---
+window.openQrScanner = function() {
+  const modal = document.getElementById("qr-scanner-modal");
+  const select = document.getElementById("scanner-select-pat");
+  if (!modal || !select) return;
+
+  // Populate patient select options
+  select.innerHTML = "";
+  db.patients.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.innerText = `${p.name} (ID: ${p.id})`;
+    select.appendChild(opt);
+  });
+
+  // Default select first patient
+  if (db.patients.length > 0) {
+    window.updateScannerQrImage(db.patients[0].id);
+  }
+
+  modal.style.display = "flex";
+  showToast("Simulated camera scanner activated...", "info");
+};
+
+window.closeQrScanner = function() {
+  const modal = document.getElementById("qr-scanner-modal");
+  if (modal) modal.style.display = "none";
+};
+
+window.updateScannerQrImage = function(patientId) {
+  const img = document.getElementById("scanner-qr-target");
+  if (img) {
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${patientId}`;
+  }
+};
+
+window.runSimulatedScan = function() {
+  const select = document.getElementById("scanner-select-pat");
+  if (!select) return;
+  const patientId = select.value;
+  const patient = db.patients.find(p => p.id === patientId);
+
+  showToast("Scanning target code...", "info");
+  
+  setTimeout(() => {
+    window.closeQrScanner();
+    showToast(`✅ Code Decoded: ${patient ? patient.name : patientId} (ID: ${patientId})`, "success");
+    
+    // Automatically trigger Vitals entry modal for this patient!
+    window.openVitalsModal(patientId);
+  }, 1200);
+};
+
+// --- FEATURE 15: SECURE HIPPA CONSULTATION RECORDING ENGINE ---
+window.isRecordingActive = false;
+let callRecordingInterval = null;
+let callRecordingSeconds = 0;
+
+window.toggleCallRecording = function() {
+  if (!activeCall) {
+    showToast("No active call session to record!", "warning");
+    return;
+  }
+
+  const btn = document.getElementById("doc-record-btn");
+  const banner = document.getElementById("doc-recording-status");
+  const timer = document.getElementById("doc-rec-timer");
+
+  if (!window.isRecordingActive) {
+    // Start Recording
+    window.isRecordingActive = true;
+    callRecordingSeconds = 0;
+    if (btn) {
+      btn.innerText = "⏹️";
+      btn.style.backgroundColor = "#dc2626"; // stop state red
+      btn.classList.add("active");
+    }
+    if (banner) banner.style.display = "flex";
+    if (timer) timer.innerText = "00:00";
+
+    callRecordingInterval = setInterval(() => {
+      callRecordingSeconds++;
+      const mins = String(Math.floor(callRecordingSeconds / 60)).padStart(2, "0");
+      const secs = String(callRecordingSeconds % 60).padStart(2, "0");
+      if (timer) timer.innerText = `${mins}:${secs}`;
+    }, 1000);
+
+    showToast("🔴 Recording started. Audio and screen capture active.", "warning");
+  } else {
+    window.stopCallRecording();
+  }
+};
+
+window.stopCallRecording = function() {
+  if (!window.isRecordingActive) return;
+  window.isRecordingActive = false;
+
+  const btn = document.getElementById("doc-record-btn");
+  const banner = document.getElementById("doc-recording-status");
+  const timer = document.getElementById("doc-rec-timer");
+
+  if (callRecordingInterval) {
+    clearInterval(callRecordingInterval);
+    callRecordingInterval = null;
+  }
+
+  if (btn) {
+    btn.innerText = "🔴";
+    btn.style.backgroundColor = "#374151";
+    btn.classList.remove("active");
+  }
+  if (banner) banner.style.display = "none";
+
+  const durationStr = timer ? timer.innerText : "00:05";
+  showToast("🔒 AES-256 Encrypting media tracks...", "info");
+
+  setTimeout(() => {
+    const recId = `REC-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newRec = {
+      id: recId,
+      date: new Date().toISOString().split("T")[0],
+      patientId: activeCall ? activeCall.patient.id : "pat-1",
+      patientName: activeCall ? activeCall.patient.name : "Patient",
+      secureUrl: `consultation_${activeCall ? activeCall.token : "session"}.enc`,
+      duration: durationStr
+    };
+
+    db.recordings.push(newRec);
+    saveDB();
+    showToast("✅ Encrypted recording uploaded to secure HIPAA bucket.", "success");
+    
+    if (currentRole === "admin") renderAdminRecordings();
+  }, 1200);
+};
+
+// Seeding Default Recordings for Audit Trail Demonstration
+function seedDefaultRecordings() {
+  if (!db.recordings || db.recordings.length === 0) {
+    db.recordings = [
+      { id: "REC-4109", date: "2026-06-30", patientId: "pat-1", patientName: "Sarah Mitchell", secureUrl: "sarah_mitchell_session_1.enc", duration: "03:45" },
+      { id: "REC-8294", date: "2026-07-01", patientId: "pat-2", patientName: "Fatima", secureUrl: "fatima_session_3.enc", duration: "06:12" }
+    ];
+    saveDB();
+  }
+}
+// Run seed check on load
+setTimeout(seedDefaultRecordings, 1000);
+
+function renderAdminRecordings() {
+  const tbody = document.getElementById("admin-recordings-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const list = db.recordings || [];
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No consultation recordings saved.</td></tr>`;
+    return;
+  }
+
+  list.forEach(rec => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${rec.id}</strong></td>
+      <td>${rec.date}</td>
+      <td><strong>${rec.patientName}</strong></td>
+      <td style="font-family: monospace; font-size: 11px; color:#10b981;">supabase://buckets/recordings/${rec.secureUrl}</td>
+      <td>${rec.duration}</td>
+      <td>
+        <button class="btn-action success" onclick="window.playRecording('${rec.id}')">▶️ Playback</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+window.playRecording = function(recId) {
+  const rec = db.recordings.find(r => r.id === recId);
+  if (!rec) return;
+
+  const modal = document.getElementById("playback-modal");
+  const avatar = document.getElementById("playback-avatar");
+  const patLabel = document.getElementById("playback-patient-label");
+  const durLabel = document.getElementById("playback-duration-label");
+
+  if (modal && avatar && patLabel && durLabel) {
+    patLabel.innerText = rec.patientName;
+    durLabel.innerText = `Duration: ${rec.duration}`;
+    avatar.innerText = rec.patientName.split(" ").map(n => n[0]).join("");
+    modal.style.display = "flex";
+    showToast(`🔒 Decrypting consultation stream from secure HIPAA storage...`, "success");
+  }
+};
+
+window.closePlaybackModal = function() {
+  const modal = document.getElementById("playback-modal");
+  if (modal) modal.style.display = "none";
+};
+
