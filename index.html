@@ -9,7 +9,7 @@
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
   <!-- Supabase JS CDN Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" crossorigin src="./assets/index-BcloGZt7.js"></script>
+  <script type="module" crossorigin src="./assets/index-8DOfni-1.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-CXqpdiFR.css">
 </head>
 <body>
@@ -33,15 +33,7 @@
       </div>
     </div>
 
-    <!-- Developer Quick Login Panel -->
-    <div class="dev-switcher">
-      <span class="dev-btn" id="dev-btn-login" onclick="logout()">🔒 Log Out</span>
-      <span class="dev-btn" id="dev-btn-patient" onclick="quickLogin('patient')">Patient Portal</span>
-      <span class="dev-btn" id="dev-btn-vhw" onclick="quickLogin('vhw')">Health Worker</span>
-      <span class="dev-btn" id="dev-btn-doctor" onclick="quickLogin('doctor')">Doctor Portal</span>
-      <span class="dev-btn" id="dev-btn-admin" onclick="quickLogin('admin')">Admin Panel</span>
-      <span class="dev-btn" id="dev-btn-agora" onclick="toggleAgoraConfig()">⚙️ Agora Settings</span>
-    </div>
+
 
     <div class="nav-controls">
       <!-- Simulated Offline/Online Pill -->
@@ -52,34 +44,18 @@
       <div class="current-time" id="live-clock">June 30, 2026 09:30 AM</div>
       
       <!-- User profile state -->
-      <div class="user-profile" id="header-user-profile" style="display: none;">
+      <div class="user-profile" id="header-user-profile" style="display: none; align-items: center; gap: 12px;">
         <div class="avatar" id="header-user-avatar">?</div>
         <div class="user-info">
           <span class="user-name" id="header-user-name">Guest User</span>
           <span class="user-role" id="header-user-role">Guest</span>
         </div>
+        <span onclick="logout()" style="cursor: pointer; font-size: 11px; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.05); padding: 2px 6px; border-radius: 4px; font-weight: 600;">🔒 Log Out</span>
       </div>
     </div>
   </header>
 
-  <!-- Agora configuration settings bar -->
-  <div id="agora-config-bar" style="display: none; background-color: var(--primary-light); padding: 12px 24px; border-bottom: 1px solid var(--border-color); font-size: 13px;">
-    <div style="max-width: 1400px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
-      <div style="font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 6px;">
-        📡 Agora Video SDK Credentials:
-      </div>
-      <div style="display: flex; gap: 12px; align-items: center; flex: 1; min-width: 300px;">
-        <input type="text" id="agora-appid" class="form-input" style="padding: 6px 10px; font-size: 12px; margin-bottom: 0;" placeholder="Agora App ID (e.g. 8da0...)">
-        <input type="text" id="agora-token" class="form-input" style="padding: 6px 10px; font-size: 12px; margin-bottom: 0;" placeholder="Temp RTC Token (Optional)">
-        <input type="text" id="agora-channel" class="form-input" style="padding: 6px 10px; font-size: 12px; margin-bottom: 0;" placeholder="Channel Name" value="telehealth-room">
-      </div>
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <input type="checkbox" id="agora-enabled" style="width: 16px; height: 16px; margin: 0;">
-        <label for="agora-enabled" style="font-weight: 600; margin-bottom: 0;">Enable Real Agora WebRTC</label>
-      </div>
-      <button class="btn-action success" onclick="saveAgoraConfig()">Save Config</button>
-    </div>
-  </div>
+
 
   <!-- Main View Frame -->
   <main>
@@ -1197,6 +1173,34 @@
           </div>
           <div class="chart-container" id="admin-network-chart">
             <!-- Rendered by JS SVG -->
+          </div>
+        </div>
+
+        <!-- Agora Settings Card inside Admin panel -->
+        <div class="card col-12" style="margin-top: 20px;">
+          <div class="card-title-bar">
+            <h3>📡 Agora Video SDK Credentials</h3>
+            <span class="badge" style="background: var(--primary); color:white; font-size:10px;">RTC Engine Settings</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Configure App ID, temporary security tokens, and WebRTC channels for live consultations.</p>
+          <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+            <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+              <label for="agora-appid" style="font-size:11px; font-weight:600; color:var(--text-medium);">Agora App ID</label>
+              <input type="text" id="agora-appid" class="form-input" placeholder="e.g. aab8b3f972274fcb87cc25048d089e94" style="margin-bottom:0;">
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+              <label for="agora-token" style="font-size:11px; font-weight:600; color:var(--text-medium);">Temp RTC Token (Optional)</label>
+              <input type="text" id="agora-token" class="form-input" placeholder="e.g. 007e..." style="margin-bottom:0;">
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 120px; margin-bottom: 0;">
+              <label for="agora-channel" style="font-size:11px; font-weight:600; color:var(--text-medium);">Channel Name</label>
+              <input type="text" id="agora-channel" class="form-input" value="telehealth-room" style="margin-bottom:0;">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; height: 38px; padding-bottom: 6px;">
+              <input type="checkbox" id="agora-enabled" style="width: 18px; height: 18px; margin: 0; cursor: pointer;">
+              <label for="agora-enabled" style="font-weight: 600; margin-bottom: 0; cursor: pointer; font-size:11px; color:var(--text-medium);">Enable Agora WebRTC</label>
+            </div>
+            <button class="btn-primary" onclick="saveAgoraConfig()" style="width: auto; height: 38px; white-space: nowrap; margin-bottom: 4px;">Save Config</button>
           </div>
         </div>
 
