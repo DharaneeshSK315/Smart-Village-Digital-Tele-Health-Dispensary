@@ -112,6 +112,27 @@ async function initDB() {
         }
         loadedFromSupabase = true;
         console.log("Data successfully loaded from Supabase.");
+
+        // Check if user returned from Google OAuth redirect
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session && session.user) {
+            const user = session.user;
+            const email = user.email;
+            const name = user.user_metadata.full_name || user.email.split('@')[0];
+
+            window.googleUser = { name, email };
+            
+            setTimeout(() => {
+              const emailLbl = document.getElementById("google-role-email-label");
+              if (emailLbl) emailLbl.innerText = `Logged in as: ${email}`;
+              const roleModal = document.getElementById("google-role-modal");
+              if (roleModal) roleModal.style.display = "flex";
+            }, 800);
+          }
+        } catch (authErr) {
+          console.warn("OAuth Session check error:", authErr);
+        }
       } else {
         console.warn("Error fetching from Supabase, falling back to localStorage.", {
           patients: patientsRes.error,
@@ -2831,64 +2852,70 @@ window.closePlaybackModal = function() {
 };
 
 // --- GOOGLE SIGN IN OAUTH ACCOUNT PICKER ENGINE ---
-window.openGoogleSignInModal = function() {
-  const modal = document.getElementById("google-signin-modal");
-  const listContainer = document.getElementById("google-accounts-list");
-  if (!modal || !listContainer) return;
-
-  listContainer.innerHTML = "";
-
-  // Prepare standard list of Google accounts for the demo
-  const accounts = [
-    { name: "Sarah Mitchell", email: "sarah.mitchell@gmail.com", role: "patient", avatar: "SM" },
-    { name: "Nurse Anjali", email: "anjali.vhw@gmail.com", role: "vhw", avatar: "NA" },
-    { name: "Dr. Vikram", email: "doc.vikram@villagemed.in", role: "doctor", avatar: "DV" },
-    { name: "System Admin", email: "admin@villagemed.in", role: "admin", avatar: "SA" }
-  ];
-
-  accounts.forEach(acc => {
-    const item = document.createElement("div");
-    item.style.display = "flex";
-    item.style.alignItems = "center";
-    item.style.gap = "12px";
-    item.style.padding = "10px 24px";
-    item.style.cursor = "pointer";
-    item.style.transition = "background 0.2s";
-    item.className = "google-account-row";
-    item.innerHTML = `
-      <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;">${acc.avatar}</div>
-      <div style="flex: 1; text-align: left;">
-        <div style="font-size: 13px; font-weight: 600; color: var(--text-heading);">${acc.name}</div>
-        <div style="font-size: 11px; color: var(--text-muted);">${acc.email}</div>
-      </div>
-      <span style="font-size: 10px; background: rgba(15,23,42,0.06); padding: 2px 6px; border-radius: 4px; font-weight: 600; color: var(--text-medium);">${acc.role.toUpperCase()}</span>
-    `;
-
-    item.addEventListener("mouseenter", () => {
-      item.style.background = "rgba(15,23,42,0.04)";
+window.openGoogleSignInModal = async function() {
+  if (!supabase) {
+    showToast("Supabase is not configured yet. Cannot sign in with Google.", "danger");
+    return;
+  }
+  showToast("Redirecting to Google Sign-In...", "info");
+  
+  try {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin + window.location.pathname
+      }
     });
-    item.addEventListener("mouseleave", () => {
-      item.style.background = "transparent";
-    });
-
-    item.onclick = function() {
-      window.closeGoogleSignInModal();
-      showToast(`Google authenticating: ${acc.email}...`, "info");
-      setTimeout(() => {
-        window.quickLogin(acc.role);
-        showToast(`Signed in with Google successfully!`, "success");
-      }, 1000);
-    };
-
-    listContainer.appendChild(item);
-  });
-
-  modal.style.display = "flex";
+    
+    if (error) {
+      showToast(`Google OAuth Error: ${error.message}. Make sure Google Provider is enabled in Supabase Dashboard.`, "danger");
+    }
+  } catch (err) {
+    showToast(`OAuth Trigger Failed: ${err.message}`, "danger");
+  }
 };
 
 window.closeGoogleSignInModal = function() {
   const modal = document.getElementById("google-signin-modal");
   if (modal) modal.style.display = "none";
+};
+
+window.selectGoogleRole = function(role) {
+  const roleModal = document.getElementById("google-role-modal");
+  if (roleModal) roleModal.style.display = "none";
+
+  if (!window.googleUser) {
+    showToast("No Google account verified.", "danger");
+    return;
+  }
+
+  const { name, email } = window.googleUser;
+  
+  if (role === "patient") {
+    // Check if patient exists or register them
+    let patient = db.patients.find(p => p.phone === email || p.name === name);
+    if (!patient) {
+      patient = { id: `pat-${Date.now().toString().slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+      db.patients.push(patient);
+      saveDB();
+    }
+    currentUser = patient;
+  } else if (role === "vhw") {
+    currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A" };
+  } else if (role === "doctor") {
+    let doctor = db.doctors.find(d => d.email === email);
+    if (!doctor) {
+      doctor = { id: `doc-${Date.now().toString().slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+      db.doctors.push(doctor);
+      saveDB();
+    }
+    currentUser = doctor;
+  } else if (role === "admin") {
+    currentUser = { name: `Admin ${name}`, role: "Admin" };
+  }
+
+  switchView(`view-${role}`, role);
+  showToast(`Logged in successfully as ${currentUser.name}!`, "success");
 };
 
 
