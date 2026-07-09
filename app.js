@@ -84,25 +84,30 @@ async function initDB() {
       ]);
 
       if (!patientsRes.error && !doctorsRes.error && !appointmentsRes.error && !consultationsRes.error) {
+        const localCached = localStorage.getItem("telehealth_db");
+        const cachedDb = localCached ? JSON.parse(localCached) : null;
+        const localVillages = cachedDb ? cachedDb.villages : DEFAULT_VILLAGES;
+        const localLogs = cachedDb ? cachedDb.failoverLogs : DEFAULT_FAILOVER_LOGS;
+
         if (patientsRes.data.length === 0 && doctorsRes.data.length === 0) {
           console.log("Supabase database is empty. Seeding defaults...");
           db = {
-            villages: DEFAULT_VILLAGES,
+            villages: localVillages,
             doctors: DEFAULT_DOCTORS,
             patients: DEFAULT_PATIENTS,
             appointments: DEFAULT_APPOINTMENTS,
             consultations: DEFAULT_CONSULTATIONS,
-            failoverLogs: DEFAULT_FAILOVER_LOGS
+            failoverLogs: localLogs
           };
           await saveDB();
         } else {
           db = {
-            villages: DEFAULT_VILLAGES,
+            villages: localVillages,
             doctors: doctorsRes.data.length > 0 ? doctorsRes.data : DEFAULT_DOCTORS,
             patients: patientsRes.data.length > 0 ? patientsRes.data : DEFAULT_PATIENTS,
             appointments: appointmentsRes.data || [],
             consultations: consultationsRes.data || [],
-            failoverLogs: DEFAULT_FAILOVER_LOGS
+            failoverLogs: localLogs
           };
         }
         loadedFromSupabase = true;
@@ -1996,7 +2001,16 @@ window.adminAddDoctor = function(e) {
 };
 
 window.adminDeleteDoctor = function(idx) {
+  const doc = db.doctors[idx];
   db.doctors.splice(idx, 1);
+
+  if (supabase) {
+    supabase.from("doctors").delete().eq("id", doc.id).then(({ error }) => {
+      if (error) console.error("Error deleting doctor from Supabase:", error);
+      else console.log("Doctor deleted from Supabase successfully");
+    });
+  }
+
   saveDB();
   showToast("Doctor removed from staff", "warning");
   loadAdminDashboard();
