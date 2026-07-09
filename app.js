@@ -142,6 +142,14 @@ async function initDB() {
     }
   }
 
+  // Guarantee arrays exist to prevent schema discrepancy crashes
+  db.villages = db.villages || DEFAULT_VILLAGES;
+  db.doctors = db.doctors || DEFAULT_DOCTORS;
+  db.patients = db.patients || DEFAULT_PATIENTS;
+  db.appointments = db.appointments || DEFAULT_APPOINTMENTS;
+  db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
+  db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
+
   db.recordings = db.recordings || [];
 
   // Load Agora Config
