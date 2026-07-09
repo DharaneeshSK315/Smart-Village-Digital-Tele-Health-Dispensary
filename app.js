@@ -276,11 +276,11 @@ window.switchView = function(viewId, roleName) {
 
 window.quickLogin = function(role) {
   if (role === "patient") {
-    currentUser = db.patients[0]; // Sarah Mitchell
+    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [] };
   } else if (role === "vhw") {
     currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
   } else if (role === "doctor") {
-    currentUser = db.doctors[0]; // Dr. Vikram
+    currentUser = (db.doctors && db.doctors.length > 0) ? db.doctors[0] : { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true };
   } else if (role === "admin") {
     currentUser = { name: "System Admin", role: "Admin" };
   }
