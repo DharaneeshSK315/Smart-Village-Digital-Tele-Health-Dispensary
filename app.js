@@ -2830,3 +2830,65 @@ window.closePlaybackModal = function() {
   if (modal) modal.style.display = "none";
 };
 
+// --- GOOGLE SIGN IN OAUTH ACCOUNT PICKER ENGINE ---
+window.openGoogleSignInModal = function() {
+  const modal = document.getElementById("google-signin-modal");
+  const listContainer = document.getElementById("google-accounts-list");
+  if (!modal || !listContainer) return;
+
+  listContainer.innerHTML = "";
+
+  // Prepare standard list of Google accounts for the demo
+  const accounts = [
+    { name: "Sarah Mitchell", email: "sarah.mitchell@gmail.com", role: "patient", avatar: "SM" },
+    { name: "Nurse Anjali", email: "anjali.vhw@gmail.com", role: "vhw", avatar: "NA" },
+    { name: "Dr. Vikram", email: "doc.vikram@villagemed.in", role: "doctor", avatar: "DV" },
+    { name: "System Admin", email: "admin@villagemed.in", role: "admin", avatar: "SA" }
+  ];
+
+  accounts.forEach(acc => {
+    const item = document.createElement("div");
+    item.style.display = "flex";
+    item.style.alignItems = "center";
+    item.style.gap = "12px";
+    item.style.padding = "10px 24px";
+    item.style.cursor = "pointer";
+    item.style.transition = "background 0.2s";
+    item.className = "google-account-row";
+    item.innerHTML = `
+      <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px;">${acc.avatar}</div>
+      <div style="flex: 1; text-align: left;">
+        <div style="font-size: 13px; font-weight: 600; color: var(--text-heading);">${acc.name}</div>
+        <div style="font-size: 11px; color: var(--text-muted);">${acc.email}</div>
+      </div>
+      <span style="font-size: 10px; background: rgba(15,23,42,0.06); padding: 2px 6px; border-radius: 4px; font-weight: 600; color: var(--text-medium);">${acc.role.toUpperCase()}</span>
+    `;
+
+    item.addEventListener("mouseenter", () => {
+      item.style.background = "rgba(15,23,42,0.04)";
+    });
+    item.addEventListener("mouseleave", () => {
+      item.style.background = "transparent";
+    });
+
+    item.onclick = function() {
+      window.closeGoogleSignInModal();
+      showToast(`Google authenticating: ${acc.email}...`, "info");
+      setTimeout(() => {
+        window.quickLogin(acc.role);
+        showToast(`Signed in with Google successfully!`, "success");
+      }, 1000);
+    };
+
+    listContainer.appendChild(item);
+  });
+
+  modal.style.display = "flex";
+};
+
+window.closeGoogleSignInModal = function() {
+  const modal = document.getElementById("google-signin-modal");
+  if (modal) modal.style.display = "none";
+};
+
+
