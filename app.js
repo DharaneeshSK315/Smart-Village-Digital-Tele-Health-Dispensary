@@ -2126,14 +2126,6 @@ window.onload = function() {
   }, 3000);
 };
 
-// --- AGORA REAL WEBRTC INTEGRATION METHODS ---
-window.toggleAgoraConfig = function() {
-  const configBar = document.getElementById("agora-config-bar");
-  if (configBar) {
-    configBar.style.display = configBar.style.display === "none" ? "block" : "none";
-  }
-};
-
 window.saveAgoraConfig = function() {
   const appid = document.getElementById("agora-appid").value.trim();
   const token = document.getElementById("agora-token").value.trim();
@@ -2149,9 +2141,6 @@ window.saveAgoraConfig = function() {
   localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
   
   showToast("Agora WebRTC configurations saved successfully!", "success");
-  
-  // Collapse
-  document.getElementById("agora-config-bar").style.display = "none";
 };
 
 async function joinAgoraRoom(role) {
