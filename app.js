@@ -365,6 +365,13 @@ window.logout = function() {
   currentUser = null;
   currentRole = "guest";
   document.getElementById("header-user-profile").style.display = "none";
+  
+  if (supabase) {
+    supabase.auth.signOut().then(() => {
+      console.log("Logged out of Supabase session.");
+    });
+  }
+  
   switchView("view-login", "login");
 };
 
