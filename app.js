@@ -209,6 +209,12 @@ async function initDB() {
     admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
     vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
+  
+  // Force upgrade cache if demo email is missing from admins list
+  if (!db.authConfig.admins.includes("tvillage.admin.demo@gmail.com")) {
+    db.authConfig.admins.push("tvillage.admin.demo@gmail.com");
+    saveDB();
+  }
 
   db.recordings = db.recordings || [];
 
