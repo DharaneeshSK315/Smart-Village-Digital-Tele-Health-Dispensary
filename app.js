@@ -88,6 +88,10 @@ async function initDB() {
         const cachedDb = localCached ? JSON.parse(localCached) : null;
         const localVillages = cachedDb ? cachedDb.villages : DEFAULT_VILLAGES;
         const localLogs = cachedDb ? cachedDb.failoverLogs : DEFAULT_FAILOVER_LOGS;
+        const localAuthConfig = cachedDb ? cachedDb.authConfig : {
+          admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in"],
+          vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+        };
 
         if (patientsRes.data.length === 0 && doctorsRes.data.length === 0) {
           console.log("Supabase database is empty. Seeding defaults...");
@@ -97,7 +101,8 @@ async function initDB() {
             patients: DEFAULT_PATIENTS,
             appointments: DEFAULT_APPOINTMENTS,
             consultations: DEFAULT_CONSULTATIONS,
-            failoverLogs: localLogs
+            failoverLogs: localLogs,
+            authConfig: localAuthConfig
           };
           await saveDB();
         } else {
@@ -107,7 +112,8 @@ async function initDB() {
             patients: patientsRes.data.length > 0 ? patientsRes.data : DEFAULT_PATIENTS,
             appointments: appointmentsRes.data || [],
             consultations: consultationsRes.data || [],
-            failoverLogs: localLogs
+            failoverLogs: localLogs,
+            authConfig: localAuthConfig
           };
         }
         loadedFromSupabase = true;
@@ -170,6 +176,10 @@ async function initDB() {
   db.appointments = db.appointments || DEFAULT_APPOINTMENTS;
   db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
   db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
+  db.authConfig = db.authConfig || {
+    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in"],
+    vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+  };
 
   db.recordings = db.recordings || [];
 
@@ -333,6 +343,25 @@ window.handleLogin = async function(e) {
   const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
   const role = document.getElementById("login-role").value;
+
+  const AUTHORIZED_ADMINS = db.authConfig.admins;
+  const AUTHORIZED_VHWS = db.authConfig.vhws;
+
+  // 1. Authorize Admin
+  if (role === "admin" && !AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
+    showToast("Unauthorized: This email is not registered as an Administrator.", "danger");
+    return;
+  }
+  // 2. Authorize VHW
+  if (role === "vhw" && !AUTHORIZED_VHWS.includes(email.toLowerCase())) {
+    showToast("Unauthorized: This email is not registered as a VHW Nurse.", "danger");
+    return;
+  }
+  // 3. Authorize Doctor
+  if (role === "doctor" && !email.toLowerCase().endsWith("@villagemed.in") && !db.doctors.some(d => d.email.toLowerCase() === email.toLowerCase())) {
+    showToast("Unauthorized: This email is not registered as a Medical Doctor.", "danger");
+    return;
+  }
 
   if (supabase) {
     showToast("Authenticating credentials...", "info");
@@ -1936,6 +1965,7 @@ function loadAdminDashboard() {
   renderAdminDoctors();
   renderAdminLogs();
   renderAdminRecordings();
+  renderAdminRbac();
 
   // Populate appointment patient & doctor dropdowns
   const patSelect = document.getElementById("adm-book-patient");
@@ -2976,6 +3006,80 @@ window.selectGoogleRole = function(role) {
 
   switchView(`view-${role}`, role);
   showToast(`Logged in successfully as ${currentUser.name}!`, "success");
+};
+
+// --- FEATURE: ROLE-BASED ACCESS CONTROL (RBAC) MANAGER ---
+function renderAdminRbac() {
+  const tbody = document.getElementById("admin-rbac-tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const config = db.authConfig || { admins: [], vhws: [] };
+  
+  // Render Admins
+  config.admins.forEach(email => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${email}</strong></td>
+      <td><span class="badge" style="background:#f59e0b; color:white;">Administrator</span></td>
+      <td><button class="btn-action danger" onclick="window.adminDeleteRbacEmail('admin', '${email}')">Revoke</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Render VHWs
+  config.vhws.forEach(email => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${email}</strong></td>
+      <td><span class="badge" style="background:#10b981; color:white;">Health Worker</span></td>
+      <td><button class="btn-action danger" onclick="window.adminDeleteRbacEmail('vhw', '${email}')">Revoke</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+window.adminAddRbacEmail = function(e) {
+  e.preventDefault();
+  const email = document.getElementById("rbac-new-email").value.trim().toLowerCase();
+  const role = document.getElementById("rbac-new-role").value;
+
+  if (!db.authConfig) {
+    db.authConfig = { admins: [], vhws: [] };
+  }
+
+  if (role === "admin") {
+    if (db.authConfig.admins.includes(email)) {
+      showToast("Email is already authorized as Admin.", "warning");
+      return;
+    }
+    db.authConfig.admins.push(email);
+  } else if (role === "vhw") {
+    if (db.authConfig.vhws.includes(email)) {
+      showToast("Email is already authorized as VHW.", "warning");
+      return;
+    }
+    db.authConfig.vhws.push(email);
+  }
+
+  saveDB();
+  showToast(`Successfully authorized ${email} for role: ${role.toUpperCase()}`, "success");
+  document.getElementById("rbac-new-email").value = "";
+  renderAdminRbac();
+};
+
+window.adminDeleteRbacEmail = function(role, email) {
+  if (!db.authConfig) return;
+
+  if (role === "admin") {
+    db.authConfig.admins = db.authConfig.admins.filter(e => e !== email);
+  } else if (role === "vhw") {
+    db.authConfig.vhws = db.authConfig.vhws.filter(e => e !== email);
+  }
+
+  saveDB();
+  showToast(`Successfully revoked authorizations for ${email}`, "warning");
+  renderAdminRbac();
 };
 
 
