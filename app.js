@@ -2140,24 +2140,54 @@ function renderAdminDoctors() {
   });
 }
 
-window.adminAddDoctor = function(e) {
+window.adminAddDoctor = async function(e) {
   e.preventDefault();
   const name = document.getElementById("adm-doc-name").value.trim();
+  const email = document.getElementById("adm-doc-email").value.trim().toLowerCase();
   const specialty = document.getElementById("adm-doc-specialty").value;
+  const password = document.getElementById("adm-doc-password").value;
   const id = `doc-${Date.now().toString().slice(-4)}`;
+
+  // Register in Supabase Authentication if connected
+  if (supabase) {
+    showToast("Creating Doctor login credentials...", "info");
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email,
+        password: password,
+        options: {
+          data: {
+            full_name: name
+          }
+        }
+      });
+      if (error) {
+        showToast(`Supabase registration failed: ${error.message}`, "danger");
+        return;
+      }
+      showToast("Credentials registered successfully!", "success");
+    } catch (authErr) {
+      console.warn("Supabase Auth signUp error:", authErr);
+    }
+  }
 
   const newDoc = {
     id,
     name,
     specialty,
-    email: `${name.toLowerCase().replace("dr. ", "").replace(" ", ".")}@villagemed.in`,
-    password: "password",
+    email,
+    password,
     online: true
   };
 
   db.doctors.push(newDoc);
   saveDB();
+  
+  // Clear inputs
   document.getElementById("adm-doc-name").value = "";
+  document.getElementById("adm-doc-email").value = "";
+  document.getElementById("adm-doc-password").value = "";
+  
   showToast(`Doctor ${name} onboarded`, "success");
   loadAdminDashboard();
 };

@@ -1071,14 +1071,16 @@
           <div class="card-title-bar">
             <h3>👨‍⚕️ Manage Medical Doctor Staff</h3>
           </div>
-          <form id="adm-doc-form" onsubmit="adminAddDoctor(event)" style="display: grid; grid-template-columns: 2fr 1fr; gap: 8px; margin-bottom: 16px;">
-            <input type="text" id="adm-doc-name" class="form-input" placeholder="Dr. Full Name..." required>
-            <select id="adm-doc-specialty" class="form-input">
+          <form id="adm-doc-form" onsubmit="adminAddDoctor(event)" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+            <input type="text" id="adm-doc-name" class="form-input" placeholder="Dr. Full Name..." style="grid-column: span 2; margin-bottom: 0;" required>
+            <input type="email" id="adm-doc-email" class="form-input" placeholder="Doctor Email..." style="margin-bottom: 0;" required>
+            <select id="adm-doc-specialty" class="form-input" style="margin-bottom: 0;">
               <option value="General Medicine">General Medicine</option>
               <option value="Cardiology">Cardiology</option>
               <option value="Neurology">Neurology</option>
             </select>
-            <button type="submit" class="btn-primary" style="grid-column: span 2;">Add Doctor</button>
+            <input type="password" id="adm-doc-password" class="form-input" placeholder="Login Password..." style="grid-column: span 2; margin-bottom: 0;" required>
+            <button type="submit" class="btn-primary" style="grid-column: span 2; margin-top: 4px;">Add Doctor</button>
           </form>
           <div class="table-wrapper" style="max-height: 250px; overflow-y: auto;">
             <table>
@@ -1479,7 +1481,7 @@
   </div>
 
   <!-- Core App Controller JS -->
-  <script type="module" src="app.js?v=1.0.7"></script>
+  <script type="module" src="app.js?v=1.0.8"></script>
 
 </body>
 </html>
