@@ -2269,8 +2269,14 @@ window.onload = function() {
   initDB();
   startClock();
   
-  // Set initial route: Login
-  switchView("view-login", "login");
+  // Set initial route: Only go to Login if we are NOT returning from a Google redirect
+  const hasOAuthCallback = window.location.hash.includes("access_token=") || 
+                           window.location.search.includes("code=") || 
+                           window.location.hash.includes("error=");
+                           
+  if (!hasOAuthCallback) {
+    switchView("view-login", "login");
+  }
 
   // Check if patient joined direct appointment
   setInterval(() => {
