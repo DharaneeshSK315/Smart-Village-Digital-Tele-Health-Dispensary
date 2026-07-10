@@ -83,12 +83,40 @@ async function initDB() {
           const name = user.user_metadata.full_name || user.email.split('@')[0];
 
           window.googleUser = { name, email };
+          const emailLower = email.toLowerCase();
           
           setTimeout(() => {
-            const emailLbl = document.getElementById("google-role-email-label");
-            if (emailLbl) emailLbl.innerText = `Logged in as: ${email}`;
-            const roleModal = document.getElementById("google-role-modal");
-            if (roleModal) roleModal.style.display = "flex";
+            // Direct auto-login based on authorized email constraints
+            if (db.authConfig.admins.includes(emailLower)) {
+              currentUser = { name: `Admin ${name}`, role: "Admin", email };
+              switchView("view-admin", "admin");
+              showToast(`Logged in as Admin: ${currentUser.name}`, "success");
+            } else if (db.authConfig.vhws.includes(emailLower)) {
+              currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
+              switchView("view-vhw", "vhw");
+              showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
+            } else if (emailLower.endsWith("@villagemed.in") || db.doctors.some(d => d.email.toLowerCase() === emailLower)) {
+              let doctor = db.doctors.find(d => d.email.toLowerCase() === emailLower);
+              if (!doctor) {
+                doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+                db.doctors.push(doctor);
+                saveDB();
+              }
+              currentUser = doctor;
+              switchView("view-doctor", "doctor");
+              showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
+            } else {
+              // Default to Patient
+              let patient = db.patients.find(p => p.phone === email || p.name === name);
+              if (!patient) {
+                patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+                db.patients.push(patient);
+                saveDB();
+              }
+              currentUser = patient;
+              switchView("view-patient", "patient");
+              showToast(`Logged in as Patient: ${currentUser.name}`, "success");
+            }
           }, 800);
         }
       });
