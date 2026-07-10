@@ -328,43 +328,103 @@ function updateHeaderProfile() {
 }
 
 // Authentication
-window.handleLogin = function(e) {
+window.handleLogin = async function(e) {
   e.preventDefault();
   const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
   const role = document.getElementById("login-role").value;
 
-  if (role === "doctor") {
-    const doctor = db.doctors.find(d => d.email === email);
-    if (doctor) {
-      currentUser = doctor;
-      switchView("view-doctor", "doctor");
-      showToast(`Welcome back, ${doctor.name}`, "success");
-    } else {
-      showToast("Doctor account not found", "danger");
+  if (supabase) {
+    showToast("Authenticating credentials...", "info");
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+
+      if (error) {
+        showToast(`Authentication Failed: ${error.message}`, "danger");
+        return;
+      }
+
+      const user = data.user;
+
+      if (role === "doctor") {
+        const doctor = db.doctors.find(d => d.email === email);
+        if (doctor) {
+          currentUser = doctor;
+          switchView("view-doctor", "doctor");
+          showToast(`Welcome back, ${doctor.name}`, "success");
+        } else {
+          // Auto-generate doctor profile if authenticated in Supabase Auth
+          const name = email.split('@')[0];
+          const newDoc = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+          db.doctors.push(newDoc);
+          saveDB();
+          currentUser = newDoc;
+          switchView("view-doctor", "doctor");
+          showToast(`Signed in as Doctor: ${name}`, "success");
+        }
+      } else if (role === "vhw") {
+        currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+        switchView("view-vhw", "vhw");
+        showToast("VHW Nurse Console authenticated", "success");
+      } else if (role === "patient") {
+        const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+        if (patient) {
+          currentUser = patient;
+          switchView("view-patient", "patient");
+          showToast(`Logged in as patient: ${patient.name}`, "success");
+        } else {
+          const newPat = { id: `pat-${user.id.slice(-4)}`, name: email.split('@')[0], age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+          db.patients.push(newPat);
+          saveDB();
+          currentUser = newPat;
+          switchView("view-patient", "patient");
+          showToast(`Logged in as patient: ${newPat.name}`, "success");
+        }
+      } else if (role === "admin") {
+        currentUser = { name: "System Admin", role: "Admin", email };
+        switchView("view-admin", "admin");
+        showToast("Admin Console authenticated", "success");
+      }
+    } catch (err) {
+      showToast(`Login Error: ${err.message}`, "danger");
     }
-  } else if (role === "vhw") {
-    currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
-    switchView("view-vhw", "vhw");
-    showToast("VHW Nurse Console authenticated", "success");
-  } else if (role === "patient") {
-    const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
-    if (patient) {
-      currentUser = patient;
-      switchView("view-patient", "patient");
-      showToast(`Logged in as patient: ${patient.name}`, "success");
-    } else {
-      // Auto-register mock patient if not exists
-      const newPat = { id: `pat-${Date.now()}`, name: email, age: 30, gender: "Male", phone: "9999999999", village: "Village Clinic A", history: [] };
-      db.patients.push(newPat);
-      saveDB();
-      currentUser = newPat;
-      switchView("view-patient", "patient");
-      showToast(`New patient registered: ${email}`, "success");
+  } else {
+    // Offline local fallback logic (no real password check)
+    if (role === "doctor") {
+      const doctor = db.doctors.find(d => d.email === email);
+      if (doctor) {
+        currentUser = doctor;
+        switchView("view-doctor", "doctor");
+        showToast(`Welcome back, ${doctor.name} (Offline Mode)`, "success");
+      } else {
+        showToast("Doctor account not found in local cache", "danger");
+      }
+    } else if (role === "vhw") {
+      currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
+      switchView("view-vhw", "vhw");
+      showToast("VHW Nurse Console authenticated (Offline Mode)", "success");
+    } else if (role === "patient") {
+      const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+      if (patient) {
+        currentUser = patient;
+        switchView("view-patient", "patient");
+        showToast(`Logged in as patient: ${patient.name} (Offline Mode)`, "success");
+      } else {
+        const newPat = { id: `pat-${Date.now()}`, name: email, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+        db.patients.push(newPat);
+        saveDB();
+        currentUser = newPat;
+        switchView("view-patient", "patient");
+        showToast(`New offline patient registered: ${email}`, "success");
+      }
+    } else if (role === "admin") {
+      currentUser = { name: "System Admin", role: "Admin" };
+      switchView("view-admin", "admin");
+      showToast("Admin Console authenticated (Offline Mode)", "success");
     }
-  } else if (role === "admin") {
-    currentUser = { name: "System Admin", role: "Admin" };
-    switchView("view-admin", "admin");
-    showToast("Admin Console authenticated", "success");
   }
 };
 
