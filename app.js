@@ -119,23 +119,24 @@ async function initDB() {
         loadedFromSupabase = true;
         console.log("Data successfully loaded from Supabase.");
 
-        // Check if user returned from Google OAuth redirect
+        // Listen for real-time authentication state changes (OAuth Redirects)
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session && session.user) {
-            const user = session.user;
-            const email = user.email;
-            const name = user.user_metadata.full_name || user.email.split('@')[0];
+          supabase.auth.onAuthStateChange((event, session) => {
+            if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session && session.user) {
+              const user = session.user;
+              const email = user.email;
+              const name = user.user_metadata.full_name || user.email.split('@')[0];
 
-            window.googleUser = { name, email };
-            
-            setTimeout(() => {
-              const emailLbl = document.getElementById("google-role-email-label");
-              if (emailLbl) emailLbl.innerText = `Logged in as: ${email}`;
-              const roleModal = document.getElementById("google-role-modal");
-              if (roleModal) roleModal.style.display = "flex";
-            }, 800);
-          }
+              window.googleUser = { name, email };
+              
+              setTimeout(() => {
+                const emailLbl = document.getElementById("google-role-email-label");
+                if (emailLbl) emailLbl.innerText = `Logged in as: ${email}`;
+                const roleModal = document.getElementById("google-role-modal");
+                if (roleModal) roleModal.style.display = "flex";
+              }, 800);
+            }
+          });
         } catch (authErr) {
           console.warn("OAuth Session check error:", authErr);
         }
