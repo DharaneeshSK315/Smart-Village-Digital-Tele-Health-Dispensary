@@ -89,7 +89,7 @@ async function initDB() {
         const localVillages = cachedDb ? cachedDb.villages : DEFAULT_VILLAGES;
         const localLogs = cachedDb ? cachedDb.failoverLogs : DEFAULT_FAILOVER_LOGS;
         const localAuthConfig = cachedDb ? cachedDb.authConfig : {
-          admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in"],
+          admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
           vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
         };
 
@@ -177,7 +177,7 @@ async function initDB() {
   db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
   db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
   db.authConfig = db.authConfig || {
-    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in"],
+    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
     vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
 
