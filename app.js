@@ -225,16 +225,19 @@ async function initDB() {
     vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
 
-  // Sync across tabs/windows so patient view updates when doctor starts the call.
+  // Sync across tabs/windows so view updates when appointments change.
   window.addEventListener("storage", (event) => {
-    if (event.key === "telehealth_db" && event.newValue) {
-      const updatedDb = JSON.parse(event.newValue);
-      if (updatedDb && updatedDb.appointments) {
-        db.appointments = updatedDb.appointments;
-        if (currentRole === "patient") {
-          loadPatientDashboard();
-        }
-      }
+    if (event.key !== "telehealth_db" || !event.newValue) return;
+    const updatedDb = JSON.parse(event.newValue);
+    if (!updatedDb || !Array.isArray(updatedDb.appointments)) return;
+
+    db.appointments = updatedDb.appointments;
+    if (currentRole === "patient") {
+      loadPatientDashboard();
+    } else if (currentRole === "doctor") {
+      loadDoctorDashboard();
+    } else if (currentRole === "vhw") {
+      loadVhwDashboard();
     }
   });
   
@@ -1058,9 +1061,9 @@ function renderDoctorQueue(searchQuery = "") {
   const tbody = document.getElementById("doc-queue-tbody");
   tbody.innerHTML = "";
 
-  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
+  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
 
-  // Sorting: Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
+  // Sorting: Active -> Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
     if (a.urgency === "Emergency" && b.urgency !== "Emergency") return -1;
     if (b.urgency === "Emergency" && a.urgency !== "Emergency") return 1;
