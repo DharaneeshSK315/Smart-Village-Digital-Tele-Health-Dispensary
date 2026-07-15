@@ -69,6 +69,13 @@ let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
 
+function getAgoraRolePrefix(role) {
+  if (role === "doctor" || role === "doc") return "doc";
+  if (role === "patient" || role === "pat") return "pat";
+  if (role === "vhw") return "vhw";
+  return role;
+}
+
 // Initialize Database
 async function initDB() {
   let loadedFromSupabase = false;
@@ -1181,12 +1188,16 @@ window.joinVhwCall = function(token) {
 
 function startCallLoop() {
   const role = activeCall.role;
-  const mainCanvas = document.getElementById(`${role}-remote-canvas`);
-  const pipCanvas = document.getElementById(`${role}-local-canvas`);
-  const remoteContainer = document.getElementById(`${role}-remote-video-container`);
-  const localContainer = document.getElementById(`${role}-local-video-container`);
+  const agoraPrefix = getAgoraRolePrefix(role);
+  const mainCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+  const pipCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+  const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+  const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
 
-  if (!mainCanvas || !pipCanvas) return;
+  if (!mainCanvas || !pipCanvas) {
+    console.error(`Agora call UI elements missing for role='${role}' prefix='${agoraPrefix}'`);
+    return;
+  }
 
   // Initialize network status indicators
   updateNetworkUI();
@@ -1220,7 +1231,7 @@ function startCallLoop() {
 }
 
 function updateVitalsFilesTabs() {
-  const role = activeCall.role;
+  const role = getAgoraRolePrefix(activeCall.role);
   const vitalsContainer = document.getElementById(`${role}-call-vitals-box`);
   const filesContainer = document.getElementById(`${role}-call-files-box`);
 
@@ -1260,8 +1271,9 @@ function updateVitalsFilesTabs() {
 }
 
 function renderCallFiles() {
-  const role = activeCall.role;
+  const role = getAgoraRolePrefix(activeCall.role);
   const container = document.getElementById(`${role}-call-files-box`);
+  if (!container) return;
   container.innerHTML = "";
 
   activeCall.files.forEach(f => {
@@ -1530,7 +1542,7 @@ function toggleAIBadges(show) {
 
 function updateNetworkUI() {
   const state = NETWORK_STATES[activeCall.networkQuality];
-  const role = activeCall.role;
+  const role = getAgoraRolePrefix(activeCall.role);
 
   // Text status
   const connText = document.getElementById(`${role}-conn-text`);
@@ -1567,9 +1579,10 @@ function updateNetworkUI() {
     }
     
     // Set initials in fallback
-    const remoteInitials = document.getElementById(role === "doctor" ? "doc-patient-initials" : `${role}-doctor-initials`);
+    const originalRole = activeCall.role;
+    const remoteInitials = document.getElementById(originalRole === "doctor" ? "doc-patient-initials" : `${getAgoraRolePrefix(originalRole)}-doctor-initials`);
     if (remoteInitials) {
-      const name = role === "doctor" ? activeCall.patient.name : activeCall.doctor.name;
+      const name = originalRole === "doctor" ? activeCall.patient.name : activeCall.doctor.name;
       remoteInitials.innerText = name.split(" ").map(n => n[0]).join("");
     }
 
@@ -1612,8 +1625,9 @@ function updateNetworkUI() {
   const selSelect = document.getElementById(`${role}-net-sim`);
   if (selSelect) selSelect.value = activeCall.networkQuality;
 
-  if (role === "doctor") {
-    document.getElementById("doc-network-lbl").innerText = state.resolution + " " + state.label;
+  if (role === "doc") {
+    const label = document.getElementById("doc-network-lbl");
+    if (label) label.innerText = state.resolution + " " + state.label;
   }
 }
 
@@ -1662,7 +1676,7 @@ window.sendChatMessage = function(role) {
   const text = input.value.trim();
   if (!text || !activeCall) return;
 
-  const sender = role === "doctor" ? "doctor" : "worker";
+  const sender = role === "doctor" || role === "doc" ? "doctor" : "worker";
   activeCall.chat.push({ sender, text });
   input.value = "";
 
@@ -1683,7 +1697,7 @@ window.sendChatMessage = function(role) {
 
 function syncChatBox() {
   if (!activeCall) return;
-  const roles = ["patient", "vhw", "doctor"];
+  const roles = ["pat", "vhw", "doc"];
   
   roles.forEach(role => {
     const box = document.getElementById(`${role}-chat-box`);
@@ -1706,13 +1720,22 @@ window.toggleAudioState = function(role) {
   if (!activeCall) return;
   activeCall.micActive = !activeCall.micActive;
   const btn = document.getElementById(`${role}-mic-toggle`);
+
   if (activeCall.micActive) {
     btn.classList.add("active");
     btn.innerText = "🎙️";
+    if (localAudioTrack) {
+      localAudioTrack.setEnabled(true);
+      console.info("Agora local audio unmuted");
+    }
     showToast("Microphone unmuted", "info");
   } else {
     btn.classList.remove("active");
     btn.innerText = "🔇";
+    if (localAudioTrack) {
+      localAudioTrack.setEnabled(false);
+      console.info("Agora local audio muted");
+    }
     showToast("Microphone muted", "warning");
   }
 };
@@ -1721,13 +1744,22 @@ window.toggleVideoState = function(role) {
   if (!activeCall) return;
   activeCall.camActive = !activeCall.camActive;
   const btn = document.getElementById(`${role}-cam-toggle`);
+
   if (activeCall.camActive) {
     btn.classList.add("active");
     btn.innerText = "📷";
+    if (localVideoTrack) {
+      localVideoTrack.setEnabled(true);
+      console.info("Agora local video enabled");
+    }
     showToast("Webcam enabled", "info");
   } else {
     btn.classList.remove("active");
     btn.innerText = "📵";
+    if (localVideoTrack) {
+      localVideoTrack.setEnabled(false);
+      console.info("Agora local video disabled");
+    }
     showToast("Webcam disabled", "warning");
   }
 };
@@ -2357,41 +2389,68 @@ async function joinAgoraRoom(role) {
     return;
   }
 
+  const agoraPrefix = getAgoraRolePrefix(role);
   showToast(`Connecting Agora RTC: Channel '${agoraConfig.channel}'...`, "info");
+  console.info("Agora client initializing for role:", role, "prefix:", agoraPrefix);
   
   try {
     agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    console.info("Agora client initialized");
 
     // Listen for incoming remote user publishing
     agoraClient.on("user-published", async (user, mediaType) => {
-      await agoraClient.subscribe(user, mediaType);
+      console.info("Agora user-published event received", { uid: user.uid, mediaType });
+      try {
+        await agoraClient.subscribe(user, mediaType);
+        console.info("Agora subscribed to remote user", { uid: user.uid, mediaType });
+      } catch (subscribeErr) {
+        console.error("Agora subscribe failed:", subscribeErr);
+        return;
+      }
       
       if (mediaType === "video") {
         const remoteVideoTrack = user.videoTrack;
-        const remoteContainer = document.getElementById(`${role}-remote-video-container`);
-        const remoteCanvas = document.getElementById(`${role}-remote-canvas`);
+        const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+        const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
         
         if (remoteContainer && remoteCanvas) {
           remoteCanvas.style.display = "none";
           remoteContainer.style.display = "block";
           remoteContainer.innerHTML = ""; // Clear previous elements
-          remoteVideoTrack.play(`${role}-remote-video-container`);
+          remoteVideoTrack.play(`${agoraPrefix}-remote-video-container`);
+          console.info("Agora remote video subscribed and playing", { uid: user.uid });
         }
       }
       if (mediaType === "audio") {
-        user.audioTrack.play();
+        try {
+          user.audioTrack.play();
+          console.info("Agora remote audio playing", { uid: user.uid });
+        } catch (audioErr) {
+          console.error("Agora remote audio play failed:", audioErr);
+        }
       }
       showToast("Remote user connected to Agora session.", "success");
     });
 
     agoraClient.on("user-unpublished", (user, mediaType) => {
+      console.info("Agora user-unpublished event", { uid: user.uid, mediaType });
       if (mediaType === "video") {
-        const remoteContainer = document.getElementById(`${role}-remote-video-container`);
-        const remoteCanvas = document.getElementById(`${role}-remote-canvas`);
+        const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+        const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
         if (remoteContainer && remoteCanvas) {
           remoteContainer.style.display = "none";
           remoteCanvas.style.display = "block";
         }
+      }
+    });
+
+    agoraClient.on("user-left", (user) => {
+      console.info("Agora user-left event", { uid: user.uid });
+      const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+      const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+      if (remoteContainer && remoteCanvas) {
+        remoteContainer.style.display = "none";
+        remoteCanvas.style.display = "block";
       }
     });
 
@@ -2417,29 +2476,36 @@ async function joinAgoraRoom(role) {
     // Use UID based on role (doctor=1, worker/assistant=2, patient=3)
     const uid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
     await agoraClient.join(agoraConfig.appid, agoraConfig.channel, agoraConfig.token || null, uid);
+    console.info("Agora channel joined successfully", { channel: agoraConfig.channel, uid });
 
     // Create local audio and video tracks
     const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
     localAudioTrack = audioTrack;
     localVideoTrack = videoTrack;
+    console.info("Agora local microphone and camera tracks created");
 
     // Play local track in PIP container
-    const localContainer = document.getElementById(`${role}-local-video-container`);
-    const localCanvas = document.getElementById(`${role}-local-canvas`);
+    const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+    const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
     
     if (localContainer && localCanvas) {
       localCanvas.style.display = "none";
       localContainer.style.display = "block";
       localContainer.innerHTML = ""; // Clear
-      localVideoTrack.play(`${role}-local-video-container`);
+      localVideoTrack.play(`${agoraPrefix}-local-video-container`);
+      console.info("Agora local video track playing", { role, container: `${agoraPrefix}-local-video-container` });
     }
 
     // Publish tracks
     await agoraClient.publish([localAudioTrack, localVideoTrack]);
+    console.info("Agora local tracks published successfully");
     showToast("Agora stream published! Real video calling active.", "success");
 
   } catch (err) {
     console.error("Agora WebRTC Error:", err);
+    if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
+      console.warn("Agora permission issue detected", err);
+    }
     showToast(`Agora Connection Error: ${err.message}. Falling back to simulated feed.`, "danger");
     // fallback
     agoraConfig.enabled = false;
