@@ -1005,14 +1005,16 @@ window.vhwCancelToken = function(token) {
 function loadDoctorDashboard() {
   if (currentRole !== "doctor") return;
 
-  // Vitals stats count
-  const myQueue = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && a.vitals !== null);
+  // Include both triaged patients and new bookings waiting for vitals
+  const myQueue = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
   document.getElementById("doc-stat-queue").innerText = `${myQueue.length} Waiting`;
 
   let criticalCount = 0;
   myQueue.forEach(q => {
-    const triage = evaluateTriageUrgency(q.vitals);
-    if (triage.flag === "Critical") criticalCount++;
+    if (q.vitals) {
+      const triage = evaluateTriageUrgency(q.vitals);
+      if (triage.flag === "Critical") criticalCount++;
+    }
   });
   document.getElementById("doc-stat-critical").innerText = `${criticalCount} Cases`;
 
@@ -1043,7 +1045,7 @@ function renderDoctorQueue(searchQuery = "") {
   const tbody = document.getElementById("doc-queue-tbody");
   tbody.innerHTML = "";
 
-  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && a.vitals !== null);
+  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
 
   // Sorting: Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
@@ -1072,14 +1074,15 @@ function renderDoctorQueue(searchQuery = "") {
 
   list.forEach(a => {
     const p = db.patients.find(pat => pat.id === a.patientId);
-    const triage = evaluateTriageUrgency(a.vitals);
+    const triage = a.vitals ? evaluateTriageUrgency(a.vitals) : { flag: "Awaiting Vitals", score: 0 };
     
-    let triageBadge = `<span class="badge badge-success">Normal</span>`;
+    let triageBadge = `<span class="badge badge-warning">Awaiting Vitals</span>`;
     if (a.urgency === "Emergency") triageBadge = `<span class="badge badge-critical" style="background:#dc2626; box-shadow: 0 0 8px #dc2626;">🚨 EMERGENCY</span>`;
-    else if (triage.flag === "Critical") triageBadge = `<span class="badge badge-critical">🚨 Critical</span>`;
-    else if (triage.flag === "High Warning") triageBadge = `<span class="badge badge-warning">⚠️ High</span>`;
+    else if (a.vitals && triage.flag === "Critical") triageBadge = `<span class="badge badge-critical">🚨 Critical</span>`;
+    else if (a.vitals && triage.flag === "High Warning") triageBadge = `<span class="badge badge-warning">⚠️ High</span>`;
+    else if (a.vitals && triage.flag === "Normal") triageBadge = `<span class="badge badge-success">Normal</span>`;
 
-    const vitalsStr = `BP: ${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} | SpO2: ${a.vitals.spo2}% | HR: ${a.vitals.hr} | Temp: ${a.vitals.temp}°C`;
+    const vitalsStr = a.vitals ? `BP: ${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} | SpO2: ${a.vitals.spo2}% | HR: ${a.vitals.hr} | Temp: ${a.vitals.temp}°C` : "Vitals pending";
 
     const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:9px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
 
