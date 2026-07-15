@@ -224,6 +224,19 @@ async function initDB() {
     admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
     vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
+
+  // Sync across tabs/windows so patient view updates when doctor starts the call.
+  window.addEventListener("storage", (event) => {
+    if (event.key === "telehealth_db" && event.newValue) {
+      const updatedDb = JSON.parse(event.newValue);
+      if (updatedDb && updatedDb.appointments) {
+        db.appointments = updatedDb.appointments;
+        if (currentRole === "patient") {
+          loadPatientDashboard();
+        }
+      }
+    }
+  });
   
   // Force upgrade cache if demo email is missing from admins list
   if (!db.authConfig.admins.includes("tvillage.admin.demo@gmail.com")) {
@@ -602,7 +615,7 @@ function loadPatientDashboard() {
 
     // Calculate queue index
     const queueIndex = db.appointments.filter(a => a.status === "Waiting").findIndex(a => a.token === activeApp.token);
-    waitVal.innerText = queueIndex >= 0 ? `${(queueIndex + 1) * 12} mins` : "In Call";
+    waitVal.innerText = queueIndex >= 0 ? `${(queueIndex + 1) * 12} mins` : activeApp.status === "Active" ? "In Call" : "Pending";
     
     const doc = db.doctors.find(d => d.id === activeApp.assignedDoctorId);
     docVal.innerText = doc ? doc.name : "Assigned Clinic";
@@ -1208,7 +1221,10 @@ window.startDoctorConsultation = function(token) {
 
 window.joinPatientCall = function() {
   const activeApp = db.appointments.find(a => a.patientId === currentUser.id && a.status === "Active");
-  if (!activeApp) return;
+  if (!activeApp) {
+    showToast("No active video session found yet. Please wait for the doctor to start the consultation.", "warning");
+    return;
+  }
 
   initSimulatedCallState(activeApp.token, "patient");
   document.getElementById("pat-active-call-card").style.display = "none";
