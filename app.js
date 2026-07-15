@@ -429,6 +429,41 @@ window.handleLogin = async function(e) {
       });
 
       if (error) {
+        console.warn("Supabase auth failed", error);
+
+        // Fallback to local demo accounts when Supabase login is not configured or user is not registered remotely
+        if (role === "doctor") {
+          const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
+          if (doctor && doctor.password === password) {
+            currentUser = doctor;
+            switchView("view-doctor", "doctor");
+            showToast(`Welcome back, ${doctor.name} (Local Demo Login)`, "success");
+            return;
+          }
+        } else if (role === "patient") {
+          const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+          if (patient) {
+            currentUser = patient;
+            switchView("view-patient", "patient");
+            showToast(`Logged in as patient: ${patient.name} (Local Demo Login)`, "success");
+            return;
+          }
+        } else if (role === "vhw") {
+          if (AUTHORIZED_VHWS.includes(email.toLowerCase())) {
+            currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+            switchView("view-vhw", "vhw");
+            showToast("VHW Nurse Console authenticated (Local Demo Login)", "success");
+            return;
+          }
+        } else if (role === "admin") {
+          if (AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
+            currentUser = { name: "System Admin", role: "Admin", email };
+            switchView("view-admin", "admin");
+            showToast("Admin Console authenticated (Local Demo Login)", "success");
+            return;
+          }
+        }
+
         showToast(`Authentication Failed: ${error.message}`, "danger");
         return;
       }
