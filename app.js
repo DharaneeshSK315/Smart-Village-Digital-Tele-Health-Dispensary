@@ -657,7 +657,7 @@ function loadPatientDashboard() {
   // Populate appointment specialty dropdown dynamically
   const patBookSelect = document.getElementById("pat-book-specialty");
   if (patBookSelect) {
-    patBookSelect.innerHTML = db.doctors.map(d => `<option value="${d.specialty}">${d.specialty} (${d.name})</option>`).join("");
+    patBookSelect.innerHTML = db.doctors.map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
   }
 
   // Profile forms
@@ -698,7 +698,7 @@ function loadPatientDashboard() {
 window.bookPatientAppointment = function(e) {
   e.preventDefault();
   const symptoms = document.getElementById("pat-book-symptoms").value;
-  const specialty = document.getElementById("pat-book-specialty").value;
+  const docId = document.getElementById("pat-book-specialty").value;
   const urgency = document.getElementById("pat-book-urgency").value;
 
   const existingApp = db.appointments.find(a => a.patientId === currentUser.id);
@@ -707,8 +707,9 @@ window.bookPatientAppointment = function(e) {
     return;
   }
 
-  // Assign doctor based on specialty
-  const doc = db.doctors.find(d => d.specialty === specialty) || db.doctors[0];
+  // Find selected doctor details
+  const doc = db.doctors.find(d => d.id === docId) || db.doctors[0];
+  const specialty = doc.specialty;
 
   const prefix = currentUser.village.includes("A") ? "VIL-A" : currentUser.village.includes("B") ? "VIL-B" : "VIL-C";
   const num = Math.floor(100 + Math.random() * 900);
@@ -934,7 +935,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   // Populate doctor specialty dropdown dynamically
   const vitalsSpecialtySelect = document.getElementById("vitals-specialty");
   if (vitalsSpecialtySelect) {
-    vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.specialty}">${d.specialty} (${d.name})</option>`).join("");
+    vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
   }
 
   document.getElementById("vitals-modal").classList.add("active");
@@ -955,12 +956,13 @@ window.vhwSubmitVitals = function(e) {
   const spo2 = parseInt(document.getElementById("vitals-spo2").value);
   const hr = parseInt(document.getElementById("vitals-hr").value);
   const pain = parseInt(document.getElementById("vitals-pain").value);
-  const specialty = document.getElementById("vitals-specialty").value;
+  const docId = document.getElementById("vitals-specialty").value;
 
   const vitals = { bpSystolic, bpDiastolic, sugar, temp, spo2, hr, pain, photo: null };
 
   const p = db.patients.find(pat => pat.id === patientId);
-  const doc = db.doctors.find(d => d.specialty === specialty) || db.doctors[0];
+  const doc = db.doctors.find(d => d.id === docId) || db.doctors[0];
+  const specialty = doc.specialty;
 
   // Image upload mock
   const photoInput = document.getElementById("vitals-photo");
