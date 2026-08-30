@@ -969,7 +969,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   if (saveModeToggle) {
     saveModeToggle.onchange = function() {
       const modeOn = this.checked;
-      saveModeLabel.innerText = modeOn ? "ON = Start fresh" : "OFF = Use saved details";
+      saveModeLabel.innerText = modeOn ? "ON = Enter new details" : "OFF = Use saved details";
       if (modeOn) {
         document.getElementById("vitals-symptoms").value = "";
         document.getElementById("vitals-bp-systolic").value = "";
@@ -1025,9 +1025,9 @@ window.vhwSubmitVitals = function(e) {
   const docId = document.getElementById("vitals-specialty").value;
 
   if (savedModeToggle && savedModeToggle.checked) {
-    showToast("Saved-detail mode is ON: fresh details will be used for this dispatch.", "info");
+    showToast("New details mode is ON: enter fresh values for this dispatch.", "info");
   } else {
-    showToast("Saved-detail mode is OFF: previous values are being reused.", "info");
+    showToast("Saved details mode is OFF: previous values are being reused.", "info");
   }
 
   const vitals = { bpSystolic, bpDiastolic, sugar, temp, spo2, hr, pain, photo: null };
