@@ -7,7 +7,8 @@ const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clini
 const DEFAULT_DOCTORS = [
   { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true },
   { id: "doc-2", name: "Dr. Dharani", specialty: "Cardiology", email: "doc.dharani@villagemed.in", password: "password", online: true },
-  { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true }
+  { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true },
+  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true }
 ];
 
 const DEFAULT_PATIENTS = [
@@ -18,7 +19,8 @@ const DEFAULT_PATIENTS = [
     { date: "2026-04-30", clinic: "General Medicine", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", doctor: "Dr. Vikram" }
   ]},
   { id: "pat-3", name: "James Rodriguez", age: 45, gender: "Male", phone: "8123456789", village: "Village Clinic A", history: [] },
-  { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] }
+  { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] },
+  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", history: [] }
 ];
 
 const DEFAULT_APPOINTMENTS = [
@@ -74,6 +76,14 @@ function getAgoraRolePrefix(role) {
   if (role === "patient" || role === "pat") return "pat";
   if (role === "vhw") return "vhw";
   return role;
+}
+
+function validateAgoraAppId(appid) {
+  if (!appid || typeof appid !== "string") return false;
+  const value = appid.trim();
+  const placeholder = "aab8b3f972274fcb87cc25048d089e94";
+  const appIdRegex = /^[A-Za-z0-9]{32}$/;
+  return appIdRegex.test(value) && value !== placeholder;
 }
 
 // Initialize Database
@@ -252,7 +262,13 @@ async function initDB() {
   // Load Agora Config
   agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
   if (!agoraConfig || !agoraConfig.appid) {
-    agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  }
+
+  if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
+    console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
+    agoraConfig.enabled = false;
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
   }
   
@@ -640,7 +656,8 @@ function loadPatientDashboard() {
 
   // Profile forms
   document.getElementById("pat-prof-name").value = currentUser.name;
-  document.getElementById("pat-prof-age").value = `${currentUser.age} yrs / ${currentUser.gender}`;
+  document.getElementById("pat-prof-age").value = currentUser.age || "";
+  document.getElementById("pat-prof-gender").value = currentUser.gender || "Male";
   document.getElementById("pat-prof-phone").value = currentUser.phone || "";
   document.getElementById("pat-prof-address").value = currentUser.village || "";
 
@@ -722,11 +739,17 @@ window.cancelActiveAppointment = function() {
 
 window.updatePatientProfile = function(e) {
   e.preventDefault();
+  const name = document.getElementById("pat-prof-name").value.trim();
+  const age = parseInt(document.getElementById("pat-prof-age").value) || 30;
+  const gender = document.getElementById("pat-prof-gender").value;
   const phone = document.getElementById("pat-prof-phone").value.trim();
   const address = document.getElementById("pat-prof-address").value.trim();
 
   const idx = db.patients.findIndex(p => p.id === currentUser.id);
   if (idx >= 0) {
+    db.patients[idx].name = name;
+    db.patients[idx].age = age;
+    db.patients[idx].gender = gender;
     db.patients[idx].phone = phone;
     db.patients[idx].village = address;
     currentUser = db.patients[idx];
@@ -1152,12 +1175,17 @@ function renderDoctorCompletedLogs() {
 }
 
 // --- TELEMEDICINE ENGINE & BANDWIDTH FAILOVER ---
+const CALL_MODES = {
+  VIDEO_NORMAL: "VIDEO_NORMAL",
+  VIDEO_LOW_QUALITY: "VIDEO_LOW_QUALITY",
+  AUDIO_ONLY: "AUDIO_ONLY"
+};
+
 const NETWORK_STATES = {
   excellent: { label: "Excellent (1080p HD)", resolution: "1080p", bars: 4, bitrate: "6.2 Mbps", latency: "18 ms", class: "excellent-signal", pixelSize: 1, filter: "none", fps: 30 },
   good:      { label: "Good (720p HD)",      resolution: "720p",  bars: 4, bitrate: "3.1 Mbps", latency: "45 ms", class: "good-signal",      pixelSize: 2, filter: "blur(1px) contrast(105%)", fps: 30 },
-  fair:      { label: "Fair (480p SD)",      resolution: "480p",  bars: 3, bitrate: "1.2 Mbps", latency: "85 ms", class: "fair-signal",      pixelSize: 4, filter: "blur(2px) contrast(115%)", fps: 28 },
-  poor:      { label: "Poor (360p Low-Res)", resolution: "360p",  bars: 2, bitrate: "450 Kbps", latency: "160 ms", class: "poor-signal",     pixelSize: 8, filter: "blur(4px) contrast(125%)", fps: 20 },
-  verypoor:  { label: "Very Poor (240p)",    resolution: "240p",  bars: 1, bitrate: "180 Kbps", latency: "290 ms", class: "very-poor-signal", pixelSize: 14, filter: "blur(7px) contrast(135%)", fps: 12 },
+  moderate:  { label: "Moderate (480p SD)",  resolution: "480p",  bars: 3, bitrate: "1.2 Mbps", latency: "85 ms", class: "moderate-signal",  pixelSize: 4, filter: "blur(2px) contrast(115%)", fps: 24 },
+  poor:      { label: "Poor (360p Low-Res)", resolution: "360p",  bars: 2, bitrate: "450 Kbps", latency: "160 ms", class: "poor-signal",     pixelSize: 8, filter: "blur(4px) contrast(125%)", fps: 18 },
   critical:  { label: "Critical (Audio)",    resolution: "Audio", bars: 0, bitrate: "35 Kbps",  latency: "460 ms", class: "critical-signal",  pixelSize: 0, filter: "none", fps: 0 }
 };
 
@@ -1172,9 +1200,13 @@ function initSimulatedCallState(token, role) {
     doctor,
     role,
     networkQuality: "excellent",
+    callMode: CALL_MODES.VIDEO_NORMAL,
     autoFluctuate: false,
-    micActive: true,
     camActive: true,
+    manualVideoDisabled: false,
+    autoVideoDisabled: false,
+    networkCounters: { good: 0, moderate: 0, poor: 0, recovery: 0 },
+    micActive: true,
     aiPredicting: false,
     chat: [
       { sender: "system", text: "Encrypted rural tele-health session established." },
@@ -1223,16 +1255,37 @@ window.startDoctorConsultation = function(token) {
 };
 
 window.joinPatientCall = function() {
+  console.log("[Patient] Join call button clicked");
+  console.log("[Patient] Current user:", currentUser);
+  console.log("[Patient] All appointments:", db.appointments);
+  
   const activeApp = db.appointments.find(a => a.patientId === currentUser.id && a.status === "Active");
+  console.log("[Patient] Active appointment found:", activeApp);
+  
   if (!activeApp) {
     showToast("No active video session found yet. Please wait for the doctor to start the consultation.", "warning");
+    console.log("[Patient] No active appointment found for patient:", currentUser.id);
     return;
   }
 
+  console.log("[Patient] Initializing call state with token:", activeApp.token);
   initSimulatedCallState(activeApp.token, "patient");
-  document.getElementById("pat-active-call-card").style.display = "none";
-  document.getElementById("pat-telehealth-box").style.display = "block";
   
+  const activeCallCard = document.getElementById("pat-active-call-card");
+  const telehealthBox = document.getElementById("pat-telehealth-box");
+  
+  console.log("[Patient] UI elements - activeCallCard:", activeCallCard, "telehealthBox:", telehealthBox);
+  
+  if (!activeCallCard || !telehealthBox) {
+    console.error("[Patient] ERROR: Required UI elements not found!");
+    showToast("Error: Video UI elements not found. Please refresh the page.", "error");
+    return;
+  }
+  
+  activeCallCard.style.display = "none";
+  telehealthBox.style.display = "block";
+  
+  console.log("[Patient] UI elements shown, starting call loop");
   startCallLoop();
 };
 
@@ -1243,27 +1296,55 @@ window.joinVhwCall = function(token) {
   startCallLoop();
 };
 
+function shouldUseAgora() {
+  return agoraConfig && agoraConfig.enabled && agoraConfig.appid && !agoraConfig.lastFail;
+}
+
 function startCallLoop() {
+  console.log("[CallLoop] Starting call loop for role:", activeCall ? activeCall.role : "NO_ACTIVE_CALL");
+  
+  if (!activeCall) {
+    console.error("[CallLoop] ERROR: No active call!");
+    return;
+  }
+  
   const role = activeCall.role;
   const agoraPrefix = getAgoraRolePrefix(role);
+  console.log("[CallLoop] Using Agora prefix:", agoraPrefix);
+  
   const mainCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
   const pipCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
   const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
   const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
 
+  console.log("[CallLoop] Canvas elements:", { 
+    mainCanvas: !!mainCanvas, 
+    pipCanvas: !!pipCanvas,
+    remoteContainer: !!remoteContainer,
+    localContainer: !!localContainer
+  });
+
   if (!mainCanvas || !pipCanvas) {
-    console.error(`Agora call UI elements missing for role='${role}' prefix='${agoraPrefix}'`);
+    console.error(`[CallLoop] ERROR: Agora call UI elements missing for role='${role}' prefix='${agoraPrefix}'`);
+    showToast("ERROR: Video UI elements not found. Please refresh and try again.", "error");
     return;
   }
 
   // Initialize network status indicators
+  console.log("[CallLoop] Updating network UI");
   updateNetworkUI();
 
+  // Sync and display chat messages
+  console.log("[CallLoop] Syncing chat messages");
+  syncChatBox();
+
   // Populate vitals & files tab
+  console.log("[CallLoop] Updating vitals and files");
   updateVitalsFilesTabs();
 
   // Route call based on Agora configuration
-  if (agoraConfig.enabled && agoraConfig.appid) {
+  if (shouldUseAgora()) {
+    console.log("[CallLoop] Agora enabled, using real video");
     // Hide simulated canvas feeds
     mainCanvas.style.display = "none";
     pipCanvas.style.display = "none";
@@ -1274,6 +1355,7 @@ function startCallLoop() {
 
     joinAgoraRoom(role);
   } else {
+    console.log("[CallLoop] Agora disabled or unavailable, using simulated canvas video");
     // Show simulated canvas feeds
     mainCanvas.style.display = "block";
     pipCanvas.style.display = "block";
@@ -1282,8 +1364,23 @@ function startCallLoop() {
     if (remoteContainer) remoteContainer.style.display = "none";
     if (localContainer) localContainer.style.display = "none";
 
-    // Trigger rendering cycle for mock video
-    renderWebcams(mainCanvas, pipCanvas);
+    // Trigger rendering cycle for mock video after UI is visible
+    console.log("[CallLoop] Starting canvas video render loop");
+    requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
+  }
+}
+
+function resizeCanvasToDisplaySize(canvas) {
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    if (canvas.width !== Math.round(rect.width) || canvas.height !== Math.round(rect.height)) {
+      canvas.width = Math.round(rect.width);
+      canvas.height = Math.round(rect.height);
+    }
+  } else if (canvas.width === 0 || canvas.height === 0) {
+    canvas.width = 640;
+    canvas.height = 360;
   }
 }
 
@@ -1375,20 +1472,27 @@ let blinkCounter = 0;
 let speakOffset = 0;
 
 function renderWebcams(remoteCanvas, localCanvas) {
-  if (!activeCall) return;
+  if (!activeCall) {
+    console.warn("[Video] renderWebcams called but activeCall is null");
+    return;
+  }
+
+  if (!remoteCanvas || !localCanvas) {
+    console.error("[Video] Canvas elements not found:", { remoteCanvas, localCanvas });
+    return;
+  }
 
   const remoteCtx = remoteCanvas.getContext("2d");
   const localCtx = localCanvas.getContext("2d");
 
+  if (!remoteCtx || !localCtx) {
+    console.error("[Video] Failed to get 2D context from canvas");
+    return;
+  }
+
   // Ensure internal dimensions match CSS layouts
-  if (remoteCanvas.width !== remoteCanvas.clientWidth) {
-    remoteCanvas.width = remoteCanvas.clientWidth;
-    remoteCanvas.height = remoteCanvas.clientHeight;
-  }
-  if (localCanvas.width !== localCanvas.clientWidth) {
-    localCanvas.width = localCanvas.clientWidth;
-    localCanvas.height = localCanvas.clientHeight;
-  }
+  resizeCanvasToDisplaySize(remoteCanvas);
+  resizeCanvasToDisplaySize(localCanvas);
 
   // Animation math loops
   blinkCounter = (blinkCounter + 1) % 150;
@@ -1420,7 +1524,7 @@ function renderWebcams(remoteCanvas, localCanvas) {
   }
 
   // 2. Draw Remote camera feed (Doctor/Patient depending on who is viewing)
-  if (activeCall.networkQuality !== "verypoor") {
+  if (activeCall.networkQuality !== "critical") {
     // Canvas background
     remoteCtx.fillStyle = "#1e293b";
     remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
@@ -1494,6 +1598,17 @@ function renderWebcams(remoteCanvas, localCanvas) {
     if (pixelSize > 1) {
       pixelateCanvas(remoteCanvas, remoteCtx, pixelSize);
     }
+  } else {
+    // In critical/audio-only mode, show audio fallback UI
+    remoteCtx.fillStyle = "#1e293b";
+    remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+    remoteCtx.fillStyle = "white";
+    remoteCtx.font = "16px Inter";
+    remoteCtx.textAlign = "center";
+    remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 20);
+    remoteCtx.font = "12px Inter";
+    remoteCtx.fillStyle = "#94a3b8";
+    remoteCtx.fillText("Low-bandwidth connection active", remoteCanvas.width / 2, remoteCanvas.height / 2 + 20);
   }
 
   // Continue render loop
@@ -1597,97 +1712,6 @@ function toggleAIBadges(show) {
   });
 }
 
-function updateNetworkUI() {
-  const state = NETWORK_STATES[activeCall.networkQuality];
-  const role = getAgoraRolePrefix(activeCall.role);
-
-  // Text status
-  const connText = document.getElementById(`${role}-conn-text`);
-  if (connText) connText.innerText = `${state.resolution} ${state.label}`;
-
-  // Signal strength bars styling
-  const bars = document.querySelectorAll(`#${role}-sig-bars .sig-bar`);
-  bars.forEach((bar, index) => {
-    if (index < state.bars) {
-      bar.classList.add("active");
-    } else {
-      bar.classList.remove("active");
-    }
-  });
-
-  const viewport = document.getElementById(`${role}-viewport-container`);
-  if (viewport) {
-    viewport.className = `call-viewport ${state.class}`;
-  }
-
-  // Audio avatar fallback handling
-  const fallback = document.getElementById(`${role}-remote-audio-fallback`);
-  const remoteCanvas = document.getElementById(`${role}-remote-canvas`);
-  const remoteContainer = document.getElementById(`${role}-remote-video-container`);
-
-  if (activeCall.networkQuality === "critical") {
-    if (fallback) fallback.style.display = "flex";
-    if (remoteCanvas) remoteCanvas.style.opacity = 0;
-    if (remoteContainer) remoteContainer.style.opacity = 0;
-
-    // If Agora is active, disable local video track to save bandwidth
-    if (agoraConfig.enabled && localVideoTrack) {
-      localVideoTrack.setEnabled(false);
-    }
-    
-    // Set initials in fallback
-    const originalRole = activeCall.role;
-    const remoteInitials = document.getElementById(originalRole === "doctor" ? "doc-patient-initials" : `${getAgoraRolePrefix(originalRole)}-doctor-initials`);
-    if (remoteInitials) {
-      const name = originalRole === "doctor" ? activeCall.patient.name : activeCall.doctor.name;
-      remoteInitials.innerText = name.split(" ").map(n => n[0]).join("");
-    }
-
-    // Auto switch to chat tab since video has shut off
-    switchCallTab(role, "chat");
-
-    showToast("Bandwidth Critically low! Automatically switching to audio + medical chat.", "danger");
-    activeCall.chat.push({ sender: "system", text: "Automatic Failover: switched to audio-only due to 35Kbps restriction." });
-    syncChatBox();
-  } else {
-    if (fallback) fallback.style.display = "none";
-    if (remoteCanvas) remoteCanvas.style.opacity = 1;
-    if (remoteContainer) {
-      remoteContainer.style.opacity = 1;
-      if (agoraConfig.enabled) {
-        remoteContainer.style.display = "block";
-      }
-    }
-
-    // Re-enable Agora video track if we move back from critical
-    if (agoraConfig.enabled && localVideoTrack && activeCall.camActive) {
-      localVideoTrack.setEnabled(true);
-    }
-
-    // Apply CSS filters on real video container to match adaptive resolutions
-    if (remoteContainer) {
-      remoteContainer.style.filter = state.filter;
-    }
-    
-    if (activeCall.networkQuality !== "excellent") {
-      showToast(`Bandwidth restricted. Adjusting video resolution to ${state.resolution} quality.`, "warning");
-      activeCall.chat.push({ sender: "system", text: `Network Quality: adjusted to ${state.resolution} (${state.bitrate})` });
-      syncChatBox();
-    } else {
-      showToast("Bandwidth recovered. Restoring HD video quality.", "success");
-    }
-  }
-
-  // Sync controls state
-  const selSelect = document.getElementById(`${role}-net-sim`);
-  if (selSelect) selSelect.value = activeCall.networkQuality;
-
-  if (role === "doc") {
-    const label = document.getElementById("doc-network-lbl");
-    if (label) label.innerText = state.resolution + " " + state.label;
-  }
-}
-
 // Auto network fluctuation simulator (shows the failover without clicking manually)
 let fluctuationTimer = null;
 window.toggleAutoNetworkFluctuation = function() {
@@ -1730,17 +1754,39 @@ window.switchCallTab = function(role, tab) {
 
 window.sendChatMessage = function(role) {
   const input = document.getElementById(`${role}-chat-input`);
-  const text = input.value.trim();
-  if (!text || !activeCall) return;
+  if (!input) {
+    console.error(`Chat input not found for role: ${role}`);
+    return;
+  }
 
-  const sender = role === "doctor" || role === "doc" ? "doctor" : "worker";
+  const text = input.value.trim();
+  if (!text) {
+    console.warn("Chat message is empty");
+    return;
+  }
+
+  if (!activeCall) {
+    console.error("No active call to send message to");
+    showToast("Unable to send chat: no active call.", "danger");
+    return;
+  }
+
+  let sender = "system";
+  if (role === "doctor" || role === "doc") {
+    sender = "doctor";
+  } else if (role === "pat" || role === "patient") {
+    sender = "patient";
+  } else if (role === "vhw") {
+    sender = "worker";
+  }
+
+  console.info(`[Chat] Sending message as ${sender}: ${text}`);
   activeCall.chat.push({ sender, text });
   input.value = "";
 
   syncChatBox();
 
-  // Simulated auto-reply response to make it interactive
-  if (role === "doctor") {
+  if (role === "doctor" || role === "doc") {
     setTimeout(() => {
       if (!activeCall) return;
       activeCall.chat.push({
@@ -1749,16 +1795,32 @@ window.sendChatMessage = function(role) {
       });
       syncChatBox();
     }, 1500);
+  } else if (role === "pat" || role === "patient") {
+    setTimeout(() => {
+      if (!activeCall) return;
+      activeCall.chat.push({
+        sender: "doctor",
+        text: `Thanks for sharing. Please describe the pain intensity and duration.`
+      });
+      syncChatBox();
+    }, 1500);
   }
 };
 
 function syncChatBox() {
-  if (!activeCall) return;
+  if (!activeCall) {
+    console.warn("syncChatBox called without activeCall");
+    return;
+  }
+  console.info("syncChatBox updating chat for roles", activeCall.chat.length);
   const roles = ["pat", "vhw", "doc"];
   
   roles.forEach(role => {
     const box = document.getElementById(`${role}-chat-box`);
-    if (!box) return;
+    if (!box) {
+      console.warn(`Chat box missing for role: ${role}`);
+      return;
+    }
 
     box.innerHTML = "";
     activeCall.chat.forEach(msg => {
@@ -1768,7 +1830,6 @@ function syncChatBox() {
       box.appendChild(bubble);
     });
 
-    // Auto scroll to bottom
     box.scrollTop = box.scrollHeight;
   });
 }
@@ -1803,19 +1864,22 @@ window.toggleVideoState = function(role) {
   const btn = document.getElementById(`${role}-cam-toggle`);
 
   if (activeCall.camActive) {
+    activeCall.manualVideoDisabled = false;
     btn.classList.add("active");
     btn.innerText = "📷";
     if (localVideoTrack) {
       localVideoTrack.setEnabled(true);
-      console.info("Agora local video enabled");
+      console.info("Agora local video enabled by manual toggle");
     }
     showToast("Webcam enabled", "info");
   } else {
+    activeCall.manualVideoDisabled = true;
+    activeCall.autoVideoDisabled = false;
     btn.classList.remove("active");
     btn.innerText = "📵";
     if (localVideoTrack) {
       localVideoTrack.setEnabled(false);
-      console.info("Agora local video disabled");
+      console.info("Agora local video disabled by manual toggle");
     }
     showToast("Webcam disabled", "warning");
   }
@@ -1844,6 +1908,10 @@ window.leaveConsultation = function() {
 
   // Agora Disconnect
   if (agoraConfig.enabled && agoraClient) {
+    if (activeCall.networkQualityTimer) {
+      clearTimeout(activeCall.networkQualityTimer);
+      activeCall.networkQualityTimer = null;
+    }
     leaveAgoraRoom();
   }
 
@@ -2426,14 +2494,19 @@ window.saveAgoraConfig = function() {
   const channel = document.getElementById("agora-channel").value.trim() || "telehealth-room";
   const enabled = document.getElementById("agora-enabled").checked;
 
-  if (enabled && !appid) {
-    showToast("Please provide a valid Agora App ID to enable WebRTC.", "warning");
+  if (enabled && !validateAgoraAppId(appid)) {
+    showToast("Invalid Agora App ID. Please verify the App ID from your Agora console.", "warning");
+    console.warn("Attempted to enable Agora with invalid App ID", { appid });
     return;
   }
 
   agoraConfig = { appid, token, channel, enabled };
+  if (enabled) {
+    agoraConfig.lastFail = false;
+  }
   localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
   
+  console.info("Agora config saved", { appid, hasToken: !!token, channel, enabled });
   showToast("Agora WebRTC configurations saved successfully!", "success");
 };
 
@@ -2449,6 +2522,15 @@ async function joinAgoraRoom(role) {
   const agoraPrefix = getAgoraRolePrefix(role);
   showToast(`Connecting Agora RTC: Channel '${agoraConfig.channel}'...`, "info");
   console.info("Agora client initializing for role:", role, "prefix:", agoraPrefix);
+
+  const sys = AgoraRTC.checkSystemRequirements ? AgoraRTC.checkSystemRequirements() : null;
+  if (sys) {
+    console.info("Agora system requirements:", sys);
+    if (sys.webRTC !== true || sys.video !== true || sys.audio !== true) {
+      showToast("Browser does not support Agora WebRTC or local camera/mic access.", "danger");
+      console.error("Agora unsupported system requirements", sys);
+    }
+  }
   
   try {
     agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
@@ -2511,29 +2593,62 @@ async function joinAgoraRoom(role) {
       }
     });
 
-    // Real-time Bandwidth Quality Hooks
+    // Real-time bandwidth quality hooks
     agoraClient.on("network-quality", (quality) => {
-      // 1 Excellent, 2 Good, 3 Poor, 4 Bad, 5 Very Bad, 6 Down
-      const downQuality = quality.downlinkNetworkQuality;
-      let targetQual = "good";
-      
-      if (downQuality >= 5) {
-        targetQual = "verypoor";
-      } else if (downQuality >= 3) {
-        targetQual = "poor";
-      }
+      console.info("Agora network-quality event", quality);
+      processAgoraNetworkQuality(quality);
+    });
 
-      if (activeCall && activeCall.networkQuality !== targetQual) {
-        simulateNetworkChange(targetQual);
-        showToast(`Agora network changed to: ${targetQual.toUpperCase()} (Grade ${downQuality})`, "info");
+    agoraClient.on("connection-state-change", (curState, revState) => {
+      console.info("Agora connection-state-change", { current: curState, previous: revState });
+      if (curState === "DISCONNECTED" || curState === "FAILED") {
+        showToast("Agora connection lost. Attempting to keep the call alive.", "danger");
+      } else if (curState === "CONNECTED") {
+        showToast("Agora connection restored.", "success");
       }
     });
 
     // Join room
     // Use UID based on role (doctor=1, worker/assistant=2, patient=3)
+    const appid = (agoraConfig.appid || "").trim();
+    const channel = (agoraConfig.channel || "telehealth-room").trim();
+    const token = (agoraConfig.token || "").trim() || null;
+
+    console.info("Agora joining with config", { appid, channel, hasToken: !!token, uid: role });
+    if (!appid) {
+      throw new Error("Agora App ID is not configured.");
+    }
+
     const uid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
-    await agoraClient.join(agoraConfig.appid, agoraConfig.channel, agoraConfig.token || null, uid);
-    console.info("Agora channel joined successfully", { channel: agoraConfig.channel, uid });
+    await agoraClient.join(appid, channel, token, uid);
+    console.info("Agora channel joined successfully", { channel, uid });
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Browser does not support camera/microphone capture.");
+    }
+
+    let permissionStream = null;
+    try {
+      permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      console.info("User granted camera/mic permissions via getUserMedia");
+    } catch (permErr) {
+      console.error("Camera/microphone permission denied or unavailable", permErr);
+      throw new Error("Camera or microphone access denied. Please allow permissions and refresh the page.");
+    } finally {
+      if (permissionStream) {
+        permissionStream.getTracks().forEach(track => track.stop());
+      }
+    }
+
+    const permissions = await navigator.permissions.query({ name: 'camera' }).catch(() => null);
+    if (permissions) {
+      console.info("Camera permission state:", permissions.state);
+    }
+
+    const micPermissions = await navigator.permissions.query({ name: 'microphone' }).catch(() => null);
+    if (micPermissions) {
+      console.info("Microphone permission state:", micPermissions.state);
+    }
 
     // Create local audio and video tracks
     const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
@@ -2549,8 +2664,15 @@ async function joinAgoraRoom(role) {
       localCanvas.style.display = "none";
       localContainer.style.display = "block";
       localContainer.innerHTML = ""; // Clear
-      localVideoTrack.play(`${agoraPrefix}-local-video-container`);
-      console.info("Agora local video track playing", { role, container: `${agoraPrefix}-local-video-container` });
+      try {
+        await localVideoTrack.play(`${agoraPrefix}-local-video-container`);
+        console.info("Agora local video track playing", { role, container: `${agoraPrefix}-local-video-container` });
+      } catch (playErr) {
+        console.error("Agora local video track play failed:", playErr);
+        showToast("Unable to display local camera. Please allow camera access.", "danger");
+      }
+    } else {
+      console.warn("Agora local video container or canvas missing", { localContainer, localCanvas });
     }
 
     // Publish tracks
@@ -2563,9 +2685,28 @@ async function joinAgoraRoom(role) {
     if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
       console.warn("Agora permission issue detected", err);
     }
-    showToast(`Agora Connection Error: ${err.message}. Falling back to simulated feed.`, "danger");
-    // fallback
+
+    const tokenError = err.message && (err.message.includes("dynamic key") || err.message.includes("token timeout") || err.message.includes("INVALID_TOKEN") || err.message.includes("token"));
+    if (tokenError) {
+      agoraConfig.token = "";
+      console.warn("Agora token error detected, clearing saved token.");
+    }
+
+    const invalidKey = err.message && (err.message.includes("invalid vendor key") || err.message.includes("can not find appid") || err.message.includes("invalid App ID") || err.message.includes("invalid appid"));
+    if (invalidKey) {
+      showToast("Invalid Agora App ID detected. Please verify your App ID in the Agora console and re-save the config.", "danger");
+      console.error("Agora invalid vendor key error detected", err);
+    }
+
     agoraConfig.enabled = false;
+    agoraConfig.lastFail = true;
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    const enableCheck = document.getElementById("agora-enabled");
+    if (enableCheck) enableCheck.checked = false;
+
+    console.warn("Agora connection failed; falling back to simulated feed.", err);
+    showToast(`Agora Connection Error: ${err.message}. Using simulated feed instead.`, "info");
+    // fallback
     startCallLoop();
   }
 }
@@ -2589,6 +2730,220 @@ async function leaveAgoraRoom() {
     showToast("Agora WebRTC calling channel closed.", "info");
   } catch (err) {
     console.error("Error leaving Agora:", err);
+  }
+}
+
+function getQualityCategory(networkQuality) {
+  if (networkQuality >= 6) return "critical";
+  if (networkQuality >= 4) return "poor";
+  if (networkQuality === 3) return "moderate";
+  return "good";
+}
+
+function normalizeAgoraQuality(quality) {
+  if (!quality) return { uplink: 6, downlink: 6 };
+  return {
+    uplink: quality.uplinkNetworkQuality || 6,
+    downlink: quality.downlinkNetworkQuality || 6
+  };
+}
+
+async function processAgoraNetworkQuality(quality) {
+  if (!activeCall) return;
+
+  const { uplink, downlink } = normalizeAgoraQuality(quality);
+  const worst = Math.max(uplink, downlink);
+  const category = getQualityCategory(worst);
+  const mode = activeCall.callMode;
+
+  activeCall.lastNetworkQuality = { uplink, downlink, category, timestamp: Date.now() };
+  activeCall.networkQuality = category;
+
+  // Maintain hysteresis counters
+  if (category === "good") {
+    activeCall.networkCounters.good += 1;
+    activeCall.networkCounters.moderate = 0;
+    activeCall.networkCounters.poor = 0;
+    activeCall.networkCounters.critical = 0;
+  } else if (category === "moderate") {
+    activeCall.networkCounters.moderate += 1;
+    activeCall.networkCounters.good = 0;
+    activeCall.networkCounters.poor = 0;
+    activeCall.networkCounters.critical = 0;
+  } else if (category === "poor") {
+    activeCall.networkCounters.poor += 1;
+    activeCall.networkCounters.good = 0;
+    activeCall.networkCounters.moderate = 0;
+    activeCall.networkCounters.critical = 0;
+  } else {
+    activeCall.networkCounters.critical += 1;
+    activeCall.networkCounters.good = 0;
+    activeCall.networkCounters.moderate = 0;
+    activeCall.networkCounters.poor = 0;
+  }
+
+  console.info("Network failover state", {
+    uplink,
+    downlink,
+    category,
+    callMode: mode,
+    counters: activeCall.networkCounters
+  });
+
+  // Transition logic
+  if (mode === CALL_MODES.VIDEO_NORMAL) {
+    if (category === "moderate" && activeCall.networkCounters.moderate >= 2) {
+      await setCallMode(CALL_MODES.VIDEO_LOW_QUALITY);
+    } else if ((category === "poor" || category === "critical") && activeCall.networkCounters.poor >= 2) {
+      await setCallMode(CALL_MODES.VIDEO_LOW_QUALITY);
+    } else if (category === "critical" && activeCall.networkCounters.critical >= 2) {
+      await setCallMode(CALL_MODES.AUDIO_ONLY);
+    }
+  } else if (mode === CALL_MODES.VIDEO_LOW_QUALITY) {
+    if (category === "good" && activeCall.networkCounters.good >= 4) {
+      await setCallMode(CALL_MODES.VIDEO_NORMAL);
+    } else if ((category === "poor" || category === "critical") && activeCall.networkCounters.poor >= 3) {
+      await setCallMode(CALL_MODES.AUDIO_ONLY);
+    } else if (category === "critical" && activeCall.networkCounters.critical >= 2) {
+      await setCallMode(CALL_MODES.AUDIO_ONLY);
+    }
+  } else if (mode === CALL_MODES.AUDIO_ONLY) {
+    if (category === "good" && activeCall.networkCounters.good >= 4) {
+      await setCallMode(CALL_MODES.VIDEO_NORMAL);
+    } else if (category === "moderate" && activeCall.networkCounters.moderate >= 4) {
+      await setCallMode(CALL_MODES.VIDEO_LOW_QUALITY);
+    }
+  }
+
+  updateNetworkUI();
+}
+
+async function setCallMode(targetMode) {
+  if (!activeCall) return;
+  if (activeCall.callMode === targetMode) return;
+
+  console.info(`Call mode transition: ${activeCall.callMode} -> ${targetMode}`);
+  activeCall.callMode = targetMode;
+
+  if (targetMode === CALL_MODES.VIDEO_NORMAL) {
+    await restoreVideoMode();
+    showToast("Network stable again. Restoring video quality.", "success");
+  } else if (targetMode === CALL_MODES.VIDEO_LOW_QUALITY) {
+    await reduceVideoQuality();
+    showToast("Network slowing down. Reducing video quality to keep call stable.", "warning");
+  } else if (targetMode === CALL_MODES.AUDIO_ONLY) {
+    await enterAudioOnlyMode();
+    showToast("Poor network detected. Video has been turned off to keep the call connected.", "danger");
+  }
+
+  updateNetworkUI();
+}
+
+async function reduceVideoQuality() {
+  if (!localVideoTrack) return;
+  activeCall.autoVideoDisabled = false;
+
+  console.info("Reducing local video quality for adaptive failover");
+
+  try {
+    if (typeof localVideoTrack.setEncoderConfiguration === "function") {
+      await localVideoTrack.setEncoderConfiguration({ width: 640, height: 360, bitrate: 400, frameRate: 18 });
+      console.info("Agora local video encoder set to low quality");
+    } else {
+      console.warn("Agora localVideoTrack.setEncoderConfiguration unavailable");
+    }
+  } catch (err) {
+    console.warn("Failed to reduce Agora video quality:", err);
+  }
+}
+
+async function enterAudioOnlyMode() {
+  if (!localVideoTrack) return;
+  activeCall.autoVideoDisabled = true;
+
+  try {
+    localVideoTrack.setEnabled(false);
+    console.info("Agora local video disabled for audio-only failover");
+  } catch (err) {
+    console.error("Error disabling local video for audio-only mode:", err);
+  }
+}
+
+async function restoreVideoMode() {
+  if (activeCall.manualVideoDisabled) {
+    console.info("Manual camera off: skipping automatic video restore");
+    return;
+  }
+
+  if (!localVideoTrack) {
+    try {
+      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+      localAudioTrack = localAudioTrack || audioTrack;
+      localVideoTrack = videoTrack;
+      if (localAudioTrack && !activeCall.micActive) {
+        localAudioTrack.setEnabled(false);
+      }
+      if (activeCall.camActive) {
+        localVideoTrack.play(`${getAgoraRolePrefix(activeCall.role)}-local-video-container`);
+        await agoraClient.publish([localVideoTrack]);
+      }
+      console.info("Restored local camera track after audio-only mode");
+    } catch (err) {
+      console.error("Failed to restore camera track:", err);
+      showToast("Unable to restore camera after network recovery.", "danger");
+      return;
+    }
+  }
+
+  try {
+    if (activeCall.camActive) {
+      localVideoTrack.setEnabled(true);
+    }
+    activeCall.autoVideoDisabled = false;
+    await reduceVideoQuality();
+    await localVideoTrack.setEnabled(true);
+    console.info("Agora local video restored after network recovery");
+  } catch (err) {
+    console.error("Failed to enable video on restore:", err);
+  }
+}
+
+function updateNetworkUI() {
+  if (!activeCall) return;
+  const state = NETWORK_STATES[activeCall.networkQuality] || NETWORK_STATES.poor;
+  const role = getAgoraRolePrefix(activeCall.role);
+  const connText = document.getElementById(`${role}-conn-text`);
+  const statusText = activeCall.callMode === CALL_MODES.AUDIO_ONLY ? "Audio-only mode" : activeCall.callMode === CALL_MODES.VIDEO_LOW_QUALITY ? "Low-quality video" : "Full video";
+
+  if (connText) {
+    connText.innerText = `${state.label} • ${statusText}`;
+  }
+
+  const bars = document.querySelectorAll(`#${role}-sig-bars .sig-bar`);
+  bars.forEach((bar, index) => {
+    if (index < state.bars) bar.classList.add("active"); else bar.classList.remove("active");
+  });
+
+  const viewport = document.getElementById(`${role}-viewport-container`);
+  if (viewport) viewport.className = `call-viewport ${state.class}`;
+
+  const fallback = document.getElementById(`${role}-remote-audio-fallback`);
+  const remoteContainer = document.getElementById(`${role}-remote-video-container`);
+  const localContainer = document.getElementById(`${role}-local-video-container`);
+
+  if (activeCall.callMode === CALL_MODES.AUDIO_ONLY) {
+    if (fallback) fallback.style.display = "flex";
+    if (remoteContainer) remoteContainer.style.display = "none";
+    if (localContainer) localContainer.style.display = "none";
+  } else {
+    if (fallback) fallback.style.display = "none";
+    if (remoteContainer) remoteContainer.style.display = "block";
+    if (localContainer) localContainer.style.display = "block";
+  }
+
+  const docLabel = document.getElementById("doc-network-lbl");
+  if (docLabel) {
+    docLabel.innerText = `${state.label} • ${statusText}`;
   }
 }
 
@@ -2621,7 +2976,7 @@ function startTelemetryFluctuations() {
       loss = (0.5 + Math.random() * 0.8).toFixed(1);
       upload = (1.8 + Math.random() * 0.4).toFixed(1);
       download = (2.1 + Math.random() * 0.5).toFixed(1);
-    } else if (qual === "fair") {
+    } else if (qual === "moderate") {
       latency += Math.floor(Math.random() * 15) - 7;
       loss = (1.5 + Math.random() * 1.5).toFixed(1);
       upload = (0.9 + Math.random() * 0.3).toFixed(1);
@@ -2631,12 +2986,6 @@ function startTelemetryFluctuations() {
       loss = (4.0 + Math.random() * 4.0).toFixed(1);
       upload = (280 + Math.floor(Math.random() * 80)) + " Kbps"; 
       download = (310 + Math.floor(Math.random() * 90)) + " Kbps";
-    } else if (qual === "verypoor" || activeCall.aiPredicting) {
-      latency = (activeCall.aiPredicting ? 180 : 290) + Math.floor(Math.random() * 30) - 15;
-      loss = (activeCall.aiPredicting ? 6.2 : 12.5 + Math.random() * 5).toFixed(1);
-      fps = activeCall.aiPredicting ? 18 : 12;
-      upload = (activeCall.aiPredicting ? "850 Kbps" : (120 + Math.floor(Math.random() * 40)) + " Kbps");
-      download = (activeCall.aiPredicting ? "980 Kbps" : (140 + Math.floor(Math.random() * 50)) + " Kbps");
     } else if (qual === "critical") {
       latency += Math.floor(Math.random() * 50) - 25;
       loss = (22.0 + Math.random() * 6).toFixed(1);

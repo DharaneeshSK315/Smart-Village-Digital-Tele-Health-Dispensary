@@ -198,12 +198,22 @@
           </div>
           <form id="pat-profile-form" onsubmit="updatePatientProfile(event)">
             <div class="form-group">
-              <label>Full Name</label>
-              <input type="text" id="pat-prof-name" class="form-input" readonly>
+              <label for="pat-prof-name">Full Name</label>
+              <input type="text" id="pat-prof-name" class="form-input" placeholder="Your name..." required>
             </div>
-            <div class="form-group">
-              <label>Age & Gender</label>
-              <input type="text" id="pat-prof-age" class="form-input" readonly>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="pat-prof-age">Age</label>
+                <input type="number" id="pat-prof-age" class="form-input" style="margin-bottom:0;" placeholder="Age..." required>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label for="pat-prof-gender">Gender</label>
+                <select id="pat-prof-gender" class="form-input" style="margin-bottom:0;">
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
             </div>
             <div class="form-group">
               <label for="pat-prof-phone">Phone Number</label>
