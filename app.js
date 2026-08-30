@@ -931,6 +931,12 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   document.getElementById("vitals-pain").value = 0;
   document.getElementById("pain-lbl-val").innerText = 0;
 
+  // Populate doctor specialty dropdown dynamically
+  const vitalsSpecialtySelect = document.getElementById("vitals-specialty");
+  if (vitalsSpecialtySelect) {
+    vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.specialty}">${d.specialty} (${d.name})</option>`).join("");
+  }
+
   document.getElementById("vitals-modal").classList.add("active");
 };
 
