@@ -311,6 +311,49 @@ main {
   background-color: var(--primary-hover);
 }
 
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #cbd5e1;
+  transition: 0.25s ease;
+  border-radius: 999px;
+}
+
+.slider:before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 4px;
+  top: 4px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.25s ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+}
+
+.switch input:checked + .slider {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
 .quick-login-divider {
   margin: 24px 0 16px 0;
   display: flex;

@@ -1310,6 +1310,18 @@
             <input type="text" id="vitals-symptoms" class="form-input" placeholder="e.g. Chronic chest pain, high fever..." required>
           </div>
 
+          <div class="form-group">
+            <label>Saved Details Mode</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(148, 163, 184, 0.05); padding: 8px 12px;">
+              <span id="vhw-saved-mode-text" style="font-size: 12px; font-weight: 700; color: var(--text-medium);">OFF = Use saved details</span>
+              <label class="switch" aria-label="Toggle saved details mode">
+                <input type="checkbox" id="vhw-saved-details-toggle" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <small style="display:block; margin-top:4px; color: var(--text-muted); font-size: 10px;">ON = start fresh / do not use saved details. OFF = use saved details.</small>
+          </div>
+
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="form-group">
               <label>Systolic Blood Pressure (mmHg)</label>

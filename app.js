@@ -271,6 +271,30 @@ async function initDB() {
     agoraConfig.enabled = false;
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
   }
+
+  if (supabase) {
+    const realtimeChannel = supabase.channel("telehealth-live-updates");
+    realtimeChannel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "appointments" },
+      async (payload) => {
+        console.info("Appointment change received from Supabase", payload);
+        try {
+          const { data, error } = await supabase.from("appointments").select("*");
+          if (!error && data) {
+            db.appointments = data;
+            saveDB();
+            if (currentRole === "patient") loadPatientDashboard();
+            else if (currentRole === "doctor") loadDoctorDashboard();
+            else if (currentRole === "vhw") loadVhwDashboard();
+          }
+        } catch (syncErr) {
+          console.warn("Realtime appointment sync failed.", syncErr);
+        }
+      }
+    );
+    realtimeChannel.subscribe();
+  }
   
   // Populate UI inputs on load
   setTimeout(() => {
@@ -915,24 +939,64 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   const p = db.patients.find(pat => pat.id === patientId);
   if (!p) return;
 
+  const saveModeToggle = document.getElementById("vhw-saved-details-toggle");
+  const saveModeLabel = document.getElementById("vhw-saved-mode-text");
+  const useSavedDetails = !saveModeToggle || saveModeToggle.checked;
+
   window.isHomeVisitCapture = isHomeVisit;
   document.getElementById("vitals-pat-id").value = patientId;
   document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
-  
-  // Pre-fill symptom if they booked from app
+
   const app = db.appointments.find(a => a.patientId === patientId);
-  document.getElementById("vitals-symptoms").value = app ? app.symptoms : "";
+  const lastSavedData = app && app.vitals ? app : null;
 
-  document.getElementById("vitals-bp-systolic").value = "";
-  document.getElementById("vitals-bp-diastolic").value = "";
-  document.getElementById("vitals-sugar").value = "";
-  document.getElementById("vitals-temp").value = "";
-  document.getElementById("vitals-spo2").value = "";
-  document.getElementById("vitals-hr").value = "";
-  document.getElementById("vitals-pain").value = 0;
-  document.getElementById("pain-lbl-val").innerText = 0;
+  document.getElementById("vitals-symptoms").value = useSavedDetails && app ? app.symptoms : "";
 
-  // Populate doctor specialty dropdown dynamically
+  document.getElementById("vitals-bp-systolic").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.bpSystolic : "";
+  document.getElementById("vitals-bp-diastolic").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.bpDiastolic : "";
+  document.getElementById("vitals-sugar").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.sugar : "";
+  document.getElementById("vitals-temp").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.temp : "";
+  document.getElementById("vitals-spo2").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.spo2 : "";
+  document.getElementById("vitals-hr").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.hr : "";
+  document.getElementById("vitals-pain").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.pain : 0;
+  document.getElementById("pain-lbl-val").innerText = useSavedDetails && lastSavedData ? lastSavedData.vitals.pain : 0;
+
+  if (saveModeToggle) {
+    saveModeToggle.checked = true;
+    saveModeLabel.innerText = "ON = Start fresh";
+  }
+
+  if (saveModeToggle) {
+    saveModeToggle.onchange = function() {
+      const modeOn = this.checked;
+      saveModeLabel.innerText = modeOn ? "ON = Start fresh" : "OFF = Use saved details";
+      if (modeOn) {
+        document.getElementById("vitals-symptoms").value = "";
+        document.getElementById("vitals-bp-systolic").value = "";
+        document.getElementById("vitals-bp-diastolic").value = "";
+        document.getElementById("vitals-sugar").value = "";
+        document.getElementById("vitals-temp").value = "";
+        document.getElementById("vitals-spo2").value = "";
+        document.getElementById("vitals-hr").value = "";
+        document.getElementById("vitals-pain").value = 0;
+        document.getElementById("pain-lbl-val").innerText = 0;
+      } else {
+        const savedApp = db.appointments.find(a => a.patientId === patientId);
+        if (savedApp && savedApp.vitals) {
+          document.getElementById("vitals-symptoms").value = savedApp.symptoms || "";
+          document.getElementById("vitals-bp-systolic").value = savedApp.vitals.bpSystolic;
+          document.getElementById("vitals-bp-diastolic").value = savedApp.vitals.bpDiastolic;
+          document.getElementById("vitals-sugar").value = savedApp.vitals.sugar;
+          document.getElementById("vitals-temp").value = savedApp.vitals.temp;
+          document.getElementById("vitals-spo2").value = savedApp.vitals.spo2;
+          document.getElementById("vitals-hr").value = savedApp.vitals.hr;
+          document.getElementById("vitals-pain").value = savedApp.vitals.pain || 0;
+          document.getElementById("pain-lbl-val").innerText = savedApp.vitals.pain || 0;
+        }
+      }
+    };
+  }
+
   const vitalsSpecialtySelect = document.getElementById("vitals-specialty");
   if (vitalsSpecialtySelect) {
     vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
@@ -948,6 +1012,8 @@ window.closeVitalsModal = function() {
 window.vhwSubmitVitals = function(e) {
   e.preventDefault();
   const patientId = document.getElementById("vitals-pat-id").value;
+  const savedModeToggle = document.getElementById("vhw-saved-details-toggle");
+  const useSavedDetails = savedModeToggle ? !savedModeToggle.checked : false;
   const symptoms = document.getElementById("vitals-symptoms").value.trim();
   const bpSystolic = parseInt(document.getElementById("vitals-bp-systolic").value);
   const bpDiastolic = parseInt(document.getElementById("vitals-bp-diastolic").value);
@@ -957,6 +1023,12 @@ window.vhwSubmitVitals = function(e) {
   const hr = parseInt(document.getElementById("vitals-hr").value);
   const pain = parseInt(document.getElementById("vitals-pain").value);
   const docId = document.getElementById("vitals-specialty").value;
+
+  if (savedModeToggle && savedModeToggle.checked) {
+    showToast("Saved-detail mode is ON: fresh details will be used for this dispatch.", "info");
+  } else {
+    showToast("Saved-detail mode is OFF: previous values are being reused.", "info");
+  }
 
   const vitals = { bpSystolic, bpDiastolic, sugar, temp, spo2, hr, pain, photo: null };
 
@@ -1292,12 +1364,48 @@ window.startDoctorConsultation = function(token) {
   showToast(`Connected to clinic. Simulated feed started.`, "success");
 };
 
-window.joinPatientCall = function() {
+async function refreshConsultationStateFromCloud() {
+  if (!supabase || !currentUser || !currentUser.id) return false;
+
+  try {
+    const { data: appointmentsData, error: appointmentsError } = await supabase.from("appointments").select("*");
+    if (appointmentsError) {
+      console.warn("Unable to refresh appointments from Supabase:", appointmentsError);
+      return false;
+    }
+
+    if (appointmentsData) {
+      db.appointments = appointmentsData;
+      saveDB();
+      return true;
+    }
+  } catch (err) {
+    console.warn("Cloud refresh failed:", err);
+  }
+
+  return false;
+}
+
+window.joinPatientCall = async function() {
   console.log("[Patient] Join call button clicked");
   console.log("[Patient] Current user:", currentUser);
   console.log("[Patient] All appointments:", db.appointments);
-  
-  const activeApp = db.appointments.find(a => a.patientId === currentUser.id && a.status === "Active");
+
+  if (!currentUser) {
+    showToast("Please log in as the patient first before joining the consultation.", "warning");
+    return;
+  }
+
+  if (supabase) {
+    await refreshConsultationStateFromCloud();
+  }
+
+  const urlToken = new URLSearchParams(window.location.search).get("token") || new URLSearchParams(window.location.hash.substring(1)).get("token");
+  const activeApp = db.appointments.find(a => {
+    if (a.patientId !== currentUser.id) return false;
+    return a.status === "Active" || (urlToken && a.token === urlToken);
+  }) || (urlToken ? db.appointments.find(a => a.token === urlToken && a.patientId === currentUser.id) : null);
+
   console.log("[Patient] Active appointment found:", activeApp);
   
   if (!activeApp) {
