@@ -355,6 +355,31 @@ async function saveDB(tableName = null) {
   }
 }
 
+async function refreshAppointmentsFromSupabase() {
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await supabase.from("appointments").select("*");
+    if (error) {
+      console.warn("Could not refresh appointments from Supabase:", error);
+      return false;
+    }
+
+    if (data) {
+      db.appointments = data;
+      localStorage.setItem("telehealth_db", JSON.stringify(db));
+      if (currentRole === "patient") loadPatientDashboard();
+      if (currentRole === "vhw") loadVhwDashboard();
+      if (currentRole === "doctor") loadDoctorDashboard();
+      return true;
+    }
+  } catch (err) {
+    console.warn("Supabase appointment refresh error:", err);
+  }
+
+  return false;
+}
+
 // Clock updates
 function startClock() {
   const clockEl = document.getElementById("live-clock");
@@ -401,10 +426,13 @@ window.switchView = function(viewId, roleName) {
 
   // Load dashboards based on role
   if (roleName === "patient") {
+    if (supabase) refreshAppointmentsFromSupabase();
     loadPatientDashboard();
   } else if (roleName === "vhw") {
+    if (supabase) refreshAppointmentsFromSupabase();
     loadVhwDashboard();
   } else if (roleName === "doctor") {
+    if (supabase) refreshAppointmentsFromSupabase();
     loadDoctorDashboard();
   } else if (roleName === "admin") {
     loadAdminDashboard();
@@ -719,8 +747,12 @@ function loadPatientDashboard() {
   }
 }
 
-window.bookPatientAppointment = function(e) {
+window.bookPatientAppointment = async function(e) {
   e.preventDefault();
+  if (supabase) {
+    await refreshAppointmentsFromSupabase();
+  }
+
   const symptoms = document.getElementById("pat-book-symptoms").value;
   const docId = document.getElementById("pat-book-specialty").value;
   const urgency = document.getElementById("pat-book-urgency").value;
