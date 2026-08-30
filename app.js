@@ -851,14 +851,38 @@ function renderVhwPatientList(searchQuery = "") {
       <td>${p.age} yrs / ${p.gender}</td>
       <td>${p.village}</td>
       <td>
-        <div style="display:flex; gap:6px;">
+        <div style="display:flex; gap:6px; align-items:center;">
           ${buttonHtml}
+          <button class="btn-action danger" style="padding:4px 8px; font-size:12px; margin-left:auto;" onclick="window.adminDeletePatient('${p.id}')" title="Delete Patient">🗑️</button>
         </div>
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
+
+window.adminDeletePatient = function(id) {
+  if (!confirm("Are you sure you want to delete this patient account? This will permanently remove their records.")) return;
+
+  const idx = db.patients.findIndex(p => p.id === id);
+  if (idx >= 0) {
+    db.patients.splice(idx, 1);
+    
+    // Clear any active tokens/appointments for this patient
+    db.appointments = db.appointments.filter(a => a.patientId !== id);
+
+    if (supabase) {
+      supabase.from("patients").delete().eq("id", id).then(({ error }) => {
+        if (error) console.error("Error deleting patient from Supabase:", error);
+        else console.log("Patient deleted from Supabase successfully");
+      });
+    }
+
+    saveDB();
+    showToast("Patient account removed successfully", "warning");
+    loadVhwDashboard();
+  }
+};
 
 window.vhwSearchPatients = function(val) {
   renderVhwPatientList(val.trim());
