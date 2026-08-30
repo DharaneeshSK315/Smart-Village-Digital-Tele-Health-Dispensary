@@ -941,7 +941,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
 
   const saveModeToggle = document.getElementById("vhw-saved-details-toggle");
   const saveModeLabel = document.getElementById("vhw-saved-mode-text");
-  const useSavedDetails = !saveModeToggle || saveModeToggle.checked;
+  const useSavedDetails = saveModeToggle ? !saveModeToggle.checked : true;
 
   window.isHomeVisitCapture = isHomeVisit;
   document.getElementById("vitals-pat-id").value = patientId;
@@ -962,8 +962,8 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   document.getElementById("pain-lbl-val").innerText = useSavedDetails && lastSavedData ? lastSavedData.vitals.pain : 0;
 
   if (saveModeToggle) {
-    saveModeToggle.checked = true;
-    saveModeLabel.innerText = "ON = Start fresh";
+    saveModeToggle.checked = false;
+    saveModeLabel.innerText = "OFF = Use saved details";
   }
 
   if (saveModeToggle) {
@@ -1013,7 +1013,7 @@ window.vhwSubmitVitals = function(e) {
   e.preventDefault();
   const patientId = document.getElementById("vitals-pat-id").value;
   const savedModeToggle = document.getElementById("vhw-saved-details-toggle");
-  const useSavedDetails = savedModeToggle ? !savedModeToggle.checked : false;
+  const useSavedDetails = savedModeToggle ? !savedModeToggle.checked : true;
   const symptoms = document.getElementById("vitals-symptoms").value.trim();
   const bpSystolic = parseInt(document.getElementById("vitals-bp-systolic").value);
   const bpDiastolic = parseInt(document.getElementById("vitals-bp-diastolic").value);
