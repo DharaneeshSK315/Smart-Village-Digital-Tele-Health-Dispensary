@@ -654,6 +654,12 @@ function loadPatientDashboard() {
     cancelBtn.style.display = "none";
   }
 
+  // Populate appointment specialty dropdown dynamically
+  const patBookSelect = document.getElementById("pat-book-specialty");
+  if (patBookSelect) {
+    patBookSelect.innerHTML = db.doctors.map(d => `<option value="${d.specialty}">${d.specialty} (${d.name})</option>`).join("");
+  }
+
   // Profile forms
   document.getElementById("pat-prof-name").value = currentUser.name;
   document.getElementById("pat-prof-age").value = currentUser.age || "";
@@ -3390,7 +3396,7 @@ window.toggleCallRecording = function() {
 
     showToast("🔴 Recording started. Audio and screen capture active.", "warning");
   } else {
-    window.stopCallRecording();
+    window.stopCallRecording(); 
   }
 };
 
