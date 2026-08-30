@@ -20,7 +20,7 @@ const DEFAULT_PATIENTS = [
   ]},
   { id: "pat-3", name: "James Rodriguez", age: 45, gender: "Male", phone: "8123456789", village: "Village Clinic A", history: [] },
   { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] },
-  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", history: [] }
+  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", email: "dharaneesh@gmail.com", phone: "9876543211", village: "Village Clinic A", history: [] }
 ];
 
 const DEFAULT_APPOINTMENTS = [
