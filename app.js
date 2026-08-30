@@ -948,18 +948,30 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
 
   const app = db.appointments.find(a => a.patientId === patientId);
-  const lastSavedData = app && app.vitals ? app : null;
+  const defaultDemoData = {
+    symptoms: "Chronic chest pain, high fever...",
+    vitals: {
+      bpSystolic: 120,
+      bpDiastolic: 80,
+      sugar: 110,
+      temp: 36.8,
+      spo2: 98,
+      hr: 75,
+      pain: 0
+    }
+  };
+  const lastSavedData = app && app.vitals ? app : defaultDemoData;
 
-  document.getElementById("vitals-symptoms").value = useSavedDetails && app ? app.symptoms : "";
+  document.getElementById("vitals-symptoms").value = useSavedDetails ? (app ? app.symptoms : defaultDemoData.symptoms) : "";
 
-  document.getElementById("vitals-bp-systolic").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.bpSystolic : "";
-  document.getElementById("vitals-bp-diastolic").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.bpDiastolic : "";
-  document.getElementById("vitals-sugar").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.sugar : "";
-  document.getElementById("vitals-temp").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.temp : "";
-  document.getElementById("vitals-spo2").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.spo2 : "";
-  document.getElementById("vitals-hr").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.hr : "";
-  document.getElementById("vitals-pain").value = useSavedDetails && lastSavedData ? lastSavedData.vitals.pain : 0;
-  document.getElementById("pain-lbl-val").innerText = useSavedDetails && lastSavedData ? lastSavedData.vitals.pain : 0;
+  document.getElementById("vitals-bp-systolic").value = useSavedDetails ? lastSavedData.vitals.bpSystolic : "";
+  document.getElementById("vitals-bp-diastolic").value = useSavedDetails ? lastSavedData.vitals.bpDiastolic : "";
+  document.getElementById("vitals-sugar").value = useSavedDetails ? lastSavedData.vitals.sugar : "";
+  document.getElementById("vitals-temp").value = useSavedDetails ? lastSavedData.vitals.temp : "";
+  document.getElementById("vitals-spo2").value = useSavedDetails ? lastSavedData.vitals.spo2 : "";
+  document.getElementById("vitals-hr").value = useSavedDetails ? lastSavedData.vitals.hr : "";
+  document.getElementById("vitals-pain").value = useSavedDetails ? (lastSavedData.vitals.pain ?? 0) : 0;
+  document.getElementById("pain-lbl-val").innerText = useSavedDetails ? (lastSavedData.vitals.pain ?? 0) : 0;
 
   if (saveModeToggle) {
     saveModeToggle.checked = false;
@@ -982,17 +994,20 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
         document.getElementById("pain-lbl-val").innerText = 0;
       } else {
         const savedApp = db.appointments.find(a => a.patientId === patientId);
-        if (savedApp && savedApp.vitals) {
-          document.getElementById("vitals-symptoms").value = savedApp.symptoms || "";
-          document.getElementById("vitals-bp-systolic").value = savedApp.vitals.bpSystolic;
-          document.getElementById("vitals-bp-diastolic").value = savedApp.vitals.bpDiastolic;
-          document.getElementById("vitals-sugar").value = savedApp.vitals.sugar;
-          document.getElementById("vitals-temp").value = savedApp.vitals.temp;
-          document.getElementById("vitals-spo2").value = savedApp.vitals.spo2;
-          document.getElementById("vitals-hr").value = savedApp.vitals.hr;
-          document.getElementById("vitals-pain").value = savedApp.vitals.pain || 0;
-          document.getElementById("pain-lbl-val").innerText = savedApp.vitals.pain || 0;
-        }
+        const fallback = {
+          symptoms: "Chronic chest pain, high fever...",
+          vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.8, spo2: 98, hr: 75, pain: 0 }
+        };
+        const details = savedApp && savedApp.vitals ? savedApp : fallback;
+        document.getElementById("vitals-symptoms").value = details.symptoms || fallback.symptoms;
+        document.getElementById("vitals-bp-systolic").value = details.vitals.bpSystolic;
+        document.getElementById("vitals-bp-diastolic").value = details.vitals.bpDiastolic;
+        document.getElementById("vitals-sugar").value = details.vitals.sugar;
+        document.getElementById("vitals-temp").value = details.vitals.temp;
+        document.getElementById("vitals-spo2").value = details.vitals.spo2;
+        document.getElementById("vitals-hr").value = details.vitals.hr;
+        document.getElementById("vitals-pain").value = details.vitals.pain || 0;
+        document.getElementById("pain-lbl-val").innerText = details.vitals.pain || 0;
       }
     };
   }
