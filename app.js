@@ -1,5 +1,6 @@
 // Smart Village Tele-Health Dispensary Dashboard Controller
 import { supabase } from './supabaseClient.js';
+import { shouldAutoRestoreSession } from './authStateGuard.js';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -62,6 +63,7 @@ const DEFAULT_FAILOVER_LOGS = {
 let db = {};
 let currentUser = null;
 let currentRole = "guest";
+let isSigningOut = false;
 let activeCall = null; // { token, patient, doctor, networkQuality, autoFluctuate, chat: [], files: [], animationId: null }
 let activeCallPrescriptionMeds = [];
 
@@ -70,6 +72,22 @@ let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-r
 let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
+
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
+function getDoctorByEmail(email) {
+  const normalized = normalizeEmail(email);
+  return db.doctors.find(d => normalizeEmail(d.email) === normalized) || null;
+}
+
+function getDoctorQueueId(user) {
+  if (!user) return null;
+  if (user.id) return user.id;
+  const doctor = getDoctorByEmail(user.email);
+  return doctor ? doctor.id : null;
+}
 
 function getAgoraRolePrefix(role) {
   if (role === "doctor" || role === "doc") return "doc";
@@ -94,56 +112,61 @@ async function initDB() {
     // Listen for real-time authentication state changes (OAuth Redirects)
     try {
       supabase.auth.onAuthStateChange((event, session) => {
-        if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session && session.user) {
-          const user = session.user;
-          const email = user.email;
-          const name = user.user_metadata.full_name || user.email.split('@')[0];
-
-          window.googleUser = { name, email };
-          const emailLower = email.toLowerCase();
-          
-          setTimeout(() => {
-            const adminsList = (db && db.authConfig && db.authConfig.admins) ? db.authConfig.admins : ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
-            const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
-            const doctorsList = (db && db.doctors) ? db.doctors : [];
-
-            // Direct auto-login based on authorized email constraints
-            if (adminsList.includes(emailLower)) {
-              currentUser = { name: `Admin ${name}`, role: "Admin", email };
-              switchView("view-admin", "admin");
-              showToast(`Logged in as Admin: ${currentUser.name}`, "success");
-            } else if (vhwsList.includes(emailLower)) {
-              currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
-              switchView("view-vhw", "vhw");
-              showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
-            } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
-              let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
-              if (!doctor) {
-                doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
-                if (db && db.doctors) {
-                  db.doctors.push(doctor);
-                  saveDB();
-                }
-              }
-              currentUser = doctor;
-              switchView("view-doctor", "doctor");
-              showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
-            } else {
-              // Default to Patient
-              let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
-              if (!patient) {
-                patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
-                if (db && db.patients) {
-                  db.patients.push(patient);
-                  saveDB();
-                }
-              }
-              currentUser = patient;
-              switchView("view-patient", "patient");
-              showToast(`Logged in as Patient: ${currentUser.name}`, "success");
-            }
-          }, 800);
+        if (!shouldAutoRestoreSession({ isSigningOut, event, session })) {
+          if (event === "SIGNED_OUT") {
+            isSigningOut = false;
+          }
+          return;
         }
+
+        const user = session.user;
+        const email = user.email;
+        const name = user.user_metadata.full_name || user.email.split('@')[0];
+
+        window.googleUser = { name, email };
+        const emailLower = email.toLowerCase();
+
+        setTimeout(() => {
+          const adminsList = (db && db.authConfig && db.authConfig.admins) ? db.authConfig.admins : ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
+          const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
+          const doctorsList = (db && db.doctors) ? db.doctors : [];
+
+          // Direct auto-login based on authorized email constraints
+          if (adminsList.includes(emailLower)) {
+            currentUser = { name: `Admin ${name}`, role: "Admin", email };
+            switchView("view-admin", "admin");
+            showToast(`Logged in as Admin: ${currentUser.name}`, "success");
+          } else if (vhwsList.includes(emailLower)) {
+            currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
+            switchView("view-vhw", "vhw");
+            showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
+          } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
+            let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
+            if (!doctor) {
+              doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+              if (db && db.doctors) {
+                db.doctors.push(doctor);
+                saveDB();
+              }
+            }
+            currentUser = doctor;
+            switchView("view-doctor", "doctor");
+            showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
+          } else {
+            // Default to Patient
+            let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
+            if (!patient) {
+              patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+              if (db && db.patients) {
+                db.patients.push(patient);
+                saveDB();
+              }
+            }
+            currentUser = patient;
+            switchView("view-patient", "patient");
+            showToast(`Logged in as Patient: ${currentUser.name}`, "success");
+          }
+        }, 800);
       });
     } catch (authErr) {
       console.warn("OAuth Session check error:", authErr);
@@ -412,6 +435,12 @@ function showToast(message, type = "info") {
 
 // View switcher
 window.switchView = function(viewId, roleName) {
+  if (viewId === "view-login" && activeCall && currentUser) {
+    console.warn("Blocking login redirect while a live consultation is active.");
+    leaveConsultation();
+    return;
+  }
+
   document.querySelectorAll(".view-section").forEach(sec => sec.classList.remove("active"));
   document.querySelectorAll(".dev-btn").forEach(btn => btn.classList.remove("active"));
   
@@ -453,17 +482,27 @@ window.quickLogin = function(role) {
 };
 
 window.logout = function() {
+  if (activeCall) {
+    console.warn("Ending active consultation before logout.");
+    leaveConsultation();
+  }
+
+  isSigningOut = true;
   currentUser = null;
   currentRole = "guest";
   document.getElementById("header-user-profile").style.display = "none";
   
   if (supabase) {
     supabase.auth.signOut().then(() => {
+      isSigningOut = false;
       console.log("Logged out of Supabase session.");
+    }).catch((err) => {
+      console.warn("Supabase signOut failed.", err);
+      isSigningOut = false;
     });
   }
   
-  switchView("view-login", "login");
+  setTimeout(() => switchView("view-login", "login"), 150);
 };
 
 function updateHeaderProfile() {
@@ -514,10 +553,11 @@ window.handleLogin = async function(e) {
 
       if (error) {
         console.warn("Supabase auth failed", error);
+        isSigningOut = false;
 
         // Fallback to local demo accounts when Supabase login is not configured or user is not registered remotely
         if (role === "doctor") {
-          const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
+          const doctor = getDoctorByEmail(email);
           if (doctor && doctor.password === password) {
             currentUser = doctor;
             switchView("view-doctor", "doctor");
@@ -553,9 +593,10 @@ window.handleLogin = async function(e) {
       }
 
       const user = data.user;
+      isSigningOut = false;
 
       if (role === "doctor") {
-        const doctor = db.doctors.find(d => d.email === email);
+        const doctor = getDoctorByEmail(email);
         if (doctor) {
           currentUser = doctor;
           switchView("view-doctor", "doctor");
@@ -599,7 +640,7 @@ window.handleLogin = async function(e) {
   } else {
     // Offline local fallback logic (no real password check)
     if (role === "doctor") {
-      const doctor = db.doctors.find(d => d.email === email);
+      const doctor = getDoctorByEmail(email);
       if (doctor) {
         currentUser = doctor;
         switchView("view-doctor", "doctor");
@@ -1201,8 +1242,19 @@ window.vhwCancelToken = function(token) {
 function loadDoctorDashboard() {
   if (currentRole !== "doctor") return;
 
+  const doctorQueueId = getDoctorQueueId(currentUser);
+  if (!doctorQueueId) {
+    document.getElementById("doc-stat-queue").innerText = `0 Waiting`;
+    document.getElementById("doc-stat-critical").innerText = `0 Cases`;
+    document.getElementById("doc-stat-consulted").innerText = `0 Patients`;
+    renderDoctorQueue();
+    renderDoctorCompletedLogs();
+    renderDoctorAlertsStrip([]);
+    return;
+  }
+
   // Include both triaged patients and new bookings waiting for vitals
-  const myQueue = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
+  const myQueue = db.appointments.filter(a => a.assignedDoctorId === doctorQueueId && (a.vitals !== null || a.status === "Waiting"));
   document.getElementById("doc-stat-queue").innerText = `${myQueue.length} Waiting`;
 
   let criticalCount = 0;
@@ -1241,7 +1293,13 @@ function renderDoctorQueue(searchQuery = "") {
   const tbody = document.getElementById("doc-queue-tbody");
   tbody.innerHTML = "";
 
-  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
+  const doctorQueueId = getDoctorQueueId(currentUser);
+  if (!doctorQueueId) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
+    return;
+  }
+
+  let list = db.appointments.filter(a => a.assignedDoctorId === doctorQueueId && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
 
   // Sorting: Active -> Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
