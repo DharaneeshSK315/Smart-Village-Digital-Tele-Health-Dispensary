@@ -9,10 +9,14 @@ const DEFAULT_DOCTORS = [
   { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true },
   { id: "doc-2", name: "Dr. Dharani", specialty: "Cardiology", email: "doc.dharani@villagemed.in", password: "password", online: true },
   { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true },
-  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true }
+  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true },
+  { id: "doc-5", name: "Dr. Priya", specialty: "Cardiology", email: "doc.priya@villagemed.in", password: "password", online: true, photo: "doctor_portrait.jpg" }
 ];
 
 const DEFAULT_PATIENTS = [
+  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh@gmail.com", photo: "dharaneesh_portrait.jpg", history: [] },
+  { id: "pat-9", name: "Meenakshi", age: 54, gender: "Female", phone: "9876543212", village: "Village Clinic B", photo: "patient_portrait.jpg", history: [] },
+  { id: "pat-12", name: "Rajan Kumar", age: 34, gender: "Male", phone: "9876543213", village: "Village Clinic A", photo: "rajan_portrait.jpg", history: [] },
   { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [
     { date: "2026-05-12", clinic: "Cardiology", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", doctor: "Dr. Dharani" }
   ]},
@@ -20,42 +24,39 @@ const DEFAULT_PATIENTS = [
     { date: "2026-04-30", clinic: "General Medicine", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", doctor: "Dr. Vikram" }
   ]},
   { id: "pat-3", name: "James Rodriguez", age: 45, gender: "Male", phone: "8123456789", village: "Village Clinic A", history: [] },
-  { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] },
-  { id: "pat-5", name: "Dharaneesh", age: 30, gender: "Male", email: "dharaneesh@gmail.com", phone: "9876543211", village: "Village Clinic A", history: [] },
-  { id: "pat-6", name: "Kavitha R.", age: 45, gender: "Female", phone: "9876543212", village: "Village Clinic B", history: [] },
-  { id: "pat-7", name: "Rajan M.", age: 28, gender: "Male", phone: "9876543213", village: "Village Clinic A", history: [] }
+  { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] }
 ];
 
 const DEFAULT_APPOINTMENTS = [
   {
-    token: "VIL-A-914",
+    token: "VIL-A-431",
     patientId: "pat-5",
-    symptoms: "Fever, Cough",
-    urgency: "Urgent",
-    specialty: "General Medicine",
-    assignedDoctorId: "doc-4",
-    status: "Waiting",
-    vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 37.0, spo2: 98, hr: 75, pain: 3, photo: null }
-  },
-  {
-    token: "VIL-B-203",
-    patientId: "pat-6",
-    symptoms: "Chest pain, Breathlessness",
-    urgency: "Critical",
-    specialty: "General Medicine",
-    assignedDoctorId: "doc-4",
-    status: "Waiting",
-    vitals: { bpSystolic: 140, bpDiastolic: 95, sugar: 135, temp: 37.4, spo2: 94, hr: 88, pain: 7, photo: null }
-  },
-  {
-    token: "VIL-A-101",
-    patientId: "pat-7",
-    symptoms: "Mild headache",
+    symptoms: "Fever, headache",
     urgency: "Normal",
     specialty: "General Medicine",
-    assignedDoctorId: "doc-4",
+    assignedDoctorId: "doc-1",
     status: "Waiting",
-    vitals: { bpSystolic: 110, bpDiastolic: 70, sugar: 105, temp: 36.6, spo2: 99, hr: 72, pain: 2, photo: null }
+    vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.5, spo2: 98, hr: 75, pain: 0, photo: null }
+  },
+  {
+    token: "VIL-B-219",
+    patientId: "pat-9",
+    symptoms: "Chest pain, shortness of breath",
+    urgency: "Critical",
+    specialty: "Cardiology",
+    assignedDoctorId: "doc-5",
+    status: "Waiting",
+    vitals: { bpSystolic: 155, bpDiastolic: 95, sugar: 140, temp: 37.2, spo2: 91, hr: 102, pain: 6, photo: null }
+  },
+  {
+    token: "VIL-A-432",
+    patientId: "pat-12",
+    symptoms: "Back pain, fatigue",
+    urgency: "Urgent",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-1",
+    status: "Waiting",
+    vitals: { bpSystolic: 130, bpDiastolic: 85, sugar: 120, temp: 37.0, spo2: 96, hr: 88, pain: 4, photo: null }
   }
 ];
 
@@ -246,15 +247,44 @@ async function initDB() {
 
   // Guarantee arrays exist to prevent schema discrepancy crashes
   db.villages = db.villages || DEFAULT_VILLAGES;
-  db.doctors = db.doctors || DEFAULT_DOCTORS;
-  db.patients = db.patients || DEFAULT_PATIENTS;
-  db.appointments = db.appointments || DEFAULT_APPOINTMENTS;
+  db.doctors = db.doctors || [...DEFAULT_DOCTORS];
+  db.patients = db.patients || [...DEFAULT_PATIENTS];
+  db.appointments = db.appointments || [...DEFAULT_APPOINTMENTS];
   db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
   db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
   db.authConfig = db.authConfig || {
     admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
     vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
+
+  // Sync reference doctors (e.g. Dr. Priya)
+  DEFAULT_DOCTORS.forEach(doc => {
+    if (!db.doctors.some(d => d.id === doc.id)) {
+      db.doctors.push(doc);
+    }
+  });
+
+  // Sync reference patients (Dharaneesh, Meenakshi, Rajan Kumar)
+  DEFAULT_PATIENTS.forEach(pat => {
+    const existing = db.patients.find(p => p.id === pat.id);
+    if (!existing) {
+      db.patients.push(pat);
+    } else {
+      if (pat.photo) existing.photo = pat.photo;
+      if (pat.id === "pat-5" || pat.id === "pat-9" || pat.id === "pat-12") {
+        existing.age = pat.age;
+        existing.gender = pat.gender;
+        existing.village = pat.village;
+      }
+    }
+  });
+
+  // If appointments are empty or missing reference tokens, populate them
+  DEFAULT_APPOINTMENTS.forEach(defApp => {
+    if (!db.appointments.some(a => a.token === defApp.token)) {
+      db.appointments.push(defApp);
+    }
+  });
 
   // Sync across tabs/windows so view updates when appointments change.
   window.addEventListener("storage", (event) => {
@@ -883,11 +913,25 @@ function loadVhwDashboard() {
   renderVhwQueue();
 }
 
-function getVhwPatientAvatarHtml(name, id = "") {
+function getVhwPatientAvatarHtml(patientOrName, id = "") {
+  let name = "";
+  let photo = "";
+  if (typeof patientOrName === "object" && patientOrName !== null) {
+    name = patientOrName.name || "";
+    photo = patientOrName.photo || "";
+    id = patientOrName.id || id;
+  } else {
+    name = patientOrName || "";
+    const p = db && db.patients ? db.patients.find(pt => pt.name === name || pt.id === id) : null;
+    if (p && p.photo) photo = p.photo;
+  }
   const initials = name ? name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "P";
   const colors = ["#2563eb", "#0284c7", "#4f46e5", "#0d9488", "#0891b2", "#6366f1"];
   const seed = (id || name || "P").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
   const bg = colors[seed % colors.length];
+  if (photo) {
+    return `<div class="patient-avatar-circle" style="background: ${bg};"><img src="${photo}" alt="${name}" onerror="this.outerHTML='${initials}'"></div>`;
+  }
   return `<div class="patient-avatar-circle" style="background: ${bg};">${initials}</div>`;
 }
 
@@ -913,24 +957,18 @@ function renderVhwPatientList(searchQuery = "") {
     const activeApp = db.appointments.find(a => a.patientId === p.id);
     let buttonHtml = "";
 
-    if (activeApp) {
-      if (activeApp.vitals === null) {
-        buttonHtml = `
-          <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)">🩺 Record Vitals</button>
-          <button class="btn-home-visit" onclick="openVitalsModal('${p.id}', true)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Home Visit</button>
-        `;
-      } else if (activeApp.status === "Active") {
-        buttonHtml = `<button class="btn-dispatch" style="background-color:#2563eb !important;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
-      } else {
-        buttonHtml = `
-          <span class="token-pill">Token: ${activeApp.token}</span>
-          <button class="btn-dispatch" style="margin-left: 6px;" onclick="openVitalsModal('${p.id}', false)">🩺 Vitals</button>
-        `;
-      }
+    if (activeApp && activeApp.status === "Active") {
+      buttonHtml = `<button class="btn-dispatch" style="background-color:#2563eb !important;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
     } else {
       buttonHtml = `
-        <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg> Dispatch Token</button>
-        <button class="btn-home-visit" onclick="openVitalsModal('${p.id}', true)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Home Visit</button>
+        <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          Dispatch Token
+        </button>
+        <button class="btn-home-visit" onclick="openVitalsModal('${p.id}', true)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Home Visit
+        </button>
       `;
     }
 
@@ -939,7 +977,7 @@ function renderVhwPatientList(searchQuery = "") {
       <td style="font-weight: 500; color: #64748b; font-family: monospace;">${p.id}</td>
       <td>
         <div class="vhw-patient-cell">
-          ${getVhwPatientAvatarHtml(p.name, p.id)}
+          ${getVhwPatientAvatarHtml(p, p.id)}
           <span class="patient-name-bold">${p.name}</span>
         </div>
       </td>
@@ -1218,8 +1256,8 @@ function renderVhwQueue() {
       const triage = evaluateTriageUrgency(a.vitals);
       if (triage.flag === "Critical" || a.urgency === "Critical" || a.urgency === "Emergency") {
         priorityBadge = `<span class="triage-pill triage-critical"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Critical</span>`;
-      } else if (triage.flag === "High Warning" || a.urgency === "Severe" || a.urgency === "Moderate") {
-        priorityBadge = `<span class="triage-pill triage-warning"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Urgent</span>`;
+      } else if (triage.flag === "High Warning" || a.urgency === "Urgent" || a.urgency === "Severe" || a.urgency === "Moderate") {
+        priorityBadge = `<span class="triage-pill triage-warning"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg> Urgent</span>`;
       } else {
         priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
       }
@@ -1230,7 +1268,7 @@ function renderVhwQueue() {
       <td><span class="token-pill">${a.token}</span></td>
       <td>
         <div class="vhw-patient-cell">
-          ${getVhwPatientAvatarHtml(p ? p.name : "Patient", p ? p.id : a.patientId)}
+          ${getVhwPatientAvatarHtml(p, p ? p.id : a.patientId)}
           <div>
             <div class="patient-name-bold">${p ? p.name : "Patient"}</div>
             <div class="patient-sub-meta">${p ? `${p.age} yrs / ${p.gender}` : ""}</div>
@@ -1240,11 +1278,10 @@ function renderVhwQueue() {
       <td style="color:#334155; font-size: 13px;">${a.symptoms || "None reported"}</td>
       <td>${vitalsHtml}</td>
       <td>${priorityBadge}</td>
-      <td style="color:#0f172a; font-weight:500;">${doc ? doc.name : "General Medicine"}</td>
+      <td style="color:#0f172a; font-weight:500;">${doc ? doc.name : (a.specialty || "General Medicine")}</td>
       <td style="text-align: right; padding-right: 20px;">
         <div style="display:inline-flex; align-items:center; gap:6px;">
-          ${p ? `<button class="btn-queue-action" onclick="openVitalsModal('${p.id}', ${a.isHomeVisit || false})"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Log Vitals</button>` : ""}
-          <button class="btn-queue-cancel" onclick="vhwCancelToken('${a.token}')" title="Cancel Appointment Token">✕</button>
+          ${p ? `<button class="btn-queue-action" onclick="openVitalsModal('${p.id}', ${a.isHomeVisit || false})"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Log Vitals</button>` : ""}
         </div>
       </td>
     `;

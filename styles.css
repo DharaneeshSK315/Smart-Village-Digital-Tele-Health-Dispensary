@@ -165,13 +165,14 @@ header {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background-color: var(--primary-light);
-  color: var(--primary);
+  background-color: #2563eb;
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .user-info {
@@ -188,11 +189,29 @@ header {
 .user-role {
   font-size: 10px;
   color: var(--text-muted);
-  background-color: var(--bg-secondary);
-  padding: 1px 6px;
-  border-radius: 10px;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.header-btn-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  background: #ffffff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.header-btn-logout:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #dc2626;
 }
 
 /* Container Layouts */
@@ -1633,41 +1652,53 @@ body:has(#view-vhw.active),
   flex-shrink: 0;
 }
 
-/* Pastel Card Variations */
-.metric-card-blue {
+/* Pastel Card Variations for VHW */
+.vhw-stats-strip .metric-card-blue {
   background-color: #e0efff !important;
   border: 1px solid #bfdbfe !important;
 }
-.metric-card-blue .metric-icon {
+.vhw-stats-strip .metric-card-blue .metric-icon {
   color: #2563eb !important;
   background-color: transparent !important;
 }
-
-.metric-card-amber {
-  background-color: #fef3c7 !important;
-  border: 1px solid #fde68a !important;
-}
-.metric-card-amber .metric-icon {
-  color: #d97706 !important;
-  background-color: transparent !important;
+.vhw-stats-strip .metric-card-blue .metric-info .value {
+  color: #2563eb !important;
 }
 
-.metric-card-red {
-  background-color: #fee2e2 !important;
-  border: 1px solid #fecaca !important;
-}
-.metric-card-red .metric-icon {
-  color: #dc2626 !important;
-  background-color: transparent !important;
-}
-
-.metric-card-sky {
+.vhw-stats-strip .metric-card-sky {
   background-color: #e0f2fe !important;
   border: 1px solid #bae6fd !important;
 }
-.metric-card-sky .metric-icon {
+.vhw-stats-strip .metric-card-sky .metric-icon {
   color: #0284c7 !important;
   background-color: transparent !important;
+}
+.vhw-stats-strip .metric-card-sky .metric-info .value {
+  color: #0284c7 !important;
+}
+
+.vhw-stats-strip .metric-card-red {
+  background-color: #fee2e2 !important;
+  border: 1px solid #fecaca !important;
+}
+.vhw-stats-strip .metric-card-red .metric-icon {
+  color: #dc2626 !important;
+  background-color: transparent !important;
+}
+.vhw-stats-strip .metric-card-red .metric-info .value {
+  color: #dc2626 !important;
+}
+
+.vhw-stats-strip .metric-card-green {
+  background-color: #dcfce7 !important;
+  border: 1px solid #bbf7d0 !important;
+}
+.vhw-stats-strip .metric-card-green .metric-icon {
+  color: #16a34a !important;
+  background-color: transparent !important;
+}
+.vhw-stats-strip .metric-card-green .metric-info .value {
+  color: #16a34a !important;
 }
 
 .vhw-stats-strip .metric-info .label {
@@ -1717,12 +1748,16 @@ body:has(#view-vhw.active),
 }
 
 .vhw-card .card-title-bar h3 {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: #2563eb !important;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.vhw-card .card-title-bar h3 svg {
+  stroke: #2563eb !important;
 }
 
 /* 3. Patient Registration Form Styling */
@@ -1917,11 +1952,11 @@ body:has(#view-vhw.active),
 
 /* 6. Action Button Variants */
 .btn-dispatch {
-  background-color: #0284c7 !important;
+  background-color: #16a34a !important;
   color: #ffffff !important;
-  padding: 6px 12px !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
+  padding: 5px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
   border-radius: 6px !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -1932,33 +1967,33 @@ body:has(#view-vhw.active),
 }
 
 .btn-dispatch:hover {
-  background-color: #0369a1 !important;
+  background-color: #15803d !important;
 }
 
 .btn-home-visit {
-  background-color: #4f46e5 !important;
-  color: #ffffff !important;
-  padding: 6px 12px !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
+  background-color: #eff6ff !important;
+  color: #2563eb !important;
+  border: 1px solid #bfdbfe !important;
+  padding: 5px 12px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
   border-radius: 6px !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 5px !important;
-  border: none !important;
   cursor: pointer !important;
-  transition: background-color 0.2s !important;
+  transition: all 0.2s !important;
 }
 
 .btn-home-visit:hover {
-  background-color: #4338ca !important;
+  background-color: #dbeafe !important;
 }
 
 .btn-delete-pat {
   background-color: #fee2e2 !important;
-  color: #ef4444 !important;
-  padding: 6px 8px !important;
-  font-size: 12px !important;
+  color: #dc2626 !important;
+  padding: 5px 8px !important;
+  font-size: 11px !important;
   border-radius: 6px !important;
   border: 1px solid #fecaca !important;
   display: inline-flex !important;
@@ -1977,14 +2012,14 @@ body:has(#view-vhw.active),
 /* 7. Queue Styling: Token, Structured Vitals & Badges */
 .token-pill {
   display: inline-block;
-  background-color: #e0f2fe;
-  color: #0369a1;
+  background-color: #ffffff;
+  color: #334155;
   font-family: monospace;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 6px;
-  border: 1px solid #bae6fd;
+  border: 1px solid #cbd5e1;
 }
 
 .vitals-telemetry-grid {
@@ -2004,7 +2039,7 @@ body:has(#view-vhw.active),
 .vital-k {
   color: #64748b;
   font-weight: 500;
-  min-width: 38px;
+  min-width: 44px;
 }
 
 .vital-v {
@@ -2020,7 +2055,7 @@ body:has(#view-vhw.active),
 .triage-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding: 3px 10px;
   border-radius: 20px;
   font-size: 11px;
@@ -2028,9 +2063,9 @@ body:has(#view-vhw.active),
 }
 
 .triage-normal {
-  background-color: #e0f2fe;
-  color: #0284c7;
-  border: 1px solid #bae6fd;
+  background-color: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
 }
 
 .triage-critical {
@@ -2048,13 +2083,13 @@ body:has(#view-vhw.active),
 .btn-queue-action {
   background-color: #2563eb !important;
   color: #ffffff !important;
-  padding: 6px 12px !important;
+  padding: 6px 14px !important;
   border-radius: 6px !important;
-  font-size: 12px !important;
+  font-size: 11px !important;
   font-weight: 600 !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 5px !important;
+  gap: 4px !important;
   border: none !important;
   cursor: pointer !important;
   transition: background-color 0.2s !important;

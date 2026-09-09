@@ -49,7 +49,14 @@
           <span class="user-name" id="header-user-name">Guest User</span>
           <span class="user-role" id="header-user-role">Guest</span>
         </div>
-        <span onclick="logout()" style="cursor: pointer; font-size: 11px; color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.05); padding: 2px 6px; border-radius: 4px; font-weight: 600;">🔒 Log Out</span>
+        <button class="header-btn-logout" onclick="logout()" type="button" title="Sign Out">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Log Out
+        </button>
       </div>
     </div>
   </header>
@@ -408,17 +415,17 @@
           </div>
           <div class="metric-info">
             <span class="label">Total Patients</span>
-            <div class="value" id="vhw-stat-registered">0</div>
+            <div class="value" id="vhw-stat-registered">7</div>
             <span class="subtext">Active village population</span>
           </div>
         </div>
-        <div class="metric-card metric-card-amber">
-          <div class="metric-icon amber">
+        <div class="metric-card metric-card-sky">
+          <div class="metric-icon sky">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
           <div class="metric-info">
             <span class="label">Waiting for Call</span>
-            <div class="value" id="vhw-stat-queue">0</div>
+            <div class="value" id="vhw-stat-queue">3</div>
             <span class="subtext">Awaiting doctor consultation</span>
           </div>
         </div>
@@ -428,12 +435,12 @@
           </div>
           <div class="metric-info">
             <span class="label">Critical Alerts</span>
-            <div class="value" id="vhw-stat-alerts">0</div>
+            <div class="value" id="vhw-stat-alerts">1</div>
             <span class="subtext">Flagged vital indicators</span>
           </div>
         </div>
-        <div class="metric-card metric-card-sky">
-          <div class="metric-icon sky">
+        <div class="metric-card metric-card-green">
+          <div class="metric-icon green">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V4"/></svg>
           </div>
           <div class="metric-info">
