@@ -833,8 +833,13 @@ window.handleHeaderProfileClick = function() {
   if (currentRole === "patient" || (currentUser && currentUser.role === "patient")) {
     window.openPatientProfileModal();
   } else {
-    const roleTitle = currentRole ? currentRole.charAt(0).toUpperCase() + currentRole.slice(1) : "User";
-    showToast(`Logged in as ${currentUser ? currentUser.name : 'User'} (${roleTitle})`, "info");
+    const patView = document.getElementById("view-patient");
+    if (patView && patView.classList.contains("active")) {
+      window.openPatientProfileModal();
+    } else {
+      const roleTitle = currentRole ? currentRole.charAt(0).toUpperCase() + currentRole.slice(1) : "User";
+      showToast(`Logged in as ${currentUser ? currentUser.name : 'User'} (${roleTitle})`, "info");
+    }
   }
 };
 

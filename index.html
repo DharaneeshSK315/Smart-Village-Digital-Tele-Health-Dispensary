@@ -129,12 +129,6 @@
           <h2>Patient Health Dashboard</h2>
           <p class="pat-dashboard-sub">Track active queue tokens, live tele-consultations, and digital prescriptions</p>
         </div>
-        <div class="pat-header-actions">
-          <button type="button" class="btn-open-virtual-id" onclick="window.openPatientProfileModal()" title="View your complete Virtual Health ID Card &amp; profile">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
-            <span>Virtual Health ID Card</span>
-          </button>
-        </div>
       </div>
 
       <!-- Active Status Cards Grid -->
@@ -276,150 +270,8 @@
         </div>
       </div>
 
-      <!-- Patient Profile & Virtual ID Modal Popup (Opens via top-right Sarah Mitchell header profile click) -->
-      <div id="patient-profile-modal" class="patient-modal-backdrop" style="display: none;" onclick="if(event.target===this) window.closePatientProfileModal()">
-        <div class="patient-modal-container" role="dialog" aria-modal="true" aria-labelledby="pat-modal-title-lbl">
-          <div class="patient-modal-header">
-            <div class="patient-modal-title" id="pat-modal-title-lbl">
-              <div class="patient-modal-title-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
-              </div>
-              <div>
-                <h4>Patient Identity &amp; Profile</h4>
-                <span>Virtual Health ID Card &amp; Demographics</span>
-              </div>
-            </div>
-            <button type="button" class="patient-modal-close" onclick="window.closePatientProfileModal()" title="Close Profile (Esc)" aria-label="Close">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-
-          <div class="patient-modal-body">
-            <!-- Virtual ID Card -->
-            <div class="virtual-id-card">
-              <!-- Card Header Banner -->
-              <div class="virtual-id-header">
-                <div class="virtual-id-brand">
-                  <div class="virtual-id-logo">✚</div>
-                  <div>
-                    <h4>VillageMed Tele-Health</h4>
-                    <span>Digital Health Identity Card</span>
-                  </div>
-                </div>
-                <div class="virtual-id-chip">
-                  <span class="chip-dot"></span> Active Patient
-                </div>
-              </div>
-
-              <!-- Patient Identity Hero -->
-              <div class="virtual-id-hero">
-                <div class="virtual-id-avatar-frame">
-                  <div class="virtual-id-avatar" id="pat-disp-avatar">
-                    <span id="pat-disp-initials">P</span>
-                  </div>
-                </div>
-                <div class="virtual-id-hero-info">
-                  <h3 class="virtual-id-name" id="pat-disp-name">Sarah Mitchell</h3>
-                  <div class="virtual-id-tags">
-                    <span class="virtual-id-badge" id="pat-disp-id">ID: pat-1</span>
-                    <span class="virtual-id-healthid" id="pat-disp-health-id">ABHA: VM-PAT1-2026</span>
-                  </div>
-                </div>
-                <button type="button" class="btn-toggle-edit" onclick="togglePatientEditForm()" title="Edit Patient Details">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  <span id="pat-edit-toggle-label">Edit Profile</span>
-                </button>
-              </div>
-
-              <!-- Demographics Display Grid -->
-              <div class="virtual-id-details-grid" id="pat-id-details-view">
-                <div class="detail-tile">
-                  <span class="tile-label">Age</span>
-                  <strong class="tile-value" id="pat-disp-age">67 yrs</strong>
-                </div>
-                <div class="detail-tile">
-                  <span class="tile-label">Gender</span>
-                  <strong class="tile-value" id="pat-disp-gender">Female</strong>
-                </div>
-                <div class="detail-tile">
-                  <span class="tile-label">Phone Number</span>
-                  <strong class="tile-value" id="pat-disp-phone">9876543210</strong>
-                </div>
-                <div class="detail-tile">
-                  <span class="tile-label">Address / Village</span>
-                  <strong class="tile-value" id="pat-disp-village">Village Clinic A</strong>
-                </div>
-              </div>
-
-              <!-- Editable Form (Toggled when user clicks Edit Profile) -->
-              <div class="virtual-id-edit-box" id="pat-id-edit-view" style="display: none;">
-                <form id="pat-profile-form" onsubmit="updatePatientProfile(event)">
-                  <div class="form-group">
-                    <label for="pat-prof-name">Full Name</label>
-                    <input type="text" id="pat-prof-name" class="form-input" placeholder="Your name..." required>
-                  </div>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                    <div class="form-group">
-                      <label for="pat-prof-age">Age</label>
-                      <input type="number" id="pat-prof-age" class="form-input" placeholder="Age..." required>
-                    </div>
-                    <div class="form-group">
-                      <label for="pat-prof-gender">Gender</label>
-                      <select id="pat-prof-gender" class="form-input">
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="form-group">
-                    <label for="pat-prof-phone">Phone Number</label>
-                    <input type="text" id="pat-prof-phone" class="form-input" placeholder="Update phone...">
-                  </div>
-                  <div class="form-group">
-                    <label for="pat-prof-address">Address / Village Name</label>
-                    <input type="text" id="pat-prof-address" class="form-input" placeholder="Update village...">
-                  </div>
-                  <div style="display: flex; gap: 8px; margin-top: 12px;">
-                    <button type="submit" class="btn-primary" style="flex: 1;">Save Profile Details</button>
-                    <button type="button" class="btn-secondary" onclick="togglePatientEditForm(false)">Cancel</button>
-                  </div>
-                </form>
-              </div>
-
-              <!-- Integrated SCAN QR Section at Bottom of ID Card -->
-              <div class="virtual-id-qr-section">
-                <div class="qr-section-divider">
-                  <span class="qr-pill-label">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
-                    SCAN QR
-                  </span>
-                </div>
-                <div class="qr-code-frame">
-                  <img id="pat-qr-code-img" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=pat-1" alt="Patient QR Code">
-                </div>
-                <div class="qr-caption">
-                  <p class="qr-pat-name" id="pat-card-name">Sarah Mitchell</p>
-                  <p class="qr-pat-id" id="pat-card-id">ID: pat-1</p>
-                </div>
-                <div class="virtual-id-btn-group">
-                  <button class="btn-id-action" onclick="window.downloadPatientIdCard()" type="button">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Download ID
-                  </button>
-                  <button class="btn-id-action" onclick="window.sharePatientIdCard()" type="button">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                    Share
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-        <!-- Active Patient Videocall Frame (Initially hidden, loads on call start) -->
-        <div class="card col-12" id="pat-telehealth-box" style="display: none;">
+      <!-- Active Patient Videocall Frame (Initially hidden, loads on call start) -->
+      <div class="card col-12" id="pat-telehealth-box" style="display: none;">
           <div class="card-title-bar">
             <h3>🎥 Live Video Consultation</h3>
             <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
@@ -1641,6 +1493,148 @@
     </section>
 
   </main>
+
+  <!-- PATIENT PROFILE & VIRTUAL HEALTH ID MODAL (OPENS ONLY WHEN CLICKING SARAH MITCHELL ON TOP RIGHT) -->
+  <div id="patient-profile-modal" class="patient-modal-backdrop" style="display: none;" onclick="if(event.target===this) window.closePatientProfileModal()">
+    <div class="patient-modal-container" role="dialog" aria-modal="true" aria-labelledby="pat-modal-title-lbl">
+      <div class="patient-modal-header">
+        <div class="patient-modal-title" id="pat-modal-title-lbl">
+          <div class="patient-modal-title-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+          </div>
+          <div>
+            <h4>Patient Identity &amp; Profile</h4>
+            <span>Virtual Health ID Card &amp; Demographics</span>
+          </div>
+        </div>
+        <button type="button" class="patient-modal-close" onclick="window.closePatientProfileModal()" title="Close Profile (Esc)" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="patient-modal-body">
+        <!-- Virtual ID Card -->
+        <div class="virtual-id-card">
+          <!-- Card Header Banner -->
+          <div class="virtual-id-header">
+            <div class="virtual-id-brand">
+              <div class="virtual-id-logo">✚</div>
+              <div>
+                <h4>VillageMed Tele-Health</h4>
+                <span>Digital Health Identity Card</span>
+              </div>
+            </div>
+            <div class="virtual-id-chip">
+              <span class="chip-dot"></span> Active Patient
+            </div>
+          </div>
+
+          <!-- Patient Identity Hero -->
+          <div class="virtual-id-hero">
+            <div class="virtual-id-avatar-frame">
+              <div class="virtual-id-avatar" id="pat-disp-avatar">
+                <span id="pat-disp-initials">P</span>
+              </div>
+            </div>
+            <div class="virtual-id-hero-info">
+              <h3 class="virtual-id-name" id="pat-disp-name">Sarah Mitchell</h3>
+              <div class="virtual-id-tags">
+                <span class="virtual-id-badge" id="pat-disp-id">ID: pat-1</span>
+                <span class="virtual-id-healthid" id="pat-disp-health-id">ABHA: VM-PAT1-2026</span>
+              </div>
+            </div>
+            <button type="button" class="btn-toggle-edit" onclick="togglePatientEditForm()" title="Edit Patient Details">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span id="pat-edit-toggle-label">Edit Profile</span>
+            </button>
+          </div>
+
+          <!-- Demographics Display Grid -->
+          <div class="virtual-id-details-grid" id="pat-id-details-view">
+            <div class="detail-tile">
+              <span class="tile-label">Age</span>
+              <strong class="tile-value" id="pat-disp-age">67 yrs</strong>
+            </div>
+            <div class="detail-tile">
+              <span class="tile-label">Gender</span>
+              <strong class="tile-value" id="pat-disp-gender">Female</strong>
+            </div>
+            <div class="detail-tile">
+              <span class="tile-label">Phone Number</span>
+              <strong class="tile-value" id="pat-disp-phone">9876543210</strong>
+            </div>
+            <div class="detail-tile">
+              <span class="tile-label">Address / Village</span>
+              <strong class="tile-value" id="pat-disp-village">Village Clinic A</strong>
+            </div>
+          </div>
+
+          <!-- Editable Form (Toggled when user clicks Edit Profile) -->
+          <div class="virtual-id-edit-box" id="pat-id-edit-view" style="display: none;">
+            <form id="pat-profile-form" onsubmit="updatePatientProfile(event)">
+              <div class="form-group">
+                <label for="pat-prof-name">Full Name</label>
+                <input type="text" id="pat-prof-name" class="form-input" placeholder="Your name..." required>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <div class="form-group">
+                  <label for="pat-prof-age">Age</label>
+                  <input type="number" id="pat-prof-age" class="form-input" placeholder="Age..." required>
+                </div>
+                <div class="form-group">
+                  <label for="pat-prof-gender">Gender</label>
+                  <select id="pat-prof-gender" class="form-input">
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="pat-prof-phone">Phone Number</label>
+                <input type="text" id="pat-prof-phone" class="form-input" placeholder="Update phone...">
+              </div>
+              <div class="form-group">
+                <label for="pat-prof-address">Address / Village Name</label>
+                <input type="text" id="pat-prof-address" class="form-input" placeholder="Update village...">
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button type="submit" class="btn-primary" style="flex: 1;">Save Profile Details</button>
+                <button type="button" class="btn-secondary" onclick="togglePatientEditForm(false)">Cancel</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Integrated SCAN QR Section at Bottom of ID Card -->
+          <div class="virtual-id-qr-section">
+            <div class="qr-section-divider">
+              <span class="qr-pill-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+                SCAN QR
+              </span>
+            </div>
+            <div class="qr-code-frame">
+              <img id="pat-qr-code-img" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=pat-1" alt="Patient QR Code">
+            </div>
+            <div class="qr-caption">
+              <p class="qr-pat-name" id="pat-card-name">Sarah Mitchell</p>
+              <p class="qr-pat-id" id="pat-card-id">ID: pat-1</p>
+            </div>
+            <div class="virtual-id-btn-group">
+              <button class="btn-id-action" onclick="window.downloadPatientIdCard()" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download ID
+              </button>
+              <button class="btn-id-action" onclick="window.sharePatientIdCard()" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Share
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- VITALS ENTRY MODAL (VHW USES TO LOG VITALS FOR TOKEN DISPATCH) -->
   <div class="modal-overlay" id="vitals-modal">
