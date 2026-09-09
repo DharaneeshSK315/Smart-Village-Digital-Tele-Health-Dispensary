@@ -3434,3 +3434,751 @@ body:has(#view-doctor.active),
   }
 }
 
+/* ==========================================================================
+   PATIENT DASHBOARD - VIRTUAL ID CARD & TWO-COLUMN REDESIGN
+   ========================================================================== */
+
+.patient-dashboard-view {
+  animation: fadeIn 0.3s ease;
+}
+
+/* Two-column layout */
+.patient-main-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.15fr);
+  gap: 24px;
+  align-items: start;
+}
+
+/* --- Left Column: Status Mini-Cards & Book Appointment --- */
+.patient-col-left {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.patient-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.pat-stat-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pat-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.pat-stat-card.token-card {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.pat-stat-card.token-card .pat-stat-icon {
+  color: #2563eb;
+  background: #dbeafe;
+}
+.pat-stat-card.token-card .pat-stat-info .value {
+  color: #2563eb;
+}
+
+.pat-stat-card.wait-card {
+  background: #fefce8;
+  border-color: #fef08a;
+}
+.pat-stat-card.wait-card .pat-stat-icon {
+  color: #ca8a04;
+  background: #fef9c3;
+}
+.pat-stat-card.wait-card .pat-stat-info .value {
+  color: #a16207;
+}
+
+.pat-stat-card.doctor-card {
+  background: #faf5ff;
+  border-color: #e9d5ff;
+}
+.pat-stat-card.doctor-card .pat-stat-icon {
+  color: #9333ea;
+  background: #f3e8ff;
+}
+.pat-stat-card.doctor-card .pat-stat-info .value {
+  color: #7e22ce;
+}
+
+.pat-stat-card.failover-card {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.pat-stat-card.failover-card .pat-stat-icon {
+  color: #16a34a;
+  background: #dcfce7;
+}
+.pat-stat-card.failover-card .pat-stat-info .value {
+  color: #15803d;
+}
+
+.pat-stat-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pat-stat-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pat-stat-info .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.pat-stat-info .value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pat-stat-info .subtext {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Call Ready Banner */
+.pat-call-alert {
+  background: linear-gradient(135deg, #eff6ff, #e0e7ff) !important;
+  border: 1px solid #c7d2fe !important;
+  border-radius: 14px !important;
+  padding: 16px !important;
+}
+
+.pat-call-alert-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pulse-call-indicator {
+  width: 12px;
+  height: 12px;
+  background-color: #10b981;
+  border-radius: 50%;
+  margin-top: 4px;
+  animation: pulse-dot 1.5s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-dot {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.pat-call-alert-header h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e40af;
+  margin-bottom: 3px;
+}
+
+.pat-call-alert-header p {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.4;
+}
+
+/* Book Appointment Card */
+.pat-book-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.pat-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.pat-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pat-header-title h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.pat-book-card .form-group {
+  margin-bottom: 14px;
+}
+
+.pat-book-card .form-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.pat-book-card .form-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+  padding: 9px 12px;
+  color: #1e293b;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.pat-book-card .form-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.pat-btn-book {
+  width: 100% !important;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  padding: 11px 16px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2) !important;
+  transition: all 0.2s ease !important;
+  border: none !important;
+  cursor: pointer !important;
+  margin-top: 18px !important;
+}
+
+.pat-btn-book:hover {
+  background: linear-gradient(135deg, #1d4ed8, #1e40af) !important;
+  box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3) !important;
+  transform: translateY(-1px);
+}
+
+.pat-btn-cancel {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pat-btn-cancel:hover {
+  background: #fecaca;
+  color: #b91c1c;
+}
+
+/* --- Right Column: Switcher Tabs & Panels --- */
+.patient-col-right {
+  display: flex;
+  flex-direction: column;
+}
+
+.pat-tabs-nav {
+  display: flex;
+  gap: 8px;
+  background: #f1f5f9;
+  padding: 5px;
+  border-radius: 12px;
+  margin-bottom: 18px;
+  border: 1px solid #e2e8f0;
+}
+
+.pat-tab-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pat-tab-btn:hover {
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.pat-tab-btn.active {
+  color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.12);
+}
+
+.pat-tab-pane {
+  animation: fadeIn 0.25s ease;
+}
+
+/* --- Virtual ID Card Styling --- */
+.virtual-id-card {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e0e7ff;
+  box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.08), 0 1px 4px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition: box-shadow 0.25s ease;
+}
+
+.virtual-id-card:hover {
+  box-shadow: 0 8px 28px -4px rgba(99, 102, 241, 0.14), 0 2px 6px rgba(15, 23, 42, 0.05);
+}
+
+/* Card Header Banner */
+.virtual-id-header {
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
+  color: #ffffff;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.virtual-id-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.virtual-id-logo {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.virtual-id-brand h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.virtual-id-brand span {
+  font-size: 11px;
+  color: #dbeafe;
+  display: block;
+}
+
+.virtual-id-chip {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+}
+
+/* Patient Identity Hero */
+.virtual-id-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 22px 16px 22px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.virtual-id-avatar-frame {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  padding: 3px;
+  background: linear-gradient(135deg, #2563eb, #8b5cf6);
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+}
+
+.virtual-id-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.virtual-id-hero-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.virtual-id-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.virtual-id-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.virtual-id-badge {
+  display: inline-block;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4f46e5;
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.virtual-id-healthid {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.btn-toggle-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.btn-toggle-edit:hover {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+/* Demographics Grid */
+.virtual-id-details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 16px 22px;
+  background: #fafbfc;
+}
+
+.detail-tile {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color 0.2s ease;
+}
+
+.detail-tile:hover {
+  border-color: #e0e7ff;
+}
+
+.tile-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tile-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+/* Edit Box */
+.virtual-id-edit-box {
+  padding: 18px 22px;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  animation: fadeIn 0.2s ease;
+}
+
+.virtual-id-edit-box .form-group {
+  margin-bottom: 10px;
+}
+
+.virtual-id-edit-box .form-group label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.virtual-id-edit-box .form-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  width: 100%;
+}
+
+/* --- Integrated SCAN QR Section at Bottom of ID Card --- */
+.virtual-id-qr-section {
+  padding: 18px 22px 22px 22px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-top: 1px solid #f1f5f9;
+}
+
+.qr-section-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.qr-pill-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
+.qr-code-frame {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  margin-bottom: 10px;
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.qr-code-frame:hover {
+  transform: scale(1.02);
+}
+
+.qr-code-frame img {
+  width: 140px;
+  height: 140px;
+  display: block;
+}
+
+.qr-caption {
+  margin-bottom: 14px;
+}
+
+.qr-pat-name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #0f172a;
+  margin: 0 0 2px 0;
+}
+
+.qr-pat-id {
+  font-family: monospace;
+  font-size: 11px;
+  color: #64748b;
+  margin: 0;
+}
+
+.virtual-id-btn-group {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 280px;
+  justify-content: center;
+}
+
+.btn-id-action {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-id-action:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
+/* --- Consultation History Table Styling --- */
+.pat-history-card {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  padding: 20px;
+}
+
+.pat-history-table-wrapper {
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+.pat-history-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.pat-history-table th {
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pat-history-table td {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.pat-history-table tr:hover td {
+  background-color: #f8fbff;
+}
+
+/* --- Responsive Breakpoints --- */
+@media (max-width: 960px) {
+  .patient-main-layout {
+    grid-template-columns: 1fr;
+  }
+  
+  .patient-status-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 580px) {
+  .patient-status-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .virtual-id-details-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .virtual-id-hero {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .virtual-id-tags {
+    justify-content: center;
+  }
+}
+

@@ -772,11 +772,40 @@ function loadPatientDashboard() {
   document.getElementById("pat-prof-phone").value = currentUser.phone || "";
   document.getElementById("pat-prof-address").value = currentUser.village || "";
 
-  // Load Digital Health ID Card details
+  // Virtual ID Card Live Visual Fields
+  const dispName = document.getElementById("pat-disp-name");
+  const dispId = document.getElementById("pat-disp-id");
+  const dispAge = document.getElementById("pat-disp-age");
+  const dispGender = document.getElementById("pat-disp-gender");
+  const dispPhone = document.getElementById("pat-disp-phone");
+  const dispVillage = document.getElementById("pat-disp-village");
+  const dispHealthId = document.getElementById("pat-disp-health-id");
+  const dispAvatar = document.getElementById("pat-disp-avatar");
+
+  if (dispName) dispName.innerText = currentUser.name;
+  if (dispId) dispId.innerText = `ID: ${currentUser.id}`;
+  if (dispAge) dispAge.innerText = `${currentUser.age || 30} yrs`;
+  if (dispGender) dispGender.innerText = currentUser.gender || "Male";
+  if (dispPhone) dispPhone.innerText = currentUser.phone || "Not provided";
+  if (dispVillage) dispVillage.innerText = currentUser.village || "Village Clinic A";
+  if (dispHealthId) {
+    const rawId = (currentUser.id || "pat1").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    dispHealthId.innerText = `ABHA: VM-${rawId}-2026`;
+  }
+  if (dispAvatar) {
+    if (currentUser.photo) {
+      dispAvatar.innerHTML = `<img src="${currentUser.photo}" alt="${currentUser.name}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
+    } else {
+      const initials = currentUser.name ? currentUser.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "P";
+      dispAvatar.innerHTML = `<span>${initials}</span>`;
+    }
+  }
+
+  // Load Digital Health ID Card details & QR
   const qrImg = document.getElementById("pat-qr-code-img");
   const cardName = document.getElementById("pat-card-name");
   const cardId = document.getElementById("pat-card-id");
-  if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${currentUser.id}`;
+  if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUser.id)}`;
   if (cardName) cardName.innerText = currentUser.name;
   if (cardId) cardId.innerText = `ID: ${currentUser.id}`;
 
@@ -786,19 +815,88 @@ function loadPatientDashboard() {
   const historical = db.consultations.filter(c => c.patientName === currentUser.name);
   
   if (historical.length === 0) {
-    historyTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">No past consultation reports found</td></tr>`;
+    historyTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding: 24px;">No past consultation reports found</td></tr>`;
   } else {
     historical.forEach(h => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${h.date}</td>
-        <td>${h.doctorName}</td>
-        <td><button class="btn-action" onclick="viewDigitalPrescriptionPopup('${h.id}')">View Rx</button></td>
+        <td style="font-weight: 500; color: #64748b;">${h.date}</td>
+        <td><strong style="color: #0f172a;">${h.doctorName}</strong><br><span style="font-size: 11px; color: #64748b;">${h.diagnosis || 'General Checkup'}</span></td>
+        <td style="text-align: right; padding-right: 18px;"><button class="btn-action" style="padding: 5px 12px; font-size: 11.5px; border-radius: 6px;" onclick="viewDigitalPrescriptionPopup('${h.id}')">View Rx</button></td>
       `;
       historyTbody.appendChild(tr);
     });
   }
 }
+
+window.switchPatientRightTab = function(tab) {
+  const profilePane = document.getElementById("pat-tab-pane-profile");
+  const historyPane = document.getElementById("pat-tab-pane-history");
+  const btnProfile = document.getElementById("btn-pat-tab-profile");
+  const btnHistory = document.getElementById("btn-pat-tab-history");
+
+  if (!profilePane || !historyPane) return;
+
+  if (tab === "profile") {
+    profilePane.style.display = "block";
+    historyPane.style.display = "none";
+    if (btnProfile) btnProfile.classList.add("active");
+    if (btnHistory) btnHistory.classList.remove("active");
+  } else {
+    profilePane.style.display = "none";
+    historyPane.style.display = "block";
+    if (btnProfile) btnProfile.classList.remove("active");
+    if (btnHistory) btnHistory.classList.add("active");
+  }
+};
+
+window.togglePatientEditForm = function(forceState) {
+  const editBox = document.getElementById("pat-id-edit-view");
+  const detailsBox = document.getElementById("pat-id-details-view");
+  const label = document.getElementById("pat-edit-toggle-label");
+  if (!editBox || !detailsBox) return;
+
+  const willShow = forceState !== undefined ? forceState : editBox.style.display === "none";
+  if (willShow) {
+    editBox.style.display = "block";
+    detailsBox.style.display = "none";
+    if (label) label.innerText = "Close Edit";
+  } else {
+    editBox.style.display = "none";
+    detailsBox.style.display = "grid";
+    if (label) label.innerText = "Edit Profile";
+  }
+};
+
+window.downloadPatientIdCard = function() {
+  if (!currentUser) return;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentUser.id)}`;
+  const link = document.createElement("a");
+  link.href = qrUrl;
+  link.download = `${currentUser.name.replace(/\s+/g, '_')}_VillageMed_ID.png`;
+  link.target = "_blank";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  showToast("Digital Health ID QR Code downloaded", "success");
+};
+
+window.sharePatientIdCard = function() {
+  if (!currentUser) return;
+  const shareText = `VillageMed Digital Health ID: ${currentUser.name} (ID: ${currentUser.id}) - Clinic: ${currentUser.village || 'Village Clinic A'}`;
+  if (navigator.share) {
+    navigator.share({
+      title: `VillageMed ID - ${currentUser.name}`,
+      text: shareText,
+      url: window.location.href
+    }).catch(() => {});
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(shareText);
+    showToast("Patient ID copied to clipboard!", "info");
+  } else {
+    showToast(`Patient ID: ${currentUser.id}`, "info");
+  }
+};
 
 window.bookPatientAppointment = async function(e) {
   e.preventDefault();
@@ -820,7 +918,7 @@ window.bookPatientAppointment = async function(e) {
   const doc = db.doctors.find(d => d.id === docId) || db.doctors[0];
   const specialty = doc.specialty;
 
-  const prefix = currentUser.village.includes("A") ? "VIL-A" : currentUser.village.includes("B") ? "VIL-B" : "VIL-C";
+  const prefix = (currentUser.village && currentUser.village.includes("A")) ? "VIL-A" : (currentUser.village && currentUser.village.includes("B")) ? "VIL-B" : "VIL-C";
   const num = Math.floor(100 + Math.random() * 900);
   const token = `${prefix}-${num}`;
 
@@ -871,6 +969,7 @@ window.updatePatientProfile = function(e) {
     currentUser = db.patients[idx];
     saveDB();
     showToast("Profile details updated successfully", "success");
+    window.togglePatientEditForm(false);
     loadPatientDashboard();
   }
 };
