@@ -2113,3 +2113,1258 @@ body:has(#view-vhw.active),
     width: 100% !important;
   }
 }
+
+/* ==========================================================================
+   DOCTOR DASHBOARD - MODERN SAAS HEALTHCARE REDESIGN
+   ========================================================================== */
+
+/* Overall Page Theme for Doctor View */
+body:has(#view-doctor.active),
+.doc-dashboard-view {
+  background-color: #eaf2fb;
+}
+
+/* 1. Doctor Overview Top Row (3 Pastel Stats + 1 Live Network Card) */
+.doc-top-row {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+  margin-bottom: 20px;
+  align-items: stretch;
+}
+
+.doc-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.doc-metric-card {
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.doc-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.doc-metric-card .metric-info .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 2px;
+  display: block;
+}
+
+.doc-metric-card .metric-info .value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.15;
+  margin-bottom: 2px;
+}
+
+.doc-metric-card .metric-info .subtext {
+  font-size: 11px;
+  color: #64748b;
+  display: block;
+}
+
+/* Right Side: Live Network Quality Card */
+.doc-network-card {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.doc-network-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.doc-network-title {
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.5px;
+}
+
+.doc-network-failover-tag {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.doc-network-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #16a34a;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.status-dot-green {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.doc-network-telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  background-color: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #eef2f6;
+  margin-bottom: 10px;
+}
+
+.net-metric-item {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+}
+
+.net-metric-item span {
+  font-size: 9px;
+  color: #64748b;
+  text-transform: capitalize;
+}
+
+.net-metric-item strong {
+  font-size: 11px;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.doc-network-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #475569;
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+
+.badge-res-green {
+  background-color: #dcfce7;
+  color: #16a34a;
+  font-weight: 700;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.badge-failover-blue {
+  background-color: #e0f2fe;
+  color: #0284c7;
+  font-weight: 700;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+.doc-failover-progression {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 8px;
+}
+
+.progression-label {
+  font-size: 10px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.progression-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.prog-step {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  text-align: center;
+}
+
+.prog-step span {
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.prog-step small {
+  font-size: 8px;
+  color: #94a3b8;
+}
+
+.prog-step.active {
+  background-color: #f0fdf4;
+  border-color: #86efac;
+}
+
+.prog-step.active span {
+  color: #16a34a;
+}
+
+.prog-step.active small {
+  color: #15803d;
+}
+
+.prog-arrow {
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* 2. Wide Patient Search Bar Row */
+.doc-search-bar-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.doc-search-input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.doc-search-input-wrapper .search-icon-svg {
+  position: absolute;
+  left: 14px;
+  pointer-events: none;
+}
+
+.doc-search-input {
+  width: 100% !important;
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 8px !important;
+  padding: 10px 14px 10px 40px !important;
+  font-size: 13px !important;
+  color: #1e293b !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease;
+}
+
+.doc-search-input:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+  outline: none;
+}
+
+.doc-search-btn {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  padding: 10px 24px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  height: 42px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.doc-search-btn:hover {
+  background-color: #1d4ed8 !important;
+}
+
+/* 3. Cards & Tables Styling */
+.doc-card {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.doc-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eef3f8;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.doc-card-header h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-pill-count {
+  background-color: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+}
+
+.doc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.doc-table th {
+  background-color: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  border-top: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.doc-table td {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.doc-table tr:hover td {
+  background-color: #f8fbff;
+}
+
+.token-link {
+  color: #2563eb;
+  font-weight: 700;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.patient-cell-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.vitals-inline-summary {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Pill Badges for Triage */
+.pill-triage-urgent {
+  background-color: #fef3c7;
+  color: #d97706;
+  border: 1px solid #fde68a;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill-triage-critical {
+  background-color: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill-triage-normal {
+  background-color: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill-triage-awaiting {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill-referral-specialist {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.btn-doc-start-call {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  padding: 6px 14px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border: none !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  transition: background-color 0.2s !important;
+}
+
+.btn-doc-start-call:hover {
+  background-color: #1d4ed8 !important;
+}
+
+.btn-doc-print-outline {
+  border: 1px solid #2563eb !important;
+  color: #2563eb !important;
+  background: transparent !important;
+  padding: 4px 14px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-doc-print-outline:hover {
+  background-color: #eff6ff !important;
+}
+
+/* 4. Live Consultation Room 3-Column Suite */
+.doc-live-suite-card {
+  padding: 20px;
+}
+
+.doc-consult-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid #eef3f8;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.doc-consult-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.doc-consult-doctor-badge {
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.doc-consult-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-session-pill {
+  background-color: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-session-pill .pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #16a34a;
+  display: inline-block;
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+.call-duration-timer {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 3-Column Layout */
+.doc-consultation-grid {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Column 1: Video Viewport & Telemetry */
+.doc-col-video {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.doc-call-viewport {
+  background-color: #0f172a;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  height: 380px;
+  border: 1px solid #1e293b;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.patient-floating-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 30;
+}
+
+.patient-floating-badge .green-dot {
+  color: #22c55e;
+  font-size: 10px;
+}
+
+.patient-floating-badge .tag-role {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.doc-local-pip {
+  position: absolute;
+  bottom: 60px;
+  right: 14px;
+  width: 110px;
+  height: 80px;
+  border-radius: 8px;
+  border: 2px solid white;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 25;
+  background-color: #1e293b;
+}
+
+.pip-label {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 9px;
+  padding: 1px 0;
+}
+
+.doc-call-controls-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(10px);
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 30;
+}
+
+.video-quality-tag {
+  color: #22c55e;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.doc-center-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-audio-translate-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.doc-audio-translate-pill select {
+  background: transparent;
+  color: #f8fafc;
+  border: none;
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+}
+
+.doc-audio-translate-pill select option {
+  background: #1e293b;
+  color: white;
+}
+
+/* Lower Telemetry Panel */
+.doc-telemetry-panel {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.telemetry-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.telemetry-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #16a34a;
+}
+
+.telemetry-badge-good {
+  border: 1px solid #86efac;
+  background-color: #f0fdf4;
+  color: #16a34a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.telemetry-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  background-color: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #eef2f6;
+  margin-bottom: 10px;
+}
+
+.tel-stat-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.tel-stat-item span {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.tel-stat-item strong {
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.telemetry-failover-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.failover-title {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.telemetry-status-banner {
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+/* Column 2: Chat Card */
+.doc-chat-card {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-chat-tabs-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 6px;
+  background-color: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  gap: 4px;
+}
+
+.doc-tab-switcher-btn {
+  padding: 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.doc-tab-switcher-btn.active {
+  background-color: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+}
+
+.doc-chat-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.doc-chat-title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 8px;
+}
+
+.doc-e2e-badge {
+  color: #16a34a;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.doc-chat-history {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  margin-bottom: 8px;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.chat-bubble.doctor {
+  align-self: flex-end;
+  background-color: #2563eb;
+  color: #ffffff;
+  border-bottom-right-radius: 2px;
+}
+
+.chat-bubble.patient, .chat-bubble.worker {
+  align-self: flex-start;
+  background-color: #f1f5f9;
+  color: #1e293b;
+  border-bottom-left-radius: 2px;
+}
+
+.chat-bubble.system {
+  align-self: center;
+  background-color: #f8fafc;
+  color: #64748b;
+  font-size: 10px;
+  font-style: italic;
+  border: 1px solid #e2e8f0;
+}
+
+.doc-chat-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.doc-chat-input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  outline: none;
+}
+
+.doc-chat-input:focus {
+  border-color: #2563eb;
+}
+
+.doc-chat-send-btn {
+  background-color: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.doc-chat-send-btn:hover {
+  background-color: #1d4ed8;
+}
+
+/* Column 3: Vitals & Reports Card */
+.doc-vitals-card {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-vitals-header h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* 2x2 Vital Tiles */
+.doc-vital-tiles-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.doc-vital-tile {
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tile-hr {
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.tile-temp {
+  background-color: #fefce8;
+  border: 1px solid #fde68a;
+}
+
+.tile-bp {
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.tile-spo2 {
+  background-color: #f0fdfa;
+  border: 1px solid #99f6e4;
+}
+
+.tile-icon-circle {
+  font-size: 16px;
+}
+
+.tile-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.tile-label {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.tile-value strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.tile-value small {
+  font-size: 9px;
+  color: #64748b;
+}
+
+/* Triage Level Banner */
+.doc-triage-alert-banner {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.triage-text span {
+  font-size: 10px;
+  color: #92400e;
+  display: block;
+}
+
+.triage-text strong {
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 700;
+}
+
+.triage-warning-icon {
+  font-size: 16px;
+}
+
+/* Symptoms Cloud */
+.doc-symptoms-section h5, .doc-patient-info-section h5 {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.doc-symptoms-tags-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.symptom-tag {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+/* Patient Information Grid */
+.patient-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  background-color: #f8fafc;
+  border: 1px solid #eef2f6;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.pat-info-item span {
+  font-size: 10px;
+  color: #64748b;
+  display: block;
+}
+
+.pat-info-item strong {
+  font-size: 11px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* 5. Digital Prescription Workspace (Split 2-Column Interface) */
+.doc-prescription-workspace {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.prescription-drawer-header {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.drawer-pill-tab {
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 16px;
+  border-radius: 20px;
+}
+
+.doc-prescription-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.doc-prescription-form-card {
+  padding: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.pres-med-input-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.btn-dashed-add {
+  width: 100%;
+  border: 1.5px dashed #3b82f6;
+  background-color: #f8fbff;
+  color: #2563eb;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-dashed-add:hover {
+  background-color: #eff6ff;
+}
+
+.doc-referral-alert-box {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.doc-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.doc-prescription-actions {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+}
+
+.doc-btn-generate {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  padding: 10px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+}
+
+.doc-btn-clear {
+  border: 1px solid #cbd5e1 !important;
+  background-color: #ffffff !important;
+  color: #475569 !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+/* Digital Prescription Preview Paper */
+.doc-prescription-paper {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 8px !important;
+  padding: 24px !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+
+.dispensary-meta h4 {
+  font-size: 14px;
+  font-weight: 800;
+  color: #1d4ed8;
+  letter-spacing: 0.5px;
+}
+
+.dispensary-meta p {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.doc-spec-sub {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.rx-header-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2563eb;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+}
+
+.rx-header-title span {
+  color: #64748b;
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.pres-preview-section {
+  margin-top: 10px;
+}
+
+.pres-preview-section h6 {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 2px;
+}
+
+.pres-preview-box {
+  background-color: #f8fafc;
+  border: 1px solid #eef2f6;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #1e293b;
+}
+
+/* Responsive Overrides */
+@media (max-width: 1200px) {
+  .doc-consultation-grid {
+    grid-template-columns: 1fr;
+  }
+  .doc-top-row {
+    grid-template-columns: 1fr;
+  }
+  .doc-prescription-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .doc-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .pres-med-input-row {
+    grid-template-columns: 1fr;
+  }
+}
+

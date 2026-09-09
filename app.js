@@ -1254,9 +1254,27 @@ window.vhwCancelToken = function(token) {
 function loadDoctorDashboard() {
   if (currentRole !== "doctor") return;
 
+  // If no active call, make sure overview is shown and consultation suite is hidden
+  if (!activeCall) {
+    const overviewTop = document.getElementById("doc-overview-top-row");
+    const overviewSearch = document.getElementById("doc-overview-search-row");
+    const queueSec = document.getElementById("doc-queue-section");
+    const histSec = document.getElementById("doc-history-section");
+    const alertStrip = document.getElementById("doc-critical-alerts-strip");
+    const consultSec = document.getElementById("doc-consultation-section");
+
+    if (overviewTop) overviewTop.style.display = "flex";
+    if (overviewSearch) overviewSearch.style.display = "flex";
+    if (queueSec) queueSec.style.display = "block";
+    if (histSec) histSec.style.display = "block";
+    if (alertStrip) alertStrip.style.display = "block";
+    if (consultSec) consultSec.style.display = "none";
+  }
+
   // Include both triaged patients and new bookings waiting for vitals
   const myQueue = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
-  document.getElementById("doc-stat-queue").innerText = `${myQueue.length} Waiting`;
+  const statQueue = document.getElementById("doc-stat-queue");
+  if (statQueue) statQueue.innerText = `${myQueue.length} Waiting`;
 
   let criticalCount = 0;
   myQueue.forEach(q => {
@@ -1265,10 +1283,21 @@ function loadDoctorDashboard() {
       if (triage.flag === "Critical") criticalCount++;
     }
   });
-  document.getElementById("doc-stat-critical").innerText = `${criticalCount} Cases`;
+  const statCrit = document.getElementById("doc-stat-critical");
+  if (statCrit) statCrit.innerText = `${criticalCount} Cases`;
 
   const consultedCount = db.consultations.filter(c => c.doctorName === currentUser.name).length;
-  document.getElementById("doc-stat-consulted").innerText = `${consultedCount} Patients`;
+  const statConsulted = document.getElementById("doc-stat-consulted");
+  if (statConsulted) statConsulted.innerText = `${consultedCount} Patients`;
+
+  const queueBadge = document.getElementById("doc-queue-count-badge");
+  if (queueBadge) {
+    queueBadge.innerText = `${myQueue.length} patient${myQueue.length === 1 ? '' : 's'}`;
+  }
+
+  // Ensure network overview card indicator
+  const netLbl = document.getElementById("doc-network-lbl");
+  if (netLbl) netLbl.innerText = "GOOD";
 
   renderDoctorQueue();
   renderDoctorCompletedLogs();
@@ -1277,6 +1306,7 @@ function loadDoctorDashboard() {
 
 function renderDoctorAlertsStrip(queue) {
   const container = document.getElementById("doc-critical-alerts-strip");
+  if (!container) return;
   container.innerHTML = "";
 
   const criticals = queue.filter(q => evaluateTriageUrgency(q.vitals).flag === "Critical");
@@ -1284,6 +1314,7 @@ function renderDoctorAlertsStrip(queue) {
 
   const banner = document.createElement("div");
   banner.className = "alert-banner";
+  banner.style.cssText = "margin-bottom: 20px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px 16px; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;";
   banner.innerHTML = `
     <span><strong>CRITICAL ALERT:</strong> ${criticals.length} patient(s) in queue require immediate attention due to abnormal vitals (SpO2/BP).</span>
   `;
@@ -1292,6 +1323,7 @@ function renderDoctorAlertsStrip(queue) {
 
 function renderDoctorQueue(searchQuery = "") {
   const tbody = document.getElementById("doc-queue-tbody");
+  if (!tbody) return;
   tbody.innerHTML = "";
 
   let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
@@ -1309,15 +1341,20 @@ function renderDoctorQueue(searchQuery = "") {
     list = list.filter(a => {
       const p = db.patients.find(pat => pat.id === a.patientId);
       return (
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.token.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.symptoms.toLowerCase().includes(searchQuery.toLowerCase())
+        (p && p.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (a.token && a.token.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (a.symptoms && a.symptoms.toLowerCase().includes(searchQuery.toLowerCase()))
       );
     });
   }
 
+  const queueBadge = document.getElementById("doc-queue-count-badge");
+  if (queueBadge) {
+    queueBadge.innerText = `${list.length} patient${list.length === 1 ? '' : 's'}`;
+  }
+
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
     return;
   }
 
@@ -1325,30 +1362,32 @@ function renderDoctorQueue(searchQuery = "") {
     const p = db.patients.find(pat => pat.id === a.patientId);
     const triage = a.vitals ? evaluateTriageUrgency(a.vitals) : { flag: "Awaiting Vitals", score: 0 };
     
-    let triageBadge = `<span class="badge badge-warning">Awaiting Vitals</span>`;
-    if (a.urgency === "Emergency") triageBadge = `<span class="badge badge-critical" style="background:#dc2626; box-shadow: 0 0 8px #dc2626;">🚨 EMERGENCY</span>`;
-    else if (a.vitals && triage.flag === "Critical") triageBadge = `<span class="badge badge-critical">🚨 Critical</span>`;
-    else if (a.vitals && triage.flag === "High Warning") triageBadge = `<span class="badge badge-warning">⚠️ High</span>`;
-    else if (a.vitals && triage.flag === "Normal") triageBadge = `<span class="badge badge-success">Normal</span>`;
+    let triageBadge = `<span class="pill-triage-awaiting">● Awaiting</span>`;
+    if (a.urgency === "Emergency") triageBadge = `<span class="pill-triage-critical" style="background:#fee2e2; color:#b91c1c; border-color:#fca5a5;">🚨 Emergency</span>`;
+    else if (a.vitals && triage.flag === "Critical") triageBadge = `<span class="pill-triage-critical">● Critical</span>`;
+    else if (a.vitals && triage.flag === "High Warning") triageBadge = `<span class="pill-triage-urgent">● Urgent</span>`;
+    else if (a.vitals && triage.flag === "Normal") triageBadge = `<span class="pill-triage-normal">● Normal</span>`;
 
-    const vitalsStr = a.vitals ? `BP: ${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} | SpO2: ${a.vitals.spo2}% | HR: ${a.vitals.hr} | Temp: ${a.vitals.temp}°C` : "Vitals pending";
+    const vitalsStr = a.vitals 
+      ? `BP ${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} &bull; SpO2 ${a.vitals.spo2}% &bull; HR ${a.vitals.hr}`
+      : `<span style="color:#94a3b8; font-style:italic;">Vitals pending</span>`;
 
-    const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:9px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
+    const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:10px; padding:2px 6px; border-radius:12px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
 
     const tr = document.createElement("tr");
     tr.className = a.urgency === "Emergency" ? "queue-row emergency-high" : "queue-row";
     tr.innerHTML = `
-      <td><strong>${a.token}</strong></td>
-      <td><strong>${p ? p.name : "Unknown"}</strong>${homeVisitBadge}</td>
+      <td><span class="token-link">${a.token}</span></td>
+      <td><span class="patient-cell-name">${p ? p.name : "Unknown"}</span>${homeVisitBadge}</td>
       <td>${p ? p.age : "--"} yrs / ${p ? p.gender : "--"}</td>
       <td>${p ? p.village : "--"}</td>
       <td>
-        <div style="font-size:12px; font-weight:600;">${vitalsStr}</div>
-        <div style="font-size:11px; color:var(--text-muted); font-style:italic;">Symptoms: ${a.symptoms}</div>
+        <span class="vitals-inline-summary">${vitalsStr}</span>
       </td>
+      <td style="max-width:200px; color:#475569; font-size:12.5px;">${a.symptoms || "None reported"}</td>
       <td>${triageBadge}</td>
-      <td>
-        <button class="btn-action success" onclick="startDoctorConsultation('${a.token}')">🎥 Start Call</button>
+      <td style="text-align: right; padding-right: 20px;">
+        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">Start Call</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1361,24 +1400,31 @@ window.docSearchQueue = function(val) {
 
 function renderDoctorCompletedLogs() {
   const tbody = document.getElementById("doc-completed-tbody");
+  if (!tbody) return;
   tbody.innerHTML = "";
 
   const myLogs = db.consultations.filter(c => c.doctorName === currentUser.name);
   if (myLogs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No completed consultations logged yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
     return;
   }
 
   myLogs.forEach(l => {
     const tr = document.createElement("tr");
+    const referralBadge = l.referral 
+      ? `<span class="pill-referral-specialist">${typeof l.referral === 'string' && l.referral !== 'true' ? l.referral : 'Cardiology'}</span>` 
+      : `<span style="color:#94a3b8;">—</span>`;
+
     tr.innerHTML = `
       <td>${l.date}</td>
-      <td>${l.id}</td>
-      <td><strong>${l.patientName}</strong></td>
-      <td>${l.diagnosis}</td>
-      <td>${l.medicines}</td>
-      <td>${l.referral ? `<span class="badge badge-critical">Yes (District Hospital)</span>` : `<span class="badge badge-success">No</span>`}</td>
-      <td><button class="btn-action" onclick="viewDigitalPrescriptionPopup('${l.id}')">🖨️ View / Print</button></td>
+      <td><span class="token-link">${l.id}</span></td>
+      <td><span class="patient-cell-name">${l.patientName}</span></td>
+      <td>${l.diagnosis || "—"}</td>
+      <td>${l.medicines || "—"}</td>
+      <td>${referralBadge}</td>
+      <td style="text-align: right; padding-right: 20px;">
+        <button class="btn-doc-print-outline" onclick="viewDigitalPrescriptionPopup('${l.id}')">🖨️ Print</button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -1443,14 +1489,145 @@ function initSimulatedCallState(token, role) {
   startTelemetryFluctuations();
 }
 
+// Doctor Consultation Call Timer
+let docCallTimerInterval = null;
+let docCallStartTime = null;
+
+function startDocCallTimer() {
+  if (docCallTimerInterval) clearInterval(docCallTimerInterval);
+  docCallStartTime = Date.now();
+  const timerEl = document.getElementById("doc-call-timer");
+  if (timerEl) timerEl.innerText = "⏱ 00:00:00";
+
+  docCallTimerInterval = setInterval(() => {
+    if (!activeCall) {
+      clearInterval(docCallTimerInterval);
+      return;
+    }
+    const elapsedSec = Math.floor((Date.now() - docCallStartTime) / 1000);
+    const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, "0");
+    const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, "0");
+    const secs = String(elapsedSec % 60).padStart(2, "0");
+    const el = document.getElementById("doc-call-timer");
+    if (el) el.innerText = `⏱ ${hrs}:${mins}:${secs}`;
+  }, 1000);
+}
+
+function stopDocCallTimer() {
+  if (docCallTimerInterval) {
+    clearInterval(docCallTimerInterval);
+    docCallTimerInterval = null;
+  }
+  const el = document.getElementById("doc-call-timer");
+  if (el) el.innerText = "⏱ 00:00:00";
+}
+
 window.startDoctorConsultation = function(token) {
   initSimulatedCallState(token, "doctor");
   
-  // UI Changes
-  document.getElementById("doc-queue-section").style.display = "none";
-  document.getElementById("doc-consultation-section").style.display = "block";
-  document.getElementById("doc-call-pat-name").innerText = activeCall.patient.name;
-  
+  // Hide Doctor Overview panels
+  const overviewTop = document.getElementById("doc-overview-top-row");
+  const overviewSearch = document.getElementById("doc-overview-search-row");
+  const queueSec = document.getElementById("doc-queue-section");
+  const histSec = document.getElementById("doc-history-section");
+  const alertStrip = document.getElementById("doc-critical-alerts-strip");
+
+  if (overviewTop) overviewTop.style.display = "none";
+  if (overviewSearch) overviewSearch.style.display = "none";
+  if (queueSec) queueSec.style.display = "none";
+  if (histSec) histSec.style.display = "none";
+  if (alertStrip) alertStrip.style.display = "none";
+
+  // Show Live 3-Column Consultation Suite
+  const consultSec = document.getElementById("doc-consultation-section");
+  if (consultSec) consultSec.style.display = "block";
+
+  const patName = (activeCall && activeCall.patient) ? activeCall.patient.name : "Patient";
+  const docPatName = document.getElementById("doc-call-pat-name");
+  if (docPatName) docPatName.innerText = patName;
+
+  const docSessionDoctor = document.getElementById("doc-session-doctor-name");
+  if (docSessionDoctor) docSessionDoctor.innerText = currentUser ? currentUser.name : "Dr. Vikram";
+
+  const docTag = document.getElementById("doc-call-tag-name");
+  if (docTag) docTag.innerText = patName;
+
+  const pipLabel = document.getElementById("doc-pip-label");
+  if (pipLabel) pipLabel.innerText = currentUser ? currentUser.name : "Dr. Vikram";
+
+  const initialsEl = document.getElementById("doc-patient-initials");
+  if (initialsEl) {
+    const initials = patName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+    initialsEl.innerText = initials || "PT";
+  }
+
+  const audioPatName = document.getElementById("doc-call-pat-audio-name");
+  if (audioPatName) audioPatName.innerText = `${patName} (Audio-Only Mode)`;
+
+  // Populate Right Column: 2x2 Vitals Tiles & Reports Panel
+  const app = db.appointments.find(a => a.token === token);
+  const vitals = (app && app.vitals) ? app.vitals : { hr: 75, temp: 101.4, bpSystolic: 120, bpDiastolic: 80, spo2: 98 };
+
+  const hrEl = document.getElementById("doc-call-hr");
+  if (hrEl) hrEl.innerText = vitals.hr || 75;
+
+  const tempEl = document.getElementById("doc-call-temp");
+  if (tempEl) tempEl.innerText = vitals.temp || 101.4;
+
+  const bpEl = document.getElementById("doc-call-bp");
+  if (bpEl) bpEl.innerText = `${vitals.bpSystolic || 120}/${vitals.bpDiastolic || 80}`;
+
+  const spo2El = document.getElementById("doc-call-spo2");
+  if (spo2El) spo2El.innerText = vitals.spo2 || 98;
+
+  // Triage alert
+  const triageBanner = document.getElementById("doc-call-triage-banner");
+  const triageLvl = document.getElementById("doc-call-triage-level");
+  if (triageLvl) {
+    const triage = evaluateTriageUrgency(vitals);
+    if (triage.flag === "Critical") {
+      triageLvl.innerText = "RED — Critical Priority";
+      if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-danger";
+    } else if (triage.flag === "High Warning") {
+      triageLvl.innerText = "YELLOW — Urgent Attention";
+      if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-warning";
+    } else {
+      triageLvl.innerText = "GREEN — Non-Urgent (Normal)";
+      if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-normal";
+    }
+  }
+
+  // Symptoms tags cloud
+  const sympBox = document.getElementById("doc-call-symptoms-tags");
+  if (sympBox) {
+    sympBox.innerHTML = "";
+    const symptomsStr = (app && app.symptoms) ? app.symptoms : "Fever, Sore Throat, Body Aches, Fatigue";
+    const tags = symptomsStr.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+    if (tags.length === 0) tags.push("General Consultation");
+    tags.forEach(t => {
+      const tagSpan = document.createElement("span");
+      tagSpan.className = "symptom-tag";
+      tagSpan.innerText = t;
+      sympBox.appendChild(tagSpan);
+    });
+  }
+
+  // Patient Info section in right column
+  const infoName = document.getElementById("doc-call-info-name");
+  if (infoName) infoName.innerText = (activeCall && activeCall.patient) ? activeCall.patient.name : "--";
+
+  const infoAgeGender = document.getElementById("doc-call-info-age-gender");
+  if (infoAgeGender) infoAgeGender.innerText = (activeCall && activeCall.patient) ? `${activeCall.patient.age || '--'} / ${activeCall.patient.gender || '--'}` : "--";
+
+  const infoToken = document.getElementById("doc-call-info-token");
+  if (infoToken) infoToken.innerText = token;
+
+  const infoVillage = document.getElementById("doc-call-info-village");
+  if (infoVillage) infoVillage.innerText = (activeCall && activeCall.patient) ? `${activeCall.patient.village || 'Village Clinic'}, Smart Network` : "--";
+
+  // Start live call timer
+  startDocCallTimer();
+
   // Reset prescription compiler fields
   activeCallPrescriptionMeds = [];
   document.getElementById("pres-diagnosis").value = "";
@@ -1461,7 +1638,7 @@ window.startDoctorConsultation = function(token) {
 
   // Show live section
   startCallLoop();
-  showToast(`Connected to clinic. Simulated feed started.`, "success");
+  showToast(`Connected to clinic. Tele-consultation session started.`, "success");
 };
 
 async function refreshConsultationStateFromCloud() {
@@ -2169,6 +2346,7 @@ window.leaveConsultation = function() {
   saveDB();
 
   const role = activeCall.role;
+  stopDocCallTimer();
   activeCall = null;
 
   // Hide suites
@@ -2178,7 +2356,18 @@ window.leaveConsultation = function() {
 
   // Re-load panels
   if (role === "doctor") {
-    document.getElementById("doc-queue-section").style.display = "block";
+    const overviewTop = document.getElementById("doc-overview-top-row");
+    const overviewSearch = document.getElementById("doc-overview-search-row");
+    const queueSec = document.getElementById("doc-queue-section");
+    const histSec = document.getElementById("doc-history-section");
+    const alertStrip = document.getElementById("doc-critical-alerts-strip");
+
+    if (overviewTop) overviewTop.style.display = "flex";
+    if (overviewSearch) overviewSearch.style.display = "flex";
+    if (queueSec) queueSec.style.display = "block";
+    if (histSec) histSec.style.display = "block";
+    if (alertStrip) alertStrip.style.display = "block";
+
     loadDoctorDashboard();
   } else if (role === "vhw") {
     loadVhwDashboard();
@@ -2215,36 +2404,73 @@ function syncPrescriptionLabels() {
 
   ul.innerHTML = "";
   if (activeCallPrescriptionMeds.length === 0) {
-    ul.innerHTML = `<li style="color:var(--text-muted); border:none;">No medications added yet</li>`;
+    ul.innerHTML = `<li style="color:var(--text-muted); border:none; padding:8px 0;">No medications added yet</li>`;
   } else {
     activeCallPrescriptionMeds.forEach((m, idx) => {
       const li = document.createElement("li");
       li.innerHTML = `
         <div>
           <span class="med-name">${m.name}</span>
-          <span class="med-freq">(${m.freq} / ${m.dur})</span>
+          <span class="med-freq" style="font-size:11px; color:var(--text-muted);">(${m.freq} &bull; ${m.dur})</span>
         </div>
-        <button type="button" style="color:var(--danger); font-size:10px; font-weight:600;" onclick="removeMedicineRow(${idx})">Remove</button>
+        <button type="button" style="color:var(--danger); background:none; border:none; cursor:pointer; font-size:11px; font-weight:600;" onclick="removeMedicineRow(${idx})">✕ Remove</button>
       `;
       ul.appendChild(li);
     });
   }
 
+  // Live binding for diagnosis, advice, and referral
+  const diagInput = document.getElementById("pres-diagnosis");
+  const diagLbl = document.getElementById("pres-lbl-diagnosis");
+  if (diagLbl) {
+    diagLbl.innerText = (diagInput && diagInput.value.trim()) ? diagInput.value.trim() : "—";
+  }
+
+  const advInput = document.getElementById("pres-advice");
+  const advLbl = document.getElementById("pres-lbl-advice");
+  if (advLbl) {
+    advLbl.innerText = (advInput && advInput.value.trim()) ? advInput.value.trim() : "—";
+  }
+
+  const refInput = document.getElementById("pres-referral-check");
+  const refLbl = document.getElementById("pres-lbl-referral");
+  if (refLbl) {
+    refLbl.innerText = (refInput && refInput.checked)
+      ? "⚠️ Referred to District Specialist Hospital (Critical escalation)"
+      : "⊘ No referral required";
+    refLbl.style.color = (refInput && refInput.checked) ? "#dc2626" : "#64748b";
+  }
+
   // Preview data bindings
   if (activeCall) {
-    document.getElementById("pres-lbl-pat-name").innerText = activeCall.patient.name;
-    document.getElementById("pres-lbl-pat-age").innerText = `${activeCall.patient.age} / ${activeCall.patient.gender}`;
-    document.getElementById("pres-lbl-date").innerText = new Date().toLocaleDateString();
-    document.getElementById("pres-lbl-token").innerText = activeCall.token;
+    const patNameEl = document.getElementById("pres-lbl-pat-name");
+    if (patNameEl) patNameEl.innerText = activeCall.patient ? activeCall.patient.name : "--";
+
+    const patAgeEl = document.getElementById("pres-lbl-pat-age");
+    if (patAgeEl) patAgeEl.innerText = activeCall.patient ? `${activeCall.patient.age} / ${activeCall.patient.gender}` : "--";
+
+    const dateEl = document.getElementById("pres-lbl-date");
+    if (dateEl) dateEl.innerText = new Date().toLocaleDateString();
+
+    const tokenEl = document.getElementById("pres-lbl-token");
+    if (tokenEl) tokenEl.innerText = activeCall.token;
     
     const app = db.appointments.find(a => a.token === activeCall.token);
+    const bpEl = document.getElementById("pres-lbl-bp");
+    const spo2El = document.getElementById("pres-lbl-spo2");
     if (app && app.vitals) {
-      document.getElementById("pres-lbl-bp").innerText = `${app.vitals.bpSystolic}/${app.vitals.bpDiastolic} mmHg`;
-      document.getElementById("pres-lbl-spo2").innerText = `${app.vitals.spo2}% / ${app.vitals.hr} bpm`;
+      if (bpEl) bpEl.innerText = `${app.vitals.bpSystolic}/${app.vitals.bpDiastolic} mmHg`;
+      if (spo2El) spo2El.innerText = `${app.vitals.spo2}% / ${app.vitals.hr} bpm`;
+    } else {
+      if (bpEl) bpEl.innerText = "--";
+      if (spo2El) spo2El.innerText = "--";
     }
     
-    document.getElementById("pres-lbl-village").innerText = `${activeCall.patient.village} Clinic, Smart Village Network`;
-    document.getElementById("pres-lbl-doc").innerText = currentUser.name;
+    const vilEl = document.getElementById("pres-lbl-village");
+    if (vilEl) vilEl.innerText = `${activeCall.patient ? activeCall.patient.village : 'Village Clinic'} Clinic • Smart Village Network • Tele-Health Suite`;
+
+    const docEl = document.getElementById("pres-lbl-doc");
+    if (docEl) docEl.innerText = currentUser ? currentUser.name : "Dr. Abinesh V";
   }
 }
 
@@ -2319,6 +2545,7 @@ window.submitDigitalPrescription = function(e) {
     cancelAnimationFrame(activeCall.animationFrameId);
   }
 
+  stopDocCallTimer();
   activeCall = null;
   resetPrescriptionForm();
   showToast(`Prescription saved! Token dispatched. Consultation complete.`, "success");
@@ -2326,9 +2553,20 @@ window.submitDigitalPrescription = function(e) {
   // Load modal view of PDF prescription
   viewDigitalPrescriptionPopup(conId);
 
-  // Return to queue
+  // Return to queue & restore overview
   document.getElementById("doc-consultation-section").style.display = "none";
-  document.getElementById("doc-queue-section").style.display = "block";
+  const overviewTop = document.getElementById("doc-overview-top-row");
+  const overviewSearch = document.getElementById("doc-overview-search-row");
+  const queueSec = document.getElementById("doc-queue-section");
+  const histSec = document.getElementById("doc-history-section");
+  const alertStrip = document.getElementById("doc-critical-alerts-strip");
+
+  if (overviewTop) overviewTop.style.display = "flex";
+  if (overviewSearch) overviewSearch.style.display = "flex";
+  if (queueSec) queueSec.style.display = "block";
+  if (histSec) histSec.style.display = "block";
+  if (alertStrip) alertStrip.style.display = "block";
+
   loadDoctorDashboard();
 };
 
@@ -3283,6 +3521,20 @@ function startTelemetryFluctuations() {
         }
       }
     });
+
+    // Also update Doctor Overview Network Card if elements exist
+    const docOverLat = document.getElementById("doc-overview-latency");
+    const docOverLoss = document.getElementById("doc-overview-loss");
+    const docOverFps = document.getElementById("doc-overview-fps");
+    const docOverDown = document.getElementById("doc-overview-down");
+    const docOverUp = document.getElementById("doc-overview-up");
+    const docOverRes = document.getElementById("doc-overview-res");
+    if (docOverLat) docOverLat.innerText = latency + " ms";
+    if (docOverLoss) docOverLoss.innerText = loss + "%";
+    if (docOverFps) docOverFps.innerText = fps;
+    if (docOverDown) docOverDown.innerText = download;
+    if (docOverUp) docOverUp.innerText = upload;
+    if (docOverRes) docOverRes.innerText = state.resolution + (state.resolution.includes("p") ? " HD" : "");
   }, 1500);
 }
 
