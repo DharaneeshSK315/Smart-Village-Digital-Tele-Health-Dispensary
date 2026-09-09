@@ -2127,9 +2127,9 @@ body:has(#view-doctor.active),
 /* 1. Doctor Overview Top Row (3 Pastel Stats + 1 Live Network Card) */
 .doc-top-row {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 310px;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
   align-items: stretch;
 }
 
@@ -2139,50 +2139,81 @@ body:has(#view-doctor.active),
   gap: 16px;
 }
 
-.doc-metric-card {
-  border-radius: 12px;
-  padding: 16px 20px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
+.doc-stats-grid .doc-metric-card {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  padding: 18px 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
-.doc-metric-card:hover {
+.doc-stats-grid .doc-metric-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+}
+
+.doc-stats-grid .doc-metric-card .metric-icon {
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+}
+
+.doc-stats-grid .doc-metric-card .metric-icon.blue {
+  background-color: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.doc-stats-grid .doc-metric-card .metric-icon.red {
+  background-color: #fee2e2 !important;
+  color: #dc2626 !important;
+}
+
+.doc-stats-grid .doc-metric-card .metric-icon.green {
+  background-color: #dcfce7 !important;
+  color: #16a34a !important;
+}
+
+.doc-stats-grid .doc-metric-card .metric-icon svg {
+  stroke: currentColor !important;
 }
 
 .doc-metric-card .metric-info .label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   color: #64748b;
   margin-bottom: 2px;
   display: block;
 }
 
 .doc-metric-card .metric-info .value {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: #0f172a;
-  line-height: 1.15;
+  line-height: 1.2;
   margin-bottom: 2px;
 }
 
 .doc-metric-card .metric-info .subtext {
   font-size: 11px;
-  color: #64748b;
+  color: #94a3b8;
   display: block;
 }
 
 /* Right Side: Live Network Quality Card */
 .doc-network-card {
-  background-color: #ffffff;
-  border: 1px solid #dce7f3;
+  background-color: #ffffff !important;
+  border: 1.5px solid #2563eb !important;
   border-radius: 12px;
-  padding: 14px 16px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  padding: 14px 18px;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.06);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -2193,7 +2224,7 @@ body:has(#view-doctor.active),
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .doc-network-title {
@@ -2214,7 +2245,7 @@ body:has(#view-doctor.active),
   color: #16a34a;
   font-size: 14px;
   font-weight: 700;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .status-dot-green {
@@ -2223,42 +2254,49 @@ body:has(#view-doctor.active),
 }
 
 .doc-network-telemetry-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  background-color: #f8fafc;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid #eef2f6;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  background: transparent;
+  padding: 0;
+  border: none;
 }
 
 .net-metric-item {
   display: flex;
-  flex-direction: column;
-  text-align: center;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .net-metric-item span {
-  font-size: 9px;
+  font-size: 11.5px;
   color: #64748b;
-  text-transform: capitalize;
 }
 
 .net-metric-item strong {
-  font-size: 11px;
+  font-size: 11.5px;
   color: #0f172a;
   font-weight: 700;
 }
 
 .doc-network-status-bar {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 0;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 8px;
+}
+
+.net-status-row {
+  display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  color: #475569;
-  margin-bottom: 10px;
-  padding: 0 2px;
+  color: #64748b;
 }
 
 .badge-res-green {
@@ -2266,9 +2304,8 @@ body:has(#view-doctor.active),
   color: #16a34a;
   font-weight: 700;
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
-  margin-left: 4px;
 }
 
 .badge-failover-blue {
@@ -2276,9 +2313,8 @@ body:has(#view-doctor.active),
   color: #0284c7;
   font-weight: 700;
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
-  margin-left: 4px;
 }
 
 .doc-failover-progression {
@@ -2289,7 +2325,8 @@ body:has(#view-doctor.active),
 .progression-label {
   font-size: 10px;
   color: #64748b;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  font-weight: 500;
 }
 
 .progression-steps {
@@ -2300,31 +2337,25 @@ body:has(#view-doctor.active),
 }
 
 .prog-step {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 3px 6px;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1;
   text-align: center;
 }
 
 .prog-step span {
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
-  color: #64748b;
-}
-
-.prog-step small {
-  font-size: 8px;
   color: #94a3b8;
 }
 
-.prog-step.active {
-  background-color: #f0fdf4;
-  border-color: #86efac;
+.prog-step small {
+  font-size: 8.5px;
+  color: #94a3b8;
+  margin-top: 1px;
 }
 
 .prog-step.active span {
@@ -2335,10 +2366,10 @@ body:has(#view-doctor.active),
   color: #15803d;
 }
 
-.prog-arrow {
+.prog-divider {
   color: #cbd5e1;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 /* 2. Wide Patient Search Bar Row */

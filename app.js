@@ -21,36 +21,48 @@ const DEFAULT_PATIENTS = [
   ]},
   { id: "pat-3", name: "James Rodriguez", age: 45, gender: "Male", phone: "8123456789", village: "Village Clinic A", history: [] },
   { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] },
-  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", email: "dharaneesh@gmail.com", phone: "9876543211", village: "Village Clinic A", history: [] }
+  { id: "pat-5", name: "Dharaneesh", age: 30, gender: "Male", email: "dharaneesh@gmail.com", phone: "9876543211", village: "Village Clinic A", history: [] },
+  { id: "pat-6", name: "Kavitha R.", age: 45, gender: "Female", phone: "9876543212", village: "Village Clinic B", history: [] },
+  { id: "pat-7", name: "Rajan M.", age: 28, gender: "Male", phone: "9876543213", village: "Village Clinic A", history: [] }
 ];
 
 const DEFAULT_APPOINTMENTS = [
   {
-    token: "VIL-A-101",
-    patientId: "pat-1",
-    symptoms: "Chest pressure, shortness of breath",
-    urgency: "Severe",
-    specialty: "Cardiology",
-    assignedDoctorId: "doc-2",
+    token: "VIL-A-914",
+    patientId: "pat-5",
+    symptoms: "Fever, Cough",
+    urgency: "Urgent",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-4",
     status: "Waiting",
-    vitals: { bpSystolic: 155, bpDiastolic: 95, sugar: 140, temp: 37.2, spo2: 89, hr: 110, pain: 8, photo: null }
+    vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 37.0, spo2: 98, hr: 75, pain: 3, photo: null }
   },
   {
-    token: "VIL-B-102",
-    patientId: "pat-2",
-    symptoms: "Extreme fatigue, hyperglycemic symptoms",
-    urgency: "Moderate",
+    token: "VIL-B-203",
+    patientId: "pat-6",
+    symptoms: "Chest pain, Breathlessness",
+    urgency: "Critical",
     specialty: "General Medicine",
-    assignedDoctorId: "doc-1",
+    assignedDoctorId: "doc-4",
     status: "Waiting",
-    vitals: { bpSystolic: 130, bpDiastolic: 85, sugar: 280, temp: 36.8, spo2: 96, hr: 90, pain: 4, photo: null }
+    vitals: { bpSystolic: 140, bpDiastolic: 95, sugar: 135, temp: 37.4, spo2: 94, hr: 88, pain: 7, photo: null }
+  },
+  {
+    token: "VIL-A-101",
+    patientId: "pat-7",
+    symptoms: "Mild headache",
+    urgency: "Normal",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-4",
+    status: "Waiting",
+    vitals: { bpSystolic: 110, bpDiastolic: 70, sugar: 105, temp: 36.6, spo2: 99, hr: 72, pain: 2, photo: null }
   }
 ];
 
 const DEFAULT_CONSULTATIONS = [
-  { id: "con-1", date: "2026-06-28", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Dharani", diagnosis: "Hypertensive episode due to salt intake", medicines: "Metoprolol 50mg (1-0-1), Paracetamol 500mg (1-0-1)", failoverState: "Low Quality Video", referral: false },
-  { id: "con-2", date: "2026-06-29", patientName: "Robert Okafor", village: "Village Clinic C", doctorName: "Dr. Naveen", diagnosis: "Chronic migraine management", medicines: "Paracetamol 500mg (1-1-1)", failoverState: "Audio Call + Chat", referral: false },
-  { id: "con-3", date: "2026-06-30", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Common seasonal fever", medicines: "Paracetamol 500mg (1-0-1), Cough Syrup 10ml (1-1-1)", failoverState: "HD Video", referral: false }
+  { id: "VIL-A-800", date: "30/08/2026", patientName: "Priya S.", village: "Village Clinic A", doctorName: "Dr. Abinesh V", diagnosis: "Viral Fever", medicines: "Paracetamol, ORS", failoverState: "HD Video", referral: false },
+  { id: "VIL-B-712", date: "30/08/2026", patientName: "Murugan K.", village: "Village Clinic B", doctorName: "Dr. Abinesh V", diagnosis: "Hypertension", medicines: "Amlodipine 5mg", failoverState: "HD Video", referral: "Cardiology" },
+  { id: "VIL-A-655", date: "29/08/2026", patientName: "Lalitha V.", village: "Village Clinic A", doctorName: "Dr. Abinesh V", diagnosis: "Type 2 Diabetes follow-up", medicines: "Metformin 500mg", failoverState: "HD Video", referral: false }
 ];
 
 const DEFAULT_FAILOVER_LOGS = {
@@ -1272,27 +1284,32 @@ function loadDoctorDashboard() {
   }
 
   // Include both triaged patients and new bookings waiting for vitals
-  const myQueue = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
-  const statQueue = document.getElementById("doc-stat-queue");
-  if (statQueue) statQueue.innerText = `${myQueue.length} Waiting`;
-
+  const myQueue = db.appointments.filter(a => (a.assignedDoctorId === currentUser.id || !a.assignedDoctorId || a.assignedDoctorId === "doc-all") && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
+  const queueList = myQueue.length > 0 ? myQueue : db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
+  
   let criticalCount = 0;
-  myQueue.forEach(q => {
+  queueList.forEach(q => {
     if (q.vitals) {
       const triage = evaluateTriageUrgency(q.vitals);
-      if (triage.flag === "Critical") criticalCount++;
+      if (triage.flag === "Critical" || q.urgency === "Critical" || q.urgency === "Emergency") criticalCount++;
     }
   });
+
+  const myConsultations = db.consultations.filter(c => c.doctorName === currentUser.name);
+  const consultedList = myConsultations.length > 0 ? myConsultations : db.consultations;
+
+  const statQueue = document.getElementById("doc-stat-queue");
+  if (statQueue) statQueue.innerText = `${queueList.length} Waiting`;
+
   const statCrit = document.getElementById("doc-stat-critical");
   if (statCrit) statCrit.innerText = `${criticalCount} Cases`;
 
-  const consultedCount = db.consultations.filter(c => c.doctorName === currentUser.name).length;
   const statConsulted = document.getElementById("doc-stat-consulted");
-  if (statConsulted) statConsulted.innerText = `${consultedCount} Patients`;
+  if (statConsulted) statConsulted.innerText = `${consultedList.length} Patients`;
 
   const queueBadge = document.getElementById("doc-queue-count-badge");
   if (queueBadge) {
-    queueBadge.innerText = `${myQueue.length} patient${myQueue.length === 1 ? '' : 's'}`;
+    queueBadge.innerText = `${queueList.length} patient${queueList.length === 1 ? '' : 's'}`;
   }
 
   // Ensure network overview card indicator
@@ -1301,7 +1318,7 @@ function loadDoctorDashboard() {
 
   renderDoctorQueue();
   renderDoctorCompletedLogs();
-  renderDoctorAlertsStrip(myQueue);
+  renderDoctorAlertsStrip(queueList);
 }
 
 function renderDoctorAlertsStrip(queue) {
@@ -1309,7 +1326,7 @@ function renderDoctorAlertsStrip(queue) {
   if (!container) return;
   container.innerHTML = "";
 
-  const criticals = queue.filter(q => evaluateTriageUrgency(q.vitals).flag === "Critical");
+  const criticals = queue.filter(q => q.vitals && evaluateTriageUrgency(q.vitals).flag === "Critical");
   if (criticals.length === 0) return;
 
   const banner = document.createElement("div");
@@ -1326,7 +1343,10 @@ function renderDoctorQueue(searchQuery = "") {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
+  let list = db.appointments.filter(a => (a.assignedDoctorId === currentUser.id || !a.assignedDoctorId || a.assignedDoctorId === "doc-all") && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
+  if (list.length === 0) {
+    list = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
+  }
 
   // Sorting: Active -> Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
@@ -1363,9 +1383,8 @@ function renderDoctorQueue(searchQuery = "") {
     const triage = a.vitals ? evaluateTriageUrgency(a.vitals) : { flag: "Awaiting Vitals", score: 0 };
     
     let triageBadge = `<span class="pill-triage-awaiting">● Awaiting</span>`;
-    if (a.urgency === "Emergency") triageBadge = `<span class="pill-triage-critical" style="background:#fee2e2; color:#b91c1c; border-color:#fca5a5;">🚨 Emergency</span>`;
-    else if (a.vitals && triage.flag === "Critical") triageBadge = `<span class="pill-triage-critical">● Critical</span>`;
-    else if (a.vitals && triage.flag === "High Warning") triageBadge = `<span class="pill-triage-urgent">● Urgent</span>`;
+    if (a.urgency === "Emergency" || (a.vitals && triage.flag === "Critical")) triageBadge = `<span class="pill-triage-critical">● Critical</span>`;
+    else if (a.urgency === "Urgent" || (a.vitals && triage.flag === "High Warning")) triageBadge = `<span class="pill-triage-urgent">● Urgent</span>`;
     else if (a.vitals && triage.flag === "Normal") triageBadge = `<span class="pill-triage-normal">● Normal</span>`;
 
     const vitalsStr = a.vitals 
@@ -1374,17 +1393,20 @@ function renderDoctorQueue(searchQuery = "") {
 
     const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:10px; padding:2px 6px; border-radius:12px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
 
+    const genderChar = p && p.gender ? (p.gender.toLowerCase().startsWith("f") ? "F" : "M") : "M";
+    const ageSexStr = p ? `${p.age}/${genderChar}` : "--";
+
     const tr = document.createElement("tr");
     tr.className = a.urgency === "Emergency" ? "queue-row emergency-high" : "queue-row";
     tr.innerHTML = `
       <td><span class="token-link">${a.token}</span></td>
       <td><span class="patient-cell-name">${p ? p.name : "Unknown"}</span>${homeVisitBadge}</td>
-      <td>${p ? p.age : "--"} yrs / ${p ? p.gender : "--"}</td>
+      <td>${ageSexStr}</td>
       <td>${p ? p.village : "--"}</td>
       <td>
         <span class="vitals-inline-summary">${vitalsStr}</span>
       </td>
-      <td style="max-width:200px; color:#475569; font-size:12.5px;">${a.symptoms || "None reported"}</td>
+      <td style="max-width:200px; color:#64748b; font-size:12px;">${a.symptoms || "None reported"}</td>
       <td>${triageBadge}</td>
       <td style="text-align: right; padding-right: 20px;">
         <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">Start Call</button>
@@ -1403,7 +1425,11 @@ function renderDoctorCompletedLogs() {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  const myLogs = db.consultations.filter(c => c.doctorName === currentUser.name);
+  let myLogs = db.consultations.filter(c => c.doctorName === currentUser.name);
+  if (myLogs.length === 0 && db.consultations.length > 0) {
+    myLogs = db.consultations;
+  }
+
   if (myLogs.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
     return;
@@ -1417,13 +1443,13 @@ function renderDoctorCompletedLogs() {
 
     tr.innerHTML = `
       <td>${l.date}</td>
-      <td><span class="token-link">${l.id}</span></td>
+      <td><span class="token-link">${l.token || l.id}</span></td>
       <td><span class="patient-cell-name">${l.patientName}</span></td>
       <td>${l.diagnosis || "—"}</td>
       <td>${l.medicines || "—"}</td>
       <td>${referralBadge}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <button class="btn-doc-print-outline" onclick="viewDigitalPrescriptionPopup('${l.id}')">🖨️ Print</button>
+        <button class="btn-doc-print-outline" onclick="viewDigitalPrescriptionPopup('${l.id}')">Print</button>
       </td>
     `;
     tbody.appendChild(tr);
