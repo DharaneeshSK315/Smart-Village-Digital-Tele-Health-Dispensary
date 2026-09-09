@@ -9,8 +9,8 @@
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
   <!-- Supabase JS CDN Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" crossorigin src="./assets/index-9xQdQpLj.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BGVMDgnw.css">
+  <script type="module" crossorigin src="./assets/index-jCL0lJIF.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-AIqEhZRO.css">
 </head>
 <body>
 
@@ -695,38 +695,73 @@
     </section>
 
     <!-- 3. DOCTOR MODULE -->
-    <section id="view-doctor" class="view-section">
-      <div class="stats-strip">
-        <div class="metric-card">
-          <div class="metric-icon blue">👨‍⚕️</div>
-          <div class="metric-info">
-            <span class="label">Patient Queue</span>
-            <div class="value" id="doc-stat-queue">0 Waiting</div>
-            <span class="subtext">Ordered by vital urgency</span>
+    <section id="view-doctor" class="view-section doc-dashboard-view">
+      <!-- 1. Doctor Overview Header Stats Strip & Live Network Card -->
+      <div class="doc-top-row" id="doc-overview-top-row">
+        <!-- 3 Pastel Summary Cards -->
+        <div class="doc-stats-grid">
+          <div class="metric-card metric-card-blue doc-metric-card">
+            <div class="metric-icon blue">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            </div>
+            <div class="metric-info">
+              <span class="label">Patient Queue</span>
+              <div class="value" id="doc-stat-queue">0 Waiting</div>
+              <span class="subtext">Ordered by vital urgency</span>
+            </div>
+          </div>
+          <div class="metric-card metric-card-red doc-metric-card">
+            <div class="metric-icon red">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div class="metric-info">
+              <span class="label">Critical Priority</span>
+              <div class="value" id="doc-stat-critical">0 Cases</div>
+              <span class="subtext">Flagged SpO2 &amp; BP anomalies</span>
+            </div>
+          </div>
+          <div class="metric-card metric-card-green doc-metric-card">
+            <div class="metric-icon green">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="metric-info">
+              <span class="label">Consulted Today</span>
+              <div class="value" id="doc-stat-consulted">0 Patients</div>
+              <span class="subtext">Digital prescriptions saved</span>
+            </div>
           </div>
         </div>
-        <div class="metric-card">
-          <div class="metric-icon red">🚨</div>
-          <div class="metric-info">
-            <span class="label">Critical Priority</span>
-            <div class="value" id="doc-stat-critical">0 Cases</div>
-            <span class="subtext">Flagged SpO2 & BP anomalies</span>
+
+        <!-- 1 Live Network Quality Card -->
+        <div class="doc-network-card">
+          <div class="doc-network-header">
+            <span class="doc-network-title">NETWORK QUALITY</span>
+            <span class="doc-network-failover-tag">Auto Failover</span>
           </div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-icon green">✅</div>
-          <div class="metric-info">
-            <span class="label">Consulted Today</span>
-            <div class="value" id="doc-stat-consulted">0 Patients</div>
-            <span class="subtext">Digital prescriptions saved</span>
+          <div class="doc-network-status-indicator">
+            <span class="status-dot-green">●</span>
+            <strong id="doc-network-lbl">GOOD</strong>
           </div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-icon amber">📶</div>
-          <div class="metric-info">
-            <span class="label">Auto Failover Status</span>
-            <div class="value" id="doc-network-lbl">Good (HD)</div>
-            <span class="subtext">Network quality monitor</span>
+          <div class="doc-network-telemetry-grid">
+            <div class="net-metric-item"><span>Latency</span><strong id="doc-overview-latency">43 ms</strong></div>
+            <div class="net-metric-item"><span>Packet Loss</span><strong id="doc-overview-loss">0.8%</strong></div>
+            <div class="net-metric-item"><span>FPS</span><strong id="doc-overview-fps">30</strong></div>
+            <div class="net-metric-item"><span>Download</span><strong id="doc-overview-down">2.1 Mbps</strong></div>
+            <div class="net-metric-item"><span>Upload</span><strong id="doc-overview-up">2.1 Mbps</strong></div>
+          </div>
+          <div class="doc-network-status-bar">
+            <div>Current Video <span class="badge-res-green" id="doc-overview-res">720p HD</span></div>
+            <div>Failover <span class="badge-failover-blue" id="doc-overview-failover">READY</span></div>
+          </div>
+          <div class="doc-failover-progression">
+            <div class="progression-label">Failover Progression</div>
+            <div class="progression-steps">
+              <div class="prog-step active"><span>● GOOD</span><small>720p HD</small></div>
+              <span class="prog-arrow">&gt;</span>
+              <div class="prog-step"><span>● POOR</span><small>360p</small></div>
+              <span class="prog-arrow">&gt;</span>
+              <div class="prog-step"><span>● CRITICAL</span><small>Audio Only</small></div>
+            </div>
           </div>
         </div>
       </div>
@@ -734,87 +769,99 @@
       <!-- Critical Vitals Alerts Strip -->
       <div id="doc-critical-alerts-strip"></div>
 
-      <div class="dashboard-grid">
-        <!-- Patient Queue List -->
-        <div class="card col-12" id="doc-queue-section">
-          <div class="card-title-bar">
-            <h3>⌛ Patient Waiting Queue (Urgency Sorted Triage)</h3>
-            <div class="search-bar-wrapper" style="margin-bottom: 0;">
-              <input type="text" id="doc-search-patient" class="search-input" placeholder="Search patient name, ID or symptom..." oninput="docSearchQueue(this.value)">
-            </div>
+      <!-- 2. Wide Patient Search Bar Row -->
+      <div class="doc-search-bar-row" id="doc-overview-search-row">
+        <div class="doc-search-input-wrapper">
+          <svg class="search-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="doc-search-patient" class="search-input doc-search-input" placeholder="Search patient by name or token ID..." oninput="docSearchQueue(this.value)">
+        </div>
+        <button type="button" class="btn-primary doc-search-btn" onclick="docSearchQueue(document.getElementById('doc-search-patient').value)">Search</button>
+      </div>
+
+      <!-- 3. Patient Waiting Queue Card -->
+      <div class="card col-12 doc-card" id="doc-queue-section">
+        <div class="card-title-bar doc-card-header">
+          <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Patient Waiting Queue
+          </h3>
+          <span class="badge-pill-count" id="doc-queue-count-badge">0 patients</span>
+        </div>
+        <div class="table-wrapper">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>TOKEN ID</th>
+                <th>PATIENT</th>
+                <th>AGE/SEX</th>
+                <th>DISPENSARY</th>
+                <th>VITALS</th>
+                <th>SYMPTOMS</th>
+                <th>TRIAGE</th>
+                <th style="text-align: right; padding-right: 20px;">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="doc-queue-tbody">
+              <!-- Injected dynamically by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 4. Active Consultation Room (3-Column Tele-Health Suite) -->
+      <div class="card col-12 doc-card doc-live-suite-card" id="doc-consultation-section" style="display: none;">
+        <!-- Consultation Suite Header -->
+        <div class="card-title-bar doc-consult-header">
+          <div class="doc-consult-brand">
+            <h3>🎥 Consultation: <span id="doc-call-pat-name">Patient</span></h3>
+            <span class="doc-consult-doctor-badge">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.5 8.5 0 0 1 13 0"/></svg>
+              <span id="doc-session-doctor-name">Dr. Abinesh V</span> | <small>MD, General Medicine</small>
+            </span>
           </div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Token ID</th>
-                  <th>Patient</th>
-                  <th>Age/Sex</th>
-                  <th>Dispensary</th>
-                  <th>Vitals Symptoms</th>
-                  <th>Triage Level</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="doc-queue-tbody">
-                <!-- Injected dynamically by JS -->
-              </tbody>
-            </table>
+          <div class="doc-consult-header-actions">
+            <span class="live-session-pill"><span class="pulse-dot"></span> Live Session</span>
+            <span class="call-duration-timer" id="doc-call-timer">⏱ 00:00:00</span>
+            <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
+            <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
           </div>
         </div>
 
-        <!-- Main Video Call Panel & Prescription Section -->
-        <div class="card col-12" id="doc-consultation-section" style="display: none;">
-          <div class="card-title-bar">
-            <h3>🎥 Live Consultation Room - <span id="doc-call-pat-name">Jane Doe</span></h3>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
-              <button class="btn-action danger" onclick="leaveConsultation()">Hang Up / Suspend</button>
-            </div>
-          </div>
-
-          <div class="telemedicine-suite">
-            <!-- Call Feed Viewport -->
-            <div class="call-viewport" id="doc-viewport-container">
+        <!-- 3-Column Consultation Grid -->
+        <div class="doc-consultation-grid">
+          <!-- Column 1: Video Call Viewport & lower Network Telemetry Card -->
+          <div class="doc-col-video">
+            <div class="call-viewport doc-call-viewport" id="doc-viewport-container">
               <div class="main-feed-container">
-                <!-- Simulated Remote Patient Webcam -->
+                <!-- Floating Patient Tag -->
+                <div class="patient-floating-badge" id="doc-patient-tag">
+                  <span class="green-dot">●</span>
+                  <span id="doc-call-tag-name">Patient</span>
+                  <span class="tag-role">Patient</span>
+                </div>
+
+                <!-- WebRTC Remote Feed & Fallback Canvas -->
                 <canvas id="doc-remote-canvas" class="main-canvas"></canvas>
                 <div id="doc-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
                 
                 <!-- Recording Status Overlay -->
-                <div class="recording-status-overlay" id="doc-recording-status" style="display: none; position: absolute; top: 15px; left: 15px; background: rgba(220, 38, 38, 0.85); color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; align-items: center; gap: 6px; z-index: 100;">
-                  <span class="ai-pulse" style="background-color: white; width: 6px; height: 6px; border-radius: 50%; display: inline-block;"></span>
+                <div class="recording-status-overlay" id="doc-recording-status" style="display: none;">
+                  <span class="ai-pulse"></span>
                   <span>REC SECURE: <span id="doc-rec-timer">00:00</span></span>
                 </div>
-                
-                <!-- Telemetry HUD Overlay -->
-                <div class="telemetry-hud" id="doc-telemetry-hud">
-                  <div class="hud-header">📡 Live Network Telemetry</div>
-                  <div class="hud-grid">
-                    <div class="hud-item"><span>Latency</span> <strong id="doc-hud-latency">18 ms</strong></div>
-                    <div class="hud-item"><span>Loss</span> <strong id="doc-hud-loss">0%</strong></div>
-                    <div class="hud-item"><span>FPS</span> <strong id="doc-hud-fps">30</strong></div>
-                    <div class="hud-item"><span>Upload</span> <strong id="doc-hud-upload">2.8 Mbps</strong></div>
-                    <div class="hud-item"><span>Download</span> <strong id="doc-hud-download">3.1 Mbps</strong></div>
-                  </div>
-                  <div class="hud-prediction-bar">
-                    <div>AI: <span id="doc-hud-prediction" class="pred-good">GOOD</span></div>
-                    <div>Rec: <strong id="doc-hud-rec">HD Video</strong></div>
-                  </div>
-                </div>
 
-                <!-- Voice Translation Overlay -->
+                <!-- Voice Translation Transcript Overlay -->
                 <div class="translation-transcript-box" id="doc-translation-overlay" style="display: none;">
                   <span class="translation-original" id="doc-trans-orig">Patient: ...</span>
                   <span class="translation-arrow">➔</span>
                   <span class="translation-result" id="doc-trans-res">...</span>
                 </div>
 
-                <!-- Voice avatar fallback when video fails -->
+                <!-- Audio-only Avatar Fallback -->
                 <div class="remote-avatar-fallback" id="doc-remote-audio-fallback">
                   <div class="remote-avatar-circle" id="doc-patient-initials">JD</div>
-                  <h4 style="color: white; margin-bottom: 4px;" id="doc-call-pat-audio-name">Jane Doe (Audio-Only Mode)</h4>
-                  <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">Vitals shared below. Video closed to sustain call.</p>
+                  <h4 id="doc-call-pat-audio-name">Patient (Audio-Only Mode)</h4>
+                  <p>Vitals shared below. Video closed to sustain low-bandwidth link.</p>
                   <div class="audio-waves-container">
                     <div class="wave-bar"></div>
                     <div class="wave-bar"></div>
@@ -823,23 +870,20 @@
                     <div class="wave-bar"></div>
                   </div>
                 </div>
+
+                <!-- Doctor PIP Webcam -->
+                <div class="local-pip-feed doc-local-pip">
+                  <canvas id="doc-local-canvas" class="local-pip-canvas"></canvas>
+                  <div id="doc-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+                  <div class="pip-label" id="doc-pip-label">Dr. Abinesh V</div>
+                </div>
               </div>
 
-              <!-- Local Doctor PIP webcam -->
-              <div class="local-pip-feed">
-                <canvas id="doc-local-canvas" class="local-pip-canvas"></canvas>
-                <div id="doc-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
-              </div>
-
-              <!-- Controls -->
-              <div class="call-control-bar">
-                <div class="call-status-badge">
-                  <!-- AI Predictor Badge -->
-                  <div class="ai-predict-badge" id="doc-ai-badge" style="display: none;">
-                    <span class="ai-pulse"></span> 🧠 AI Predictor: Drop in 5s
-                  </div>
-                  <span id="doc-conn-text">1080p Full HD</span>
-                  <div class="signal-bar-group" id="doc-sig-bars">
+              <!-- Floating Call Controls Bar -->
+              <div class="call-control-bar doc-call-controls-bar">
+                <div class="call-quality-indicator">
+                  <span class="quality-label" id="doc-conn-text">📶 720p HD • Full Video</span>
+                  <div class="signal-bar-group" id="doc-sig-bars" style="display: none;">
                     <div class="sig-bar sig-1 active"></div>
                     <div class="sig-bar sig-2 active"></div>
                     <div class="sig-bar sig-3 active"></div>
@@ -847,99 +891,205 @@
                   </div>
                 </div>
                 
-                <div class="call-btns">
-                  <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')">🎙️</button>
-                  <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')">📷</button>
-                  <button class="btn-circle active" id="doc-record-btn" onclick="window.toggleCallRecording()" title="Start/Stop HIPAA Secure Recording" style="background-color: #374151; color: white;">🔴</button>
-                  <button class="btn-circle hangup" onclick="leaveConsultation()">❌</button>
+                <div class="call-btns doc-center-btns">
+                  <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')" title="Toggle Mic">🎙️</button>
+                  <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')" title="Toggle Camera">📷</button>
+                  <button class="btn-circle active" id="doc-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
+                  <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Consultation">📞</button>
                 </div>
 
-                <div class="simulator-controls">
-                  <label for="doc-net-sim">Force Network Bandwidth:</label>
-                  <select id="doc-net-sim" onchange="simulateNetworkChange(this.value)">
-                    <option value="excellent">Excellent Signal (1080p HD)</option>
-                    <option value="good">Good Signal (720p HD)</option>
-                    <option value="fair">Fair Signal (480p SD)</option>
-                    <option value="poor">Poor Signal (360p Low-Res)</option>
-                    <option value="verypoor">Very Poor (240p Compressed)</option>
-                    <option value="critical">Critical Signal (Audio-only)</option>
+                <div class="doc-audio-translate-pill">
+                  <span>🌐</span>
+                  <select id="doc-patient-lang" onchange="window.updateTranslatorSettings()" class="translate-select">
+                    <option value="ta-IN">Tamil (தமிழ்)</option>
+                    <option value="hi-IN">Hindi (हिन्दी)</option>
+                    <option value="en-IN">English</option>
+                  </select>
+                  <select id="doc-target-lang" onchange="window.updateTranslatorSettings()" class="translate-select" style="display: none;">
+                    <option value="ta-IN">Tamil (தமிழ்)</option>
+                    <option value="hi-IN">Hindi (हिन्दी)</option>
+                    <option value="en-IN">English</option>
                   </select>
                 </div>
               </div>
 
-              <!-- AI Translation Controls Panel for Doctor -->
-              <div class="translation-controls" style="margin-top: 10px; padding: 10px; background: rgba(15,23,42,0.05); border-radius: 6px; display: flex; gap: 12px; align-items: center; justify-content: space-between;">
-                <div style="display: flex; gap: 12px; align-items: center;">
-                  <span>🗣️ <strong>AI Speech Translation:</strong></span>
-                  <label for="doc-patient-lang" style="font-size: 11px;">Patient Speaks:</label>
-                  <select id="doc-patient-lang" onchange="window.updateTranslatorSettings()" style="font-size: 11px; padding: 2px;">
-                    <option value="ta-IN">Tamil (தமிழ்)</option>
-                    <option value="hi-IN">Hindi (हिन्दी)</option>
-                  </select>
-                  
-                  <label for="doc-target-lang" style="font-size: 11px;">Patient Hears (TTS):</label>
-                  <select id="doc-target-lang" onchange="window.updateTranslatorSettings()" style="font-size: 11px; padding: 2px;">
-                    <option value="ta-IN">Tamil (தமிழ்)</option>
-                    <option value="hi-IN">Hindi (हिन्दी)</option>
-                  </select>
-                </div>
-                <button class="btn-action" style="font-size: 11px; padding: 4px 8px;" onclick="window.triggerSimulatedSpeech()">🗣️ Simulate Patient Speech</button>
+              <!-- Network Bandwidth Simulator Select (Hidden / Compact) -->
+              <div class="simulator-controls" style="display: none;">
+                <select id="doc-net-sim" onchange="simulateNetworkChange(this.value)">
+                  <option value="excellent">Excellent Signal (1080p HD)</option>
+                  <option value="good" selected>Good Signal (720p HD)</option>
+                  <option value="poor">Poor Signal (360p Low-Res)</option>
+                  <option value="critical">Critical Signal (Audio-only)</option>
+                </select>
               </div>
             </div>
 
-            <!-- Sidebar (Chat + Shared Files) -->
-            <div class="telehealth-sidebar">
-              <div class="sidebar-tab-headers">
-                <button class="sidebar-tab-btn active" id="doc-tab-chat" onclick="switchCallTab('doc', 'chat')">Chat</button>
-                <button class="sidebar-tab-btn" id="doc-tab-files" onclick="switchCallTab('doc', 'files')">Vitals & Reports</button>
+            <!-- Lower Network Telemetry Card -->
+            <div class="doc-telemetry-panel" id="doc-telemetry-hud">
+              <div class="telemetry-card-header">
+                <span class="telemetry-card-title">● Network Telemetry</span>
+                <span class="telemetry-badge-good" id="doc-hud-prediction">● GOOD</span>
               </div>
-              <div class="sidebar-tab-content">
-                <!-- Chat Tab -->
-                <div class="tab-pane active" id="doc-pane-chat">
-                  <div class="chat-history" id="doc-chat-box">
-                    <!-- Dynamic chat -->
-                  </div>
-                  <div class="chat-input-bar">
-                    <input type="text" id="doc-chat-input" class="chat-input" placeholder="Type message..." onkeydown="if(event.key === 'Enter') sendChatMessage('doc')">
-                    <button class="chat-send-btn" onclick="sendChatMessage('doc')">➔</button>
-                  </div>
+              <div class="telemetry-stats-grid">
+                <div class="tel-stat-item"><span>Latency</span><strong id="doc-hud-latency">43 ms</strong></div>
+                <div class="tel-stat-item"><span>Packet Loss</span><strong id="doc-hud-loss">0.8%</strong></div>
+                <div class="tel-stat-item"><span>FPS</span><strong id="doc-hud-fps">30</strong></div>
+                <div class="tel-stat-item"><span>Upload</span><strong id="doc-hud-upload">2.4 Mbps</strong></div>
+                <div class="tel-stat-item"><span>Download</span><strong id="doc-hud-download">5.1 Mbps</strong></div>
+                <div class="tel-stat-item"><span>Video Quality</span><strong id="doc-hud-rec">720p HD</strong></div>
+              </div>
+              <div class="telemetry-failover-track">
+                <span class="failover-title">Auto Failover:</span>
+                <div class="progression-steps">
+                  <div class="prog-step active"><span>GOOD</span><small>720p HD</small></div>
+                  <span class="prog-arrow">&gt;</span>
+                  <div class="prog-step"><span>POOR</span><small>360p</small></div>
+                  <span class="prog-arrow">&gt;</span>
+                  <div class="prog-step"><span>CRITICAL</span><small>Audio Only</small></div>
                 </div>
-                <!-- Files Tab -->
-                <div class="tab-pane" id="doc-pane-files">
-                  <div class="shared-files-section" style="margin-bottom: 16px;">
-                    <h4>Consultation Vitals Summary</h4>
-                    <div class="vitals-grid" style="grid-template-columns: repeat(2, 1fr); gap: 8px;" id="doc-call-vitals-box">
-                      <!-- Filled by JS -->
-                    </div>
-                  </div>
-                  <div class="shared-files-section">
-                    <h4>Shared Images / Wound Photos</h4>
-                    <div class="file-sharing-grid" id="doc-call-files-box">
-                      <!-- File lists -->
-                    </div>
-                  </div>
-                </div>
+              </div>
+              <div class="telemetry-status-banner">
+                Full Video Active — All systems nominal. Video + Audio streaming.
               </div>
             </div>
-
           </div>
 
-          <!-- Digital Prescription Workspace -->
-          <div class="prescription-container" style="margin-top: 24px;">
-            <!-- Input Panel -->
-            <div class="card">
+          <!-- Column 2: Consultation Chat & Shared Files Tabs -->
+          <div class="doc-col-chat">
+            <div class="doc-chat-card">
+              <div class="doc-chat-tabs-header">
+                <button class="doc-tab-switcher-btn active" id="doc-tab-chat" onclick="switchCallTab('doc', 'chat')">💬 Chat</button>
+                <button class="doc-tab-switcher-btn" id="doc-tab-files" onclick="switchCallTab('doc', 'files')">🩺 Vitals</button>
+              </div>
+
+              <!-- Chat Pane -->
+              <div class="tab-pane active doc-chat-pane" id="doc-pane-chat">
+                <div class="doc-chat-title-bar">
+                  <span>💬 Consultation Chat</span>
+                  <span class="doc-e2e-badge">🔒 E2E Encrypted</span>
+                </div>
+                <div class="chat-history doc-chat-history" id="doc-chat-box">
+                  <!-- Dynamic chat bubbles -->
+                </div>
+                <div class="doc-chat-input-row">
+                  <input type="text" id="doc-chat-input" class="doc-chat-input" placeholder="Type a message..." onkeydown="if(event.key === 'Enter') sendChatMessage('doc')">
+                  <button class="doc-chat-send-btn" onclick="sendChatMessage('doc')" title="Send Message">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Vitals & Files Tab Pane -->
+              <div class="tab-pane doc-files-pane" id="doc-pane-files">
+                <div class="shared-files-section">
+                  <h4>Consultation Vitals Summary</h4>
+                  <div class="vitals-grid" id="doc-call-vitals-box"></div>
+                </div>
+                <div class="shared-files-section" style="margin-top: 14px;">
+                  <h4>Shared Images / Wound Photos</h4>
+                  <div class="file-sharing-grid" id="doc-call-files-box"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: Vitals & Reports Panel -->
+          <div class="doc-col-vitals">
+            <div class="doc-vitals-card">
+              <div class="doc-vitals-header">
+                <h4>🩺 Vitals &amp; Reports</h4>
+              </div>
+
+              <!-- 2x2 Vital Tiles Grid -->
+              <div class="doc-vital-tiles-grid">
+                <div class="doc-vital-tile tile-hr">
+                  <div class="tile-icon-circle">❤️</div>
+                  <div class="tile-meta">
+                    <span class="tile-label">Heart Rate</span>
+                    <div class="tile-value"><strong id="doc-call-hr">75</strong> <small>bpm</small></div>
+                  </div>
+                </div>
+                <div class="doc-vital-tile tile-temp">
+                  <div class="tile-icon-circle">🌡️</div>
+                  <div class="tile-meta">
+                    <span class="tile-label">Temperature</span>
+                    <div class="tile-value"><strong id="doc-call-temp">101.4</strong> <small>°F</small></div>
+                  </div>
+                </div>
+                <div class="doc-vital-tile tile-bp">
+                  <div class="tile-icon-circle">🩺</div>
+                  <div class="tile-meta">
+                    <span class="tile-label">Blood Pressure</span>
+                    <div class="tile-value"><strong id="doc-call-bp">120/80</strong> <small>mmHg</small></div>
+                  </div>
+                </div>
+                <div class="doc-vital-tile tile-spo2">
+                  <div class="tile-icon-circle">🫁</div>
+                  <div class="tile-meta">
+                    <span class="tile-label">SpO2</span>
+                    <div class="tile-value"><strong id="doc-call-spo2">98</strong> <small>%</small></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Triage Level Alert -->
+              <div class="doc-triage-alert-banner" id="doc-call-triage-banner">
+                <div class="triage-text">
+                  <span>Triage Level:</span>
+                  <strong id="doc-call-triage-level">YELLOW — Non-Urgent</strong>
+                </div>
+                <span class="triage-warning-icon">⚠️</span>
+              </div>
+
+              <!-- Reported Symptoms Tags -->
+              <div class="doc-symptoms-section">
+                <h5>Reported Symptoms</h5>
+                <div class="doc-symptoms-tags-cloud" id="doc-call-symptoms-tags">
+                  <span class="symptom-tag">Fever (101.4°F)</span>
+                  <span class="symptom-tag">Sore Throat</span>
+                  <span class="symptom-tag">Body Aches</span>
+                  <span class="symptom-tag">Fatigue</span>
+                </div>
+              </div>
+
+              <!-- Patient Information Section -->
+              <div class="doc-patient-info-section">
+                <h5>Patient Information</h5>
+                <div class="patient-info-grid">
+                  <div class="pat-info-item"><span>Name</span><strong id="doc-call-info-name">Dharaneesh</strong></div>
+                  <div class="pat-info-item"><span>Age / Gender</span><strong id="doc-call-info-age-gender">30 / Male</strong></div>
+                  <div class="pat-info-item"><span>Token ID</span><strong id="doc-call-info-token">VIL-A-914</strong></div>
+                  <div class="pat-info-item"><span>Dispensary / Village</span><strong id="doc-call-info-village">Clinic A, Smart Network</strong></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Digital Prescription Workspace (Split 2-Column Interface) -->
+        <div class="doc-prescription-workspace" style="margin-top: 24px;">
+          <div class="prescription-drawer-header">
+            <span class="drawer-pill-tab">📄 Digital Prescription</span>
+          </div>
+
+          <div class="doc-prescription-split-grid">
+            <!-- Left: Digital Prescription Form -->
+            <div class="card doc-prescription-form-card">
               <div class="card-title-bar">
-                <h3>📝 Digital Prescription Form</h3>
+                <h3>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  Digital Prescription Form
+                </h3>
               </div>
               <form id="doc-prescription-form" onsubmit="submitDigitalPrescription(event)">
                 <div class="form-group">
                   <label for="pres-diagnosis">Diagnosis / Findings</label>
-                  <textarea id="pres-diagnosis" class="form-input" placeholder="Write diagnosis notes here..." rows="3" required></textarea>
+                  <textarea id="pres-diagnosis" class="form-input" placeholder="Write diagnosis notes here..." rows="3" required oninput="syncPrescriptionLabels()"></textarea>
                 </div>
                 
                 <div class="form-group">
                   <label>Add Medicines</label>
-                  <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                  <div class="pres-med-input-row">
                     <select id="pres-med-name" class="form-input">
                       <option value="Paracetamol 500mg">Paracetamol 500mg</option>
                       <option value="Amoxicillin 250mg">Amoxicillin 250mg</option>
@@ -947,64 +1097,82 @@
                       <option value="Metformin 500mg">Metformin 500mg</option>
                       <option value="Cough Syrup 100ml">Cough Syrup 100ml</option>
                       <option value="ORSL Hydration Sachet">ORSL Hydration Sachet</option>
+                      <option value="Cetirizine 10mg">Cetirizine 10mg</option>
+                      <option value="Azithromycin 500mg">Azithromycin 500mg</option>
                     </select>
-                    <input type="text" id="pres-med-freq" class="form-input" placeholder="e.g. 1-0-1 (BID)">
-                    <input type="text" id="pres-med-duration" class="form-input" placeholder="e.g. 5 days">
+                    <input type="text" id="pres-med-freq" class="form-input" placeholder="Dosage (e.g. 1-0-1)">
+                    <input type="text" id="pres-med-duration" class="form-input" placeholder="Duration (e.g. 5 days)">
                   </div>
-                  <button type="button" class="btn-secondary" style="width: 100%; border-style: dashed;" onclick="addMedicineRow()">➕ Add Medicine to prescription</button>
+                  <button type="button" class="btn-dashed-add" onclick="addMedicineRow()">
+                    + Add Medicine to Prescription
+                  </button>
                 </div>
 
                 <div class="form-group">
                   <label for="pres-advice">Special Instructions / General Advice</label>
-                  <input type="text" id="pres-advice" class="form-input" placeholder="e.g. Drink plenty of water, avoid spicy food">
+                  <textarea id="pres-advice" class="form-input" placeholder="e.g. Drink plenty of water, avoid spicy food" rows="2" oninput="syncPrescriptionLabels()"></textarea>
                 </div>
 
-                <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-                  <input type="checkbox" id="pres-referral-check" style="width: 16px; height: 16px;">
-                  <label for="pres-referral-check" style="margin-bottom: 0;">Refer to District Specialist Hospital (Critical escalation)</label>
+                <div class="doc-referral-alert-box">
+                  <label class="doc-checkbox-label">
+                    <input type="checkbox" id="pres-referral-check" onchange="syncPrescriptionLabels()">
+                    <span>Refer to District Specialist Hospital (Critical escalation)</span>
+                  </label>
                 </div>
 
-                <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                  <button type="submit" class="btn-primary">Generate Prescription</button>
-                  <button type="button" class="btn-secondary" onclick="resetPrescriptionForm()">Clear Form</button>
+                <div class="doc-prescription-actions">
+                  <button type="submit" class="btn-primary doc-btn-generate">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    Generate Prescription
+                  </button>
+                  <button type="button" class="btn-secondary doc-btn-clear" onclick="resetPrescriptionForm()">Clear Form</button>
                 </div>
               </form>
             </div>
 
-            <!-- Preview Panel -->
-            <div class="prescription-preview-panel" id="prescription-print-zone">
+            <!-- Right: Live Prescription Preview Paper -->
+            <div class="prescription-preview-panel doc-prescription-paper" id="prescription-print-zone">
               <div>
                 <div class="prescription-header">
                   <div class="dispensary-meta">
                     <h4>VILLAGEMED SMART DISPENSARY</h4>
-                    <p id="pres-lbl-village">Village Clinic A, Smart Village Network</p>
+                    <p id="pres-lbl-village">Village Clinic A • Smart Village Network • Tele-Health Suite</p>
                   </div>
                   <div class="doctor-stamp">
-                    <div class="doc-name" id="pres-lbl-doc">Dr. Vikram</div>
-                    <div style="font-size: 10px; color: var(--text-muted);">MD, General Medicine</div>
+                    <div class="doc-name" id="pres-lbl-doc">Dr. Abinesh V</div>
+                    <div class="doc-spec-sub">MD, General Medicine</div>
                   </div>
                 </div>
 
                 <div class="prescription-meta-grid">
-                  <div class="meta-field"><span>Patient:</span> <span id="pres-lbl-pat-name">--</span></div>
-                  <div class="meta-field"><span>Age/Gender:</span> <span id="pres-lbl-pat-age">--</span></div>
-                  <div class="meta-field"><span>Date:</span> <span id="pres-lbl-date">--</span></div>
-                  <div class="meta-field"><span>Token ID:</span> <span id="pres-lbl-token">--</span></div>
-                  <div class="meta-field"><span>Clinician BP:</span> <span id="pres-lbl-bp">--</span></div>
-                  <div class="meta-field"><span>SpO2 / HR:</span> <span id="pres-lbl-spo2">--</span></div>
+                  <div class="meta-field"><span>Patient</span> <strong id="pres-lbl-pat-name">--</strong></div>
+                  <div class="meta-field"><span>Age / Gender</span> <strong id="pres-lbl-pat-age">--</strong></div>
+                  <div class="meta-field"><span>Date</span> <strong id="pres-lbl-date">--</strong></div>
+                  <div class="meta-field"><span>Token ID</span> <strong id="pres-lbl-token">--</strong></div>
+                  <div class="meta-field"><span>BP</span> <strong id="pres-lbl-bp">--</strong></div>
+                  <div class="meta-field"><span>SpO2 / HR</span> <strong id="pres-lbl-spo2">--</strong></div>
                 </div>
 
                 <div class="prescription-body">
-                  <h5>Rx (Prescribed Medications)</h5>
+                  <div class="rx-header-title">Rx — <span>Prescribed Medications</span></div>
                   <ul class="prescription-meds-list" id="pres-lbl-meds-list">
                     <!-- Meds rows dynamically inserted -->
                   </ul>
 
-                  <h5>Diagnosis Summary</h5>
-                  <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500;" id="pres-lbl-diagnosis">--</div>
+                  <div class="pres-preview-section">
+                    <h6>Diagnosis Summary</h6>
+                    <div class="pres-preview-box" id="pres-lbl-diagnosis">—</div>
+                  </div>
 
-                  <h5>Advice & Instructions</h5>
-                  <div class="prescription-notes" id="pres-lbl-advice">--</div>
+                  <div class="pres-preview-section">
+                    <h6>Advice &amp; Instructions</h6>
+                    <div class="pres-preview-box" id="pres-lbl-advice">—</div>
+                  </div>
+
+                  <div class="pres-preview-section">
+                    <h6>Referral Escalation</h6>
+                    <div class="pres-preview-box" id="pres-lbl-referral">⊘ No referral required</div>
+                  </div>
                 </div>
               </div>
 
@@ -1015,30 +1183,34 @@
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Historical Consultations list -->
-        <div class="card col-12" id="doc-history-section">
-          <div class="card-title-bar">
-            <h3>📜 Completed Consultations Log</h3>
-          </div>
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Patient ID</th>
-                  <th>Patient Name</th>
-                  <th>Diagnosis</th>
-                  <th>Medicines Dispensed</th>
-                  <th>Referral Escalation</th>
-                  <th>Print Pres.</th>
-                </tr>
-              </thead>
-              <tbody id="doc-completed-tbody">
-                <!-- Injected dynamically by JS -->
-              </tbody>
-            </table>
-          </div>
+      <!-- 6. Historical Completed Consultations Log -->
+      <div class="card col-12 doc-card" id="doc-history-section">
+        <div class="card-title-bar doc-card-header">
+          <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Completed Consultations
+          </h3>
+          <span class="badge-pill-count">Today</span>
+        </div>
+        <div class="table-wrapper">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>DATE</th>
+                <th>PATIENT ID</th>
+                <th>PATIENT NAME</th>
+                <th>DIAGNOSIS</th>
+                <th>MEDICINES DISPENSED</th>
+                <th>REFERRAL / ESCALATION</th>
+                <th style="text-align: right; padding-right: 20px;">PRESCRIPTION</th>
+              </tr>
+            </thead>
+            <tbody id="doc-completed-tbody">
+              <!-- Injected dynamically by JS -->
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
