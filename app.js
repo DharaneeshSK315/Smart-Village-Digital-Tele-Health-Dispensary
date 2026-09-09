@@ -1554,42 +1554,68 @@ function renderDoctorQueue(searchQuery = "") {
   }
 
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
     return;
   }
 
   list.forEach(a => {
     const p = db.patients.find(pat => pat.id === a.patientId);
-    const triage = a.vitals ? evaluateTriageUrgency(a.vitals) : { flag: "Awaiting Vitals", score: 0 };
-    
-    let triageBadge = `<span class="pill-triage-awaiting">● Awaiting</span>`;
-    if (a.urgency === "Emergency" || (a.vitals && triage.flag === "Critical")) triageBadge = `<span class="pill-triage-critical">● Critical</span>`;
-    else if (a.urgency === "Urgent" || (a.vitals && triage.flag === "High Warning")) triageBadge = `<span class="pill-triage-urgent">● Urgent</span>`;
-    else if (a.vitals && triage.flag === "Normal") triageBadge = `<span class="pill-triage-normal">● Normal</span>`;
+    const doc = db.doctors.find(d => d.id === a.assignedDoctorId);
+    const docName = doc ? doc.name : (currentUser && currentUser.name ? currentUser.name : "Dr. Vikram");
 
-    const vitalsStr = a.vitals 
-      ? `BP ${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} &bull; SpO2 ${a.vitals.spo2}% &bull; HR ${a.vitals.hr}`
-      : `<span style="color:#94a3b8; font-style:italic;">Vitals pending</span>`;
+    let vitalsHtml = `<span style="color:#94a3b8; font-size:12px; font-style:italic;">Pending Vitals Check</span>`;
+    let priorityBadge = `<span class="triage-pill" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1;">Awaiting</span>`;
+
+    if (a.vitals) {
+      const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 95;
+      const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
+      const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
+      const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.5°C";
+      const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
+
+      vitalsHtml = `
+        <div class="vitals-telemetry-grid">
+          <div class="vital-row"><span class="vital-k">BP:</span> <span class="vital-v">${bpVal}</span></div>
+          <div class="vital-row"><span class="vital-k">SpO2:</span> <span class="vital-v ${isSpo2Low ? 'vital-danger' : ''}">${spo2Val}</span></div>
+          <div class="vital-row"><span class="vital-k">Temp:</span> <span class="vital-v">${tempVal}</span></div>
+          <div class="vital-row"><span class="vital-k">HR:</span> <span class="vital-v">${hrVal}</span></div>
+        </div>
+      `;
+
+      const triage = evaluateTriageUrgency(a.vitals);
+      if (triage.flag === "Critical" || a.urgency === "Critical" || a.urgency === "Emergency") {
+        priorityBadge = `<span class="triage-pill triage-critical"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Critical</span>`;
+      } else if (triage.flag === "High Warning" || a.urgency === "Urgent" || a.urgency === "Severe" || a.urgency === "Moderate") {
+        priorityBadge = `<span class="triage-pill triage-warning"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg> Urgent</span>`;
+      } else {
+        priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
+      }
+    }
 
     const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:10px; padding:2px 6px; border-radius:12px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
-
-    const genderChar = p && p.gender ? (p.gender.toLowerCase().startsWith("f") ? "F" : "M") : "M";
-    const ageSexStr = p ? `${p.age}/${genderChar}` : "--";
 
     const tr = document.createElement("tr");
     tr.className = a.urgency === "Emergency" ? "queue-row emergency-high" : "queue-row";
     tr.innerHTML = `
-      <td><span class="token-link">${a.token}</span></td>
-      <td><span class="patient-cell-name">${p ? p.name : "Unknown"}</span>${homeVisitBadge}</td>
-      <td>${ageSexStr}</td>
-      <td>${p ? p.village : "--"}</td>
+      <td><span class="token-pill">${a.token}</span></td>
       <td>
-        <span class="vitals-inline-summary">${vitalsStr}</span>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(p, p ? p.id : a.patientId)}
+          <div>
+            <div class="patient-name-bold">${p ? p.name : "Unknown"}${homeVisitBadge}</div>
+            <div class="patient-sub-meta">${p ? `${p.age} yrs / ${p.gender}` : "--"}</div>
+          </div>
+        </div>
       </td>
-      <td style="max-width:200px; color:#64748b; font-size:12px;">${a.symptoms || "None reported"}</td>
-      <td>${triageBadge}</td>
+      <td style="color:#334155; font-size:13px; max-width:220px; line-height:1.4;">${a.symptoms || "None reported"}</td>
+      <td>${vitalsHtml}</td>
+      <td>${priorityBadge}</td>
+      <td style="color:#0f172a; font-weight:500; font-size:13px;">${docName}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">Start Call</button>
+        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          Start Call
+        </button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1610,8 +1636,13 @@ function renderDoctorCompletedLogs() {
     myLogs = db.consultations;
   }
 
+  const badge = document.getElementById("doc-completed-count-badge");
+  if (badge) {
+    badge.innerText = `${myLogs.length} Completed`;
+  }
+
   if (myLogs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
     return;
   }
 
@@ -1619,17 +1650,35 @@ function renderDoctorCompletedLogs() {
     const tr = document.createElement("tr");
     const referralBadge = l.referral 
       ? `<span class="pill-referral-specialist">${typeof l.referral === 'string' && l.referral !== 'true' ? l.referral : 'Cardiology'}</span>` 
-      : `<span style="color:#94a3b8;">—</span>`;
+      : `<span style="color:#64748b; font-size:12px; font-weight:500;">None</span>`;
+
+    const pat = db.patients.find(p => p.name === l.patientName || p.id === l.patientId);
+    const patAgeGender = pat ? `${pat.age} yrs / ${pat.gender}` : (l.village || "Clinic Patient");
 
     tr.innerHTML = `
-      <td>${l.date}</td>
-      <td><span class="token-link">${l.token || l.id}</span></td>
-      <td><span class="patient-cell-name">${l.patientName}</span></td>
-      <td>${l.diagnosis || "—"}</td>
-      <td>${l.medicines || "—"}</td>
+      <td>
+        <div>
+          <span class="token-pill">${l.token || l.id}</span>
+          <div style="font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 500;">${l.date}</div>
+        </div>
+      </td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(pat || l.patientName, pat ? pat.id : l.id)}
+          <div>
+            <div class="patient-name-bold">${l.patientName}</div>
+            <div class="patient-sub-meta">${patAgeGender}</div>
+          </div>
+        </div>
+      </td>
+      <td style="color:#334155; font-size:13px; font-weight:500;">${l.diagnosis || "—"}</td>
+      <td style="color:#334155; font-size:12.5px; max-width:220px; line-height:1.4;">${l.medicines || "—"}</td>
       <td>${referralBadge}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <button class="btn-doc-print-outline" onclick="viewDigitalPrescriptionPopup('${l.id}')">Print</button>
+        <button class="btn-doc-view-rx" onclick="viewDigitalPrescriptionPopup('${l.id}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          View Rx
+        </button>
       </td>
     `;
     tbody.appendChild(tr);

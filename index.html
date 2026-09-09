@@ -752,21 +752,23 @@
       <!-- 3. Patient Waiting Queue Card -->
       <div class="card col-12 doc-card" id="doc-queue-section">
         <div class="card-title-bar doc-card-header">
-          <h3>Patient Waiting Queue</h3>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Active Consultation Queue</h3>
+          </div>
           <span class="badge-pill-count" id="doc-queue-count-badge">0 patients</span>
         </div>
         <div class="table-wrapper">
           <table class="doc-table">
             <thead>
               <tr>
-                <th>TOKEN ID</th>
-                <th>PATIENT</th>
-                <th>AGE/SEX</th>
-                <th>DISPENSARY</th>
-                <th>VITALS</th>
-                <th>SYMPTOMS</th>
-                <th>TRIAGE</th>
-                <th style="text-align: right; padding-right: 20px;">ACTIONS</th>
+                <th>Token</th>
+                <th>Patient</th>
+                <th>Symptoms</th>
+                <th>Vitals (BP / Sugar / Temp / SpO2)</th>
+                <th>Triage Priority</th>
+                <th>Doctor</th>
+                <th style="text-align: right; padding-right: 20px;">Action</th>
               </tr>
             </thead>
             <tbody id="doc-queue-tbody">
@@ -1156,20 +1158,22 @@
       <!-- 6. Historical Completed Consultations Log -->
       <div class="card col-12 doc-card" id="doc-history-section">
         <div class="card-title-bar doc-card-header">
-          <h3>Completed Consultations</h3>
-          <span class="badge-pill-count">Today</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            <h3 style="color: #059669; font-size: 16px; font-weight: 700; margin: 0;">Completed Consultations</h3>
+          </div>
+          <span class="badge-pill-count" id="doc-completed-count-badge">Today</span>
         </div>
         <div class="table-wrapper">
           <table class="doc-table">
             <thead>
               <tr>
-                <th>DATE</th>
-                <th>PATIENT ID</th>
-                <th>PATIENT NAME</th>
-                <th>DIAGNOSIS</th>
-                <th>MEDICINES DISPENSED</th>
-                <th>REFERRAL / ESCALATION</th>
-                <th style="text-align: right; padding-right: 20px;">PRESCRIPTION</th>
+                <th>Token / Date</th>
+                <th>Patient</th>
+                <th>Diagnosis</th>
+                <th>Medicines Dispensed</th>
+                <th>Referral / Status</th>
+                <th style="text-align: right; padding-right: 20px;">Prescription</th>
               </tr>
             </thead>
             <tbody id="doc-completed-tbody">

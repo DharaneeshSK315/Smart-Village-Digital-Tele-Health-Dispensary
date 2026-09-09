@@ -2547,18 +2547,18 @@ body:has(#view-doctor.active),
 .doc-table th {
   background-color: #f8fafc;
   color: #64748b;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 10px 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 12px 16px;
   border-bottom: 1px solid #e2e8f0;
   border-top: 1px solid #f1f5f9;
   text-align: left;
 }
 
 .doc-table td {
-  padding: 12px 14px;
+  padding: 14px 16px;
   font-size: 13px;
   color: #334155;
   border-bottom: 1px solid #f1f5f9;
@@ -2655,13 +2655,13 @@ body:has(#view-doctor.active),
   color: #ffffff !important;
   padding: 7px 16px !important;
   border-radius: 6px !important;
-  font-size: 12px !important;
+  font-size: 12.5px !important;
   font-weight: 600 !important;
   border: none !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
+  gap: 6px !important;
   transition: all 0.2s ease !important;
   box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2) !important;
 }
@@ -2669,6 +2669,27 @@ body:has(#view-doctor.active),
 .btn-doc-start-call:hover {
   background-color: #059669 !important;
   box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35) !important;
+  transform: translateY(-1px);
+}
+
+.btn-doc-view-rx {
+  background-color: #eff6ff !important;
+  border: 1px solid #bfdbfe !important;
+  color: #2563eb !important;
+  padding: 5px 14px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-doc-view-rx:hover {
+  background-color: #dbeafe !important;
+  border-color: #93c5fd !important;
   transform: translateY(-1px);
 }
 
