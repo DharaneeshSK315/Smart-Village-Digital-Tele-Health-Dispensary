@@ -2196,13 +2196,11 @@ body:has(#view-doctor.active),
   background-color: #eaf2fb;
 }
 
-/* 1. Doctor Overview Top Row (3 Pastel Stats + 1 Live Network Card) */
+/* 1. Doctor Overview Top Row (3 Summary Cards across full width) */
 .doc-top-row {
-  display: grid;
-  grid-template-columns: 1fr 310px;
-  gap: 16px;
-  margin-bottom: 18px;
-  align-items: stretch;
+  display: block;
+  margin-bottom: 20px;
+  width: 100%;
 }
 
 .doc-stats-grid {
@@ -2447,34 +2445,25 @@ body:has(#view-doctor.active),
 /* 2. Wide Patient Search Bar Row */
 .doc-search-bar-row {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
   margin-bottom: 20px;
-}
-
-.doc-search-input-wrapper {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-}
-
-.doc-search-input-wrapper .search-icon-svg {
-  position: absolute;
-  left: 14px;
-  pointer-events: none;
+  width: 100%;
 }
 
 .doc-search-input {
+  flex: 1;
   width: 100% !important;
   background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #dce5ef !important;
   border-radius: 8px !important;
-  padding: 10px 14px 10px 40px !important;
-  font-size: 13px !important;
+  padding: 11px 18px !important;
+  font-size: 13.5px !important;
   color: #1e293b !important;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   transition: all 0.2s ease;
+  height: 44px !important;
+  box-sizing: border-box !important;
 }
 
 .doc-search-input:focus {
@@ -2483,21 +2472,32 @@ body:has(#view-doctor.active),
   outline: none;
 }
 
+.doc-search-input::placeholder {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
 .doc-search-btn {
   background-color: #2563eb !important;
   color: #ffffff !important;
-  padding: 10px 24px !important;
+  padding: 10px 28px !important;
   border-radius: 8px !important;
-  font-size: 13px !important;
+  font-size: 13.5px !important;
   font-weight: 600 !important;
-  height: 42px;
-  border: none;
-  cursor: pointer;
-  transition: background-color 0.2s;
+  height: 44px !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  flex-shrink: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2) !important;
 }
 
 .doc-search-btn:hover {
   background-color: #1d4ed8 !important;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.3) !important;
 }
 
 /* 3. Cards & Tables Styling */
@@ -2651,9 +2651,9 @@ body:has(#view-doctor.active),
 }
 
 .btn-doc-start-call {
-  background-color: #2563eb !important;
+  background-color: #10b981 !important;
   color: #ffffff !important;
-  padding: 6px 14px !important;
+  padding: 7px 16px !important;
   border-radius: 6px !important;
   font-size: 12px !important;
   font-weight: 600 !important;
@@ -2662,11 +2662,14 @@ body:has(#view-doctor.active),
   display: inline-flex !important;
   align-items: center !important;
   gap: 4px !important;
-  transition: background-color 0.2s !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.2) !important;
 }
 
 .btn-doc-start-call:hover {
-  background-color: #1d4ed8 !important;
+  background-color: #059669 !important;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35) !important;
+  transform: translateY(-1px);
 }
 
 .btn-doc-print-outline {

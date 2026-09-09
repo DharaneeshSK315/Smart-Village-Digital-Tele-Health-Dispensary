@@ -703,7 +703,7 @@
 
     <!-- 3. DOCTOR MODULE -->
     <section id="view-doctor" class="view-section doc-dashboard-view">
-      <!-- 1. Doctor Overview Header Stats Strip & Live Network Card -->
+      <!-- 1. Doctor Overview Header Stats Strip -->
       <div class="doc-top-row" id="doc-overview-top-row">
         <!-- 3 Pastel Summary Cards -->
         <div class="doc-stats-grid">
@@ -738,39 +738,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 1 Live Network Quality Card -->
-        <div class="doc-network-card">
-          <div class="doc-network-header">
-            <span class="doc-network-title">NETWORK QUALITY</span>
-            <span class="doc-network-failover-tag">Auto Failover</span>
-          </div>
-          <div class="doc-network-status-indicator">
-            <span class="status-dot-green">●</span>
-            <strong id="doc-network-lbl">GOOD</strong>
-          </div>
-          <div class="doc-network-telemetry-grid">
-            <div class="net-metric-item"><span>Latency</span><strong id="doc-overview-latency">43 ms</strong></div>
-            <div class="net-metric-item"><span>Packet Loss</span><strong id="doc-overview-loss">0.8%</strong></div>
-            <div class="net-metric-item"><span>FPS</span><strong id="doc-overview-fps">30</strong></div>
-            <div class="net-metric-item"><span>Download</span><strong id="doc-overview-down">2.1 Mbps</strong></div>
-            <div class="net-metric-item"><span>Upload</span><strong id="doc-overview-up">2.1 Mbps</strong></div>
-          </div>
-          <div class="doc-network-status-bar">
-            <div class="net-status-row"><span>Current Video</span> <span class="badge-res-green" id="doc-overview-res">720p HD</span></div>
-            <div class="net-status-row"><span>Failover</span> <span class="badge-failover-blue" id="doc-overview-failover">READY</span></div>
-          </div>
-          <div class="doc-failover-progression">
-            <div class="progression-label">Failover Progression</div>
-            <div class="progression-steps">
-              <div class="prog-step active"><span>● GOOD</span><small>720p HD</small></div>
-              <span class="prog-divider">———</span>
-              <div class="prog-step"><span>● POOR</span><small>360p</small></div>
-              <span class="prog-divider">———</span>
-              <div class="prog-step"><span>● CRITICAL</span><small>Audio Only</small></div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Critical Vitals Alerts Strip -->
@@ -778,11 +745,8 @@
 
       <!-- 2. Wide Patient Search Bar Row -->
       <div class="doc-search-bar-row" id="doc-overview-search-row">
-        <div class="doc-search-input-wrapper">
-          <svg class="search-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" id="doc-search-patient" class="search-input doc-search-input" placeholder="Search patient by name or token ID..." oninput="docSearchQueue(this.value)">
-        </div>
-        <button type="button" class="btn-primary doc-search-btn" onclick="docSearchQueue(document.getElementById('doc-search-patient').value)">Search</button>
+        <input type="text" id="doc-search-patient" class="doc-search-input" placeholder="Search patient by name or token ID..." oninput="docSearchQueue(this.value)">
+        <button type="button" class="doc-search-btn" onclick="docSearchQueue(document.getElementById('doc-search-patient').value)">Search</button>
       </div>
 
       <!-- 3. Patient Waiting Queue Card -->
