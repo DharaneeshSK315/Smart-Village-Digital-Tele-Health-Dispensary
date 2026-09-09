@@ -399,47 +399,59 @@
     </section>
 
     <!-- 2. VILLAGE HEALTH WORKER (VHW) MODULE -->
-    <section id="view-vhw" class="view-section">
-      <div class="stats-strip">
-        <div class="metric-card">
-          <div class="metric-icon blue">📋</div>
+    <section id="view-vhw" class="view-section vhw-dashboard-view">
+      <!-- 1. VHW Summary Stat Cards -->
+      <div class="stats-strip vhw-stats-strip">
+        <div class="metric-card metric-card-blue">
+          <div class="metric-icon blue">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
           <div class="metric-info">
-            <span class="label">Registered Today</span>
-            <div class="value" id="vhw-stat-registered">4 Patients</div>
+            <span class="label">Total Patients</span>
+            <div class="value" id="vhw-stat-registered">0</div>
             <span class="subtext">Active village population</span>
           </div>
         </div>
-        <div class="metric-card">
-          <div class="metric-icon amber">🎫</div>
+        <div class="metric-card metric-card-amber">
+          <div class="metric-icon amber">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
           <div class="metric-info">
-            <span class="label">Active Queue Size</span>
-            <div class="value" id="vhw-stat-queue">2 Patients</div>
-            <span class="subtext">Waiting for doctor call</span>
+            <span class="label">Waiting for Call</span>
+            <div class="value" id="vhw-stat-queue">0</div>
+            <span class="subtext">Awaiting doctor consultation</span>
           </div>
         </div>
-        <div class="metric-card">
-          <div class="metric-icon green">🚨</div>
+        <div class="metric-card metric-card-red">
+          <div class="metric-icon red">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
           <div class="metric-info">
-            <span class="label">Triage Priority Flag</span>
-            <div class="value" id="vhw-stat-alerts">0 Alerts</div>
-            <span class="subtext">Critical vital indicators</span>
+            <span class="label">Critical Alerts</span>
+            <div class="value" id="vhw-stat-alerts">0</div>
+            <span class="subtext">Flagged vital indicators</span>
           </div>
         </div>
-        <div class="metric-card">
-          <div class="metric-icon red">📶</div>
+        <div class="metric-card metric-card-sky">
+          <div class="metric-icon sky">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V4"/></svg>
+          </div>
           <div class="metric-info">
-            <span class="label">Low-Bandwidth Suite</span>
+            <span class="label">Failover Status</span>
             <div class="value">Ready</div>
             <span class="subtext">1.2 Mbps fallback sensor</span>
           </div>
         </div>
       </div>
 
-      <div class="dashboard-grid">
-        <!-- Register Patient Form -->
-        <div class="card col-4">
+      <div class="dashboard-grid vhw-dashboard-grid">
+        <!-- 2. Register Patient Form Card -->
+        <div class="card col-4 vhw-card">
           <div class="card-title-bar">
-            <h3>👤 Patient Registration</h3>
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              Patient Registration
+            </h3>
           </div>
           <form id="vhw-reg-form" onsubmit="vhwRegisterPatient(event)">
             <div class="form-group">
@@ -464,7 +476,7 @@
 
             <div class="form-group">
               <label for="vhw-reg-phone">Phone Number</label>
-              <input type="text" id="vhw-reg-phone" class="form-input" placeholder="10 digit number" required>
+              <input type="text" id="vhw-reg-phone" class="form-input" placeholder="10-digit mobile number" required>
             </div>
 
             <div class="form-group">
@@ -474,30 +486,40 @@
               </select>
             </div>
 
-            <button type="submit" class="btn-primary">Register Patient Account</button>
+            <button type="submit" class="btn-primary vhw-btn-register">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              Register Patient Account
+            </button>
           </form>
         </div>
 
-        <!-- Registered Patient List (Click to Triage Vitals) -->
-        <div class="card col-8">
-          <div class="card-title-bar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <h3>📁 Patient Directory & Token Dispatch</h3>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn-action" style="background: var(--primary); color: white; display: flex; align-items: center; gap: 4px; padding: 6px 12px; height: 38px; margin-bottom: 12px;" onclick="window.openQrScanner()">📷 Scan QR</button>
-              <div class="search-bar-wrapper" style="margin-bottom: 12px;">
-                <input type="text" id="vhw-search-patient" class="search-input" placeholder="Search by name, ID or phone..." oninput="vhwSearchPatients(this.value)">
+        <!-- 3. Registered Patient Directory & Token Dispatch Card -->
+        <div class="card col-8 vhw-card">
+          <div class="card-title-bar vhw-dir-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Patient Directory &amp; Token Dispatch
+            </h3>
+            <div class="vhw-dir-controls">
+              <button class="btn-vhw-scan" onclick="window.openQrScanner()" type="button">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+                Scan QR
+              </button>
+              <div class="search-bar-wrapper vhw-search-wrapper">
+                <svg class="search-icon-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="vhw-search-patient" class="search-input vhw-search-input" placeholder="Search by name, ID or phone" oninput="vhwSearchPatients(this.value)">
               </div>
             </div>
           </div>
           <div class="table-wrapper">
-            <table>
+            <table class="vhw-table">
               <thead>
                 <tr>
                   <th>Patient ID</th>
                   <th>Name</th>
-                  <th>Age/Gender</th>
+                  <th>Age / Gender</th>
                   <th>Village Clinic</th>
-                  <th>Actions</th>
+                  <th style="text-align: right; padding-right: 20px;">Actions</th>
                 </tr>
               </thead>
               <tbody id="vhw-patient-list-tbody">
@@ -507,22 +529,25 @@
           </div>
         </div>
 
-        <!-- Consultation Queue Management -->
-        <div class="card col-12">
+        <!-- 4. Active Consultation Queue Card -->
+        <div class="card col-12 vhw-card">
           <div class="card-title-bar">
-            <h3>⏱️ Active Consultation Queue</h3>
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Active Consultation Queue
+            </h3>
           </div>
           <div class="table-wrapper">
-            <table>
+            <table class="vhw-table vhw-queue-table">
               <thead>
                 <tr>
                   <th>Token</th>
                   <th>Patient</th>
                   <th>Symptoms</th>
-                  <th>Vitals (BP/Sugar/Temp/SpO2)</th>
-                  <th>Priority Triage</th>
-                  <th>Doctor Assigned</th>
-                  <th>Action</th>
+                  <th>Vitals (BP / Sugar / Temp / SpO2)</th>
+                  <th>Triage Priority</th>
+                  <th>Doctor</th>
+                  <th style="text-align: right; padding-right: 20px;">Action</th>
                 </tr>
               </thead>
               <tbody id="vhw-queue-tbody">
@@ -1507,7 +1532,7 @@
   </div>
 
   <!-- Core App Controller JS -->
-  <script type="module" src="app.js?v=1.1.5"></script>
+  <script type="module" src="app.js?v=1.1.6"></script>
 
 </body>
 </html>

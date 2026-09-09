@@ -1590,4 +1590,526 @@ tr:hover td {
   animation: laser-sweep 2s infinite linear;
 }
 
+/* ==========================================================================
+   HEALTH WORKER (VHW) DASHBOARD - MODERN SAAS HEALTHCARE REDESIGN
+   ========================================================================== */
 
+/* Overall Page Theme for VHW View */
+body:has(#view-vhw.active),
+.vhw-dashboard-view {
+  background-color: #eaf2fb;
+}
+
+/* 1. Summary Statistic Cards */
+.vhw-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.vhw-stats-strip .metric-card {
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.vhw-stats-strip .metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.vhw-stats-strip .metric-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Pastel Card Variations */
+.metric-card-blue {
+  background-color: #e0efff !important;
+  border: 1px solid #bfdbfe !important;
+}
+.metric-card-blue .metric-icon {
+  color: #2563eb !important;
+  background-color: transparent !important;
+}
+
+.metric-card-amber {
+  background-color: #fef3c7 !important;
+  border: 1px solid #fde68a !important;
+}
+.metric-card-amber .metric-icon {
+  color: #d97706 !important;
+  background-color: transparent !important;
+}
+
+.metric-card-red {
+  background-color: #fee2e2 !important;
+  border: 1px solid #fecaca !important;
+}
+.metric-card-red .metric-icon {
+  color: #dc2626 !important;
+  background-color: transparent !important;
+}
+
+.metric-card-sky {
+  background-color: #e0f2fe !important;
+  border: 1px solid #bae6fd !important;
+}
+.metric-card-sky .metric-icon {
+  color: #0284c7 !important;
+  background-color: transparent !important;
+}
+
+.vhw-stats-strip .metric-info .label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: capitalize;
+  letter-spacing: 0.2px;
+  margin-bottom: 2px;
+  display: block;
+}
+
+.vhw-stats-strip .metric-info .value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.15;
+  margin-bottom: 2px;
+}
+
+.vhw-stats-strip .metric-info .subtext {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 400;
+  display: block;
+}
+
+/* 2. Modern Rounded Card Containers */
+.vhw-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 20px;
+}
+
+.vhw-card {
+  background-color: #ffffff;
+  border: 1px solid #dce7f3;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  padding: 20px;
+}
+
+.vhw-card .card-title-bar {
+  border-bottom: 1px solid #eef3f8;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+
+.vhw-card .card-title-bar h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 3. Patient Registration Form Styling */
+.vhw-card .form-group {
+  margin-bottom: 14px;
+}
+
+.vhw-card .form-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.vhw-card .form-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 13px;
+  padding: 9px 12px;
+  color: #1e293b;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.vhw-card .form-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  background: #ffffff;
+}
+
+.vhw-btn-register {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  padding: 11px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  margin-top: 18px !important;
+  width: 100% !important;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2) !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer !important;
+}
+
+.vhw-btn-register:hover {
+  background-color: #1d4ed8 !important;
+  box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3) !important;
+}
+
+/* 4. Patient Directory Controls */
+.vhw-dir-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.vhw-dir-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-vhw-scan {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-vhw-scan:hover {
+  background-color: #1d4ed8;
+}
+
+.vhw-search-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.vhw-search-wrapper .search-icon-svg {
+  position: absolute;
+  left: 12px;
+  pointer-events: none;
+}
+
+.vhw-search-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px 8px 34px !important;
+  font-size: 12px;
+  background: #ffffff;
+  height: 36px;
+  width: 220px;
+  transition: all 0.2s ease;
+}
+
+.vhw-search-input:focus {
+  border-color: #2563eb;
+  width: 260px;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  outline: none;
+}
+
+/* 5. VHW Tables */
+.vhw-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.vhw-table th {
+  background-color: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  letter-spacing: 0.3px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  border-top: 1px solid #f1f5f9;
+}
+
+.vhw-table td {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.vhw-table tr:hover td {
+  background-color: #f8fbff;
+}
+
+/* Patient Row Avatar & Details */
+.vhw-patient-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.patient-avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.patient-avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.patient-name-bold {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.patient-sub-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* 6. Action Button Variants */
+.btn-dispatch {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s !important;
+}
+
+.btn-dispatch:hover {
+  background-color: #0369a1 !important;
+}
+
+.btn-home-visit {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s !important;
+}
+
+.btn-home-visit:hover {
+  background-color: #4338ca !important;
+}
+
+.btn-delete-pat {
+  background-color: #fee2e2 !important;
+  color: #ef4444 !important;
+  padding: 6px 8px !important;
+  font-size: 12px !important;
+  border-radius: 6px !important;
+  border: 1px solid #fecaca !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+}
+
+.btn-delete-pat:hover {
+  background-color: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #ef4444 !important;
+}
+
+/* 7. Queue Styling: Token, Structured Vitals & Badges */
+.token-pill {
+  display: inline-block;
+  background-color: #e0f2fe;
+  color: #0369a1;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #bae6fd;
+}
+
+.vitals-telemetry-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.vital-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.vital-k {
+  color: #64748b;
+  font-weight: 500;
+  min-width: 38px;
+}
+
+.vital-v {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.vital-danger {
+  color: #dc2626 !important;
+  font-weight: 700;
+}
+
+.triage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.triage-normal {
+  background-color: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+}
+
+.triage-critical {
+  background-color: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.triage-warning {
+  background-color: #fef3c7;
+  color: #d97706;
+  border: 1px solid #fde68a;
+}
+
+.btn-queue-action {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  padding: 6px 12px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s !important;
+}
+
+.btn-queue-action:hover {
+  background-color: #1d4ed8 !important;
+}
+
+.btn-queue-cancel {
+  background-color: #f1f5f9;
+  color: #ef4444;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 6px;
+}
+
+.btn-queue-cancel:hover {
+  background-color: #fee2e2;
+  border-color: #fca5a5;
+}
+
+/* 8. Responsive Design */
+@media (max-width: 1024px) {
+  .vhw-stats-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .vhw-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .vhw-dashboard-grid .col-4,
+  .vhw-dashboard-grid .col-8,
+  .vhw-dashboard-grid .col-12 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 640px) {
+  .vhw-stats-strip {
+    grid-template-columns: 1fr;
+  }
+  .vhw-dir-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .vhw-dir-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .vhw-search-input {
+    width: 100% !important;
+  }
+}

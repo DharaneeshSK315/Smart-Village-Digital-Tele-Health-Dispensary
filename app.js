@@ -1,6 +1,6 @@
 // Smart Village Tele-Health Dispensary Dashboard Controller
 import { supabase } from './supabaseClient.js';
-import { shouldAutoRestoreSession } from './authStateGuard.js';
+import { createAuthGuard } from './authGuard.mjs';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -63,31 +63,15 @@ const DEFAULT_FAILOVER_LOGS = {
 let db = {};
 let currentUser = null;
 let currentRole = "guest";
-let isSigningOut = false;
 let activeCall = null; // { token, patient, doctor, networkQuality, autoFluctuate, chat: [], files: [], animationId: null }
 let activeCallPrescriptionMeds = [];
+const authGuard = createAuthGuard();
 
 // Agora WebRTC State
 let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-room" };
 let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
-
-function normalizeEmail(email) {
-  return typeof email === "string" ? email.trim().toLowerCase() : "";
-}
-
-function getDoctorByEmail(email) {
-  const normalized = normalizeEmail(email);
-  return db.doctors.find(d => normalizeEmail(d.email) === normalized) || null;
-}
-
-function getDoctorQueueId(user) {
-  if (!user) return null;
-  if (user.id) return user.id;
-  const doctor = getDoctorByEmail(user.email);
-  return doctor ? doctor.id : null;
-}
 
 function getAgoraRolePrefix(role) {
   if (role === "doctor" || role === "doc") return "doc";
@@ -112,61 +96,63 @@ async function initDB() {
     // Listen for real-time authentication state changes (OAuth Redirects)
     try {
       supabase.auth.onAuthStateChange((event, session) => {
-        if (!shouldAutoRestoreSession({ isSigningOut, event, session })) {
-          if (event === "SIGNED_OUT") {
-            isSigningOut = false;
-          }
+        if (event === "SIGNED_OUT") {
+          authGuard.clear();
+          window.googleUser = null;
           return;
         }
 
-        const user = session.user;
-        const email = user.email;
-        const name = user.user_metadata.full_name || user.email.split('@')[0];
+        if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session && session.user) {
+          const user = session.user;
+          const email = user.email;
+          const name = user.user_metadata.full_name || user.email.split('@')[0];
 
-        window.googleUser = { name, email };
-        const emailLower = email.toLowerCase();
+          window.googleUser = { name, email };
+          const emailLower = email.toLowerCase();
 
-        setTimeout(() => {
-          const adminsList = (db && db.authConfig && db.authConfig.admins) ? db.authConfig.admins : ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
-          const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
-          const doctorsList = (db && db.doctors) ? db.doctors : [];
+          authGuard.clear();
+          authGuard.schedule(() => {
+            const adminsList = (db && db.authConfig && db.authConfig.admins) ? db.authConfig.admins : ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
+            const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
+            const doctorsList = (db && db.doctors) ? db.doctors : [];
 
-          // Direct auto-login based on authorized email constraints
-          if (adminsList.includes(emailLower)) {
-            currentUser = { name: `Admin ${name}`, role: "Admin", email };
-            switchView("view-admin", "admin");
-            showToast(`Logged in as Admin: ${currentUser.name}`, "success");
-          } else if (vhwsList.includes(emailLower)) {
-            currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
-            switchView("view-vhw", "vhw");
-            showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
-          } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
-            let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
-            if (!doctor) {
-              doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
-              if (db && db.doctors) {
-                db.doctors.push(doctor);
-                saveDB();
+            // Direct auto-login based on authorized email constraints
+            if (adminsList.includes(emailLower)) {
+              currentUser = { name: `Admin ${name}`, role: "Admin", email };
+              switchView("view-admin", "admin");
+              showToast(`Logged in as Admin: ${currentUser.name}`, "success");
+            } else if (vhwsList.includes(emailLower)) {
+              currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
+              switchView("view-vhw", "vhw");
+              showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
+            } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
+              let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
+              if (!doctor) {
+                doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+                if (db && db.doctors) {
+                  db.doctors.push(doctor);
+                  saveDB();
+                }
               }
-            }
-            currentUser = doctor;
-            switchView("view-doctor", "doctor");
-            showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
-          } else {
-            // Default to Patient
-            let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
-            if (!patient) {
-              patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
-              if (db && db.patients) {
-                db.patients.push(patient);
-                saveDB();
+              currentUser = doctor;
+              switchView("view-doctor", "doctor");
+              showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
+            } else {
+              // Default to Patient
+              let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
+              if (!patient) {
+                patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+                if (db && db.patients) {
+                  db.patients.push(patient);
+                  saveDB();
+                }
               }
+              currentUser = patient;
+              switchView("view-patient", "patient");
+              showToast(`Logged in as Patient: ${currentUser.name}`, "success");
             }
-            currentUser = patient;
-            switchView("view-patient", "patient");
-            showToast(`Logged in as Patient: ${currentUser.name}`, "success");
-          }
-        }, 800);
+          }, 800);
+        }
       });
     } catch (authErr) {
       console.warn("OAuth Session check error:", authErr);
@@ -435,12 +421,6 @@ function showToast(message, type = "info") {
 
 // View switcher
 window.switchView = function(viewId, roleName) {
-  if (viewId === "view-login" && activeCall && currentUser) {
-    console.warn("Blocking login redirect while a live consultation is active.");
-    leaveConsultation();
-    return;
-  }
-
   document.querySelectorAll(".view-section").forEach(sec => sec.classList.remove("active"));
   document.querySelectorAll(".dev-btn").forEach(btn => btn.classList.remove("active"));
   
@@ -482,27 +462,19 @@ window.quickLogin = function(role) {
 };
 
 window.logout = function() {
-  if (activeCall) {
-    console.warn("Ending active consultation before logout.");
-    leaveConsultation();
-  }
-
-  isSigningOut = true;
+  authGuard.clear();
   currentUser = null;
   currentRole = "guest";
+  window.googleUser = null;
   document.getElementById("header-user-profile").style.display = "none";
   
   if (supabase) {
     supabase.auth.signOut().then(() => {
-      isSigningOut = false;
       console.log("Logged out of Supabase session.");
-    }).catch((err) => {
-      console.warn("Supabase signOut failed.", err);
-      isSigningOut = false;
     });
   }
   
-  setTimeout(() => switchView("view-login", "login"), 150);
+  switchView("view-login", "login");
 };
 
 function updateHeaderProfile() {
@@ -553,11 +525,10 @@ window.handleLogin = async function(e) {
 
       if (error) {
         console.warn("Supabase auth failed", error);
-        isSigningOut = false;
 
         // Fallback to local demo accounts when Supabase login is not configured or user is not registered remotely
         if (role === "doctor") {
-          const doctor = getDoctorByEmail(email);
+          const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
           if (doctor && doctor.password === password) {
             currentUser = doctor;
             switchView("view-doctor", "doctor");
@@ -593,10 +564,9 @@ window.handleLogin = async function(e) {
       }
 
       const user = data.user;
-      isSigningOut = false;
 
       if (role === "doctor") {
-        const doctor = getDoctorByEmail(email);
+        const doctor = db.doctors.find(d => d.email === email);
         if (doctor) {
           currentUser = doctor;
           switchView("view-doctor", "doctor");
@@ -640,7 +610,7 @@ window.handleLogin = async function(e) {
   } else {
     // Offline local fallback logic (no real password check)
     if (role === "doctor") {
-      const doctor = getDoctorByEmail(email);
+      const doctor = db.doctors.find(d => d.email === email);
       if (doctor) {
         currentUser = doctor;
         switchView("view-doctor", "doctor");
@@ -869,10 +839,10 @@ let filteredPatients = [];
 function loadVhwDashboard() {
   if (currentRole !== "vhw") return;
 
-  // VHW Stats
-  document.getElementById("vhw-stat-registered").innerText = `${db.patients.length} Patients`;
+  // VHW Stats (Clean numerical values matching reference)
+  document.getElementById("vhw-stat-registered").innerText = db.patients.length;
   const waitSize = db.appointments.filter(a => a.status === "Waiting").length;
-  document.getElementById("vhw-stat-queue").innerText = `${waitSize} Patients`;
+  document.getElementById("vhw-stat-queue").innerText = waitSize;
 
   let alerts = 0;
   db.appointments.forEach(a => {
@@ -881,7 +851,7 @@ function loadVhwDashboard() {
       if (triage.flag === "Critical") alerts++;
     }
   });
-  document.getElementById("vhw-stat-alerts").innerText = `${alerts} Alerts`;
+  document.getElementById("vhw-stat-alerts").innerText = alerts;
 
   // Render villages options
   const villageSelect = document.getElementById("vhw-reg-village");
@@ -901,6 +871,14 @@ function loadVhwDashboard() {
   renderVhwQueue();
 }
 
+function getVhwPatientAvatarHtml(name, id = "") {
+  const initials = name ? name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "P";
+  const colors = ["#2563eb", "#0284c7", "#4f46e5", "#0d9488", "#0891b2", "#6366f1"];
+  const seed = (id || name || "P").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const bg = colors[seed % colors.length];
+  return `<div class="patient-avatar-circle" style="background: ${bg};">${initials}</div>`;
+}
+
 function renderVhwPatientList(searchQuery = "") {
   const tbody = document.getElementById("vhw-patient-list-tbody");
   tbody.innerHTML = "";
@@ -915,43 +893,52 @@ function renderVhwPatientList(searchQuery = "") {
   }
 
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No patients found</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding: 24px;">No patients found in directory</td></tr>`;
     return;
   }
 
   list.forEach(p => {
-    // Check if patient already has active appointment
     const activeApp = db.appointments.find(a => a.patientId === p.id);
     let buttonHtml = "";
 
     if (activeApp) {
       if (activeApp.vitals === null) {
         buttonHtml = `
-          <button class="btn-action success" onclick="openVitalsModal('${p.id}', false)">🩺 Record Vitals</button>
-          <button class="btn-action" style="background:#4f46e5; color:white;" onclick="openVitalsModal('${p.id}', true)">🏡 Home Visit</button>
+          <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)">🩺 Record Vitals</button>
+          <button class="btn-home-visit" onclick="openVitalsModal('${p.id}', true)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Home Visit</button>
         `;
       } else if (activeApp.status === "Active") {
-        buttonHtml = `<button class="btn-action" style="background-color:var(--primary); color:white;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
+        buttonHtml = `<button class="btn-dispatch" style="background-color:#2563eb !important;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
       } else {
-        buttonHtml = `<span class="badge badge-info">Token: ${activeApp.token}</span>`;
+        buttonHtml = `
+          <span class="token-pill">Token: ${activeApp.token}</span>
+          <button class="btn-dispatch" style="margin-left: 6px;" onclick="openVitalsModal('${p.id}', false)">🩺 Vitals</button>
+        `;
       }
     } else {
       buttonHtml = `
-        <button class="btn-action success" onclick="openVitalsModal('${p.id}', false)">🎫 Dispatch Token</button>
-        <button class="btn-action" style="background:#4f46e5; color:white;" onclick="openVitalsModal('${p.id}', true)">🏡 Home Visit</button>
+        <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg> Dispatch Token</button>
+        <button class="btn-home-visit" onclick="openVitalsModal('${p.id}', true)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Home Visit</button>
       `;
     }
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${p.id}</td>
-      <td><strong>${p.name}</strong></td>
+      <td style="font-weight: 500; color: #64748b; font-family: monospace;">${p.id}</td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(p.name, p.id)}
+          <span class="patient-name-bold">${p.name}</span>
+        </div>
+      </td>
       <td>${p.age} yrs / ${p.gender}</td>
       <td>${p.village}</td>
-      <td>
-        <div style="display:flex; gap:6px; align-items:center;">
+      <td style="text-align: right; padding-right: 20px;">
+        <div style="display:inline-flex; gap:8px; align-items:center;">
           ${buttonHtml}
-          <button class="btn-action danger" style="padding:4px 8px; font-size:12px; margin-left:auto;" onclick="window.adminDeletePatient('${p.id}')" title="Delete Patient">🗑️</button>
+          <button class="btn-delete-pat" onclick="window.adminDeletePatient('${p.id}')" title="Delete Patient">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          </button>
         </div>
       </td>
     `;
@@ -1189,7 +1176,7 @@ function renderVhwQueue() {
 
   const list = db.appointments;
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No active appointment tokens currently active</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 24px;">No patients currently waiting in consultation queue</td></tr>`;
     return;
   }
 
@@ -1197,31 +1184,56 @@ function renderVhwQueue() {
     const p = db.patients.find(pat => pat.id === a.patientId);
     const doc = db.doctors.find(d => d.id === a.assignedDoctorId);
     
-    let vitalsHtml = "Pending Vitals Logging";
-    let priorityBadge = `<span class="badge badge-info">Routine</span>`;
+    let vitalsHtml = `<span style="color:#94a3b8; font-size:12px; font-style:italic;">Pending Vitals Check</span>`;
+    let priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
 
     if (a.vitals) {
-      vitalsHtml = `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic} mmHg | Sugar: ${a.vitals.sugar} | SpO2: ${a.vitals.spo2}%`;
+      const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 92;
+      const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
+      const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
+      const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.8°C";
+      const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
+
+      vitalsHtml = `
+        <div class="vitals-telemetry-grid">
+          <div class="vital-row"><span class="vital-k">BP:</span> <span class="vital-v">${bpVal}</span></div>
+          <div class="vital-row"><span class="vital-k">SpO2:</span> <span class="vital-v ${isSpo2Low ? 'vital-danger' : ''}">${spo2Val}</span></div>
+          <div class="vital-row"><span class="vital-k">Temp:</span> <span class="vital-v">${tempVal}</span></div>
+          <div class="vital-row"><span class="vital-k">HR:</span> <span class="vital-v">${hrVal}</span></div>
+        </div>
+      `;
+
       const triage = evaluateTriageUrgency(a.vitals);
-      if (triage.flag === "Critical") {
-        priorityBadge = `<span class="badge badge-critical">🚨 Critical</span>`;
-      } else if (triage.flag === "High Warning") {
-        priorityBadge = `<span class="badge badge-warning">⚠️ High</span>`;
+      if (triage.flag === "Critical" || a.urgency === "Critical" || a.urgency === "Emergency") {
+        priorityBadge = `<span class="triage-pill triage-critical"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Critical</span>`;
+      } else if (triage.flag === "High Warning" || a.urgency === "Severe" || a.urgency === "Moderate") {
+        priorityBadge = `<span class="triage-pill triage-warning"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Urgent</span>`;
       } else {
-        priorityBadge = `<span class="badge badge-success">Normal</span>`;
+        priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
       }
     }
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><strong>${a.token}</strong></td>
-      <td>${p ? p.name : "Unknown"}</td>
-      <td>${a.symptoms}</td>
+      <td><span class="token-pill">${a.token}</span></td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(p ? p.name : "Patient", p ? p.id : a.patientId)}
+          <div>
+            <div class="patient-name-bold">${p ? p.name : "Patient"}</div>
+            <div class="patient-sub-meta">${p ? `${p.age} yrs / ${p.gender}` : ""}</div>
+          </div>
+        </div>
+      </td>
+      <td style="color:#334155; font-size: 13px;">${a.symptoms || "None reported"}</td>
       <td>${vitalsHtml}</td>
       <td>${priorityBadge}</td>
-      <td>${doc ? doc.name : "None"}</td>
-      <td>
-        <button class="btn-action danger" onclick="vhwCancelToken('${a.token}')">Cancel</button>
+      <td style="color:#0f172a; font-weight:500;">${doc ? doc.name : "General Medicine"}</td>
+      <td style="text-align: right; padding-right: 20px;">
+        <div style="display:inline-flex; align-items:center; gap:6px;">
+          ${p ? `<button class="btn-queue-action" onclick="openVitalsModal('${p.id}', ${a.isHomeVisit || false})"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Log Vitals</button>` : ""}
+          <button class="btn-queue-cancel" onclick="vhwCancelToken('${a.token}')" title="Cancel Appointment Token">✕</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1242,19 +1254,8 @@ window.vhwCancelToken = function(token) {
 function loadDoctorDashboard() {
   if (currentRole !== "doctor") return;
 
-  const doctorQueueId = getDoctorQueueId(currentUser);
-  if (!doctorQueueId) {
-    document.getElementById("doc-stat-queue").innerText = `0 Waiting`;
-    document.getElementById("doc-stat-critical").innerText = `0 Cases`;
-    document.getElementById("doc-stat-consulted").innerText = `0 Patients`;
-    renderDoctorQueue();
-    renderDoctorCompletedLogs();
-    renderDoctorAlertsStrip([]);
-    return;
-  }
-
   // Include both triaged patients and new bookings waiting for vitals
-  const myQueue = db.appointments.filter(a => a.assignedDoctorId === doctorQueueId && (a.vitals !== null || a.status === "Waiting"));
+  const myQueue = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting"));
   document.getElementById("doc-stat-queue").innerText = `${myQueue.length} Waiting`;
 
   let criticalCount = 0;
@@ -1293,13 +1294,7 @@ function renderDoctorQueue(searchQuery = "") {
   const tbody = document.getElementById("doc-queue-tbody");
   tbody.innerHTML = "";
 
-  const doctorQueueId = getDoctorQueueId(currentUser);
-  if (!doctorQueueId) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
-    return;
-  }
-
-  let list = db.appointments.filter(a => a.assignedDoctorId === doctorQueueId && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
+  let list = db.appointments.filter(a => a.assignedDoctorId === currentUser.id && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
 
   // Sorting: Active -> Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
