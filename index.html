@@ -9,8 +9,8 @@
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
   <!-- Supabase JS CDN Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" crossorigin src="./assets/index-nzxFKtxH.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BGC_U7bW.css">
+  <script type="module" crossorigin src="./assets/index-C_IguSML.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CIE_wije.css">
 </head>
 <body>
 
@@ -118,157 +118,278 @@
     </section>
 
     <!-- 1. PATIENT MODULE -->
-    <section id="view-patient" class="view-section">
-      <div class="stats-strip">
-        <div class="metric-card">
-          <div class="metric-icon blue">🎫</div>
-          <div class="metric-info">
-            <span class="label">Your Active Token</span>
-            <div class="value" id="pat-token-val">No Token</div>
-            <span class="subtext" id="pat-token-sub">No active appointment</span>
+    <section id="view-patient" class="view-section patient-dashboard-view">
+      <div class="patient-main-layout">
+        <!-- LEFT COLUMN: Status Cards & Book Appointment -->
+        <div class="patient-col-left">
+          <!-- Active Status Cards Grid -->
+          <div class="patient-status-grid">
+            <div class="pat-stat-card token-card">
+              <div class="pat-stat-icon blue">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+              </div>
+              <div class="pat-stat-info">
+                <span class="label">Your Active Token</span>
+                <div class="value" id="pat-token-val">No Token</div>
+                <span class="subtext" id="pat-token-sub">No active appointment</span>
+              </div>
+            </div>
+
+            <div class="pat-stat-card wait-card">
+              <div class="pat-stat-icon amber">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+              <div class="pat-stat-info">
+                <span class="label">Estimated Wait</span>
+                <div class="value" id="pat-wait-val">-- mins</div>
+                <span class="subtext">Based on queue length</span>
+              </div>
+            </div>
+
+            <div class="pat-stat-card doctor-card">
+              <div class="pat-stat-icon purple">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+              </div>
+              <div class="pat-stat-info">
+                <span class="label">Assigned Doctor</span>
+                <div class="value" id="pat-doc-val">Dr. Vikram</div>
+                <span class="subtext">General Medicine Clinic</span>
+              </div>
+            </div>
+
+            <div class="pat-stat-card failover-card">
+              <div class="pat-stat-icon green">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V4"/></svg>
+              </div>
+              <div class="pat-stat-info">
+                <span class="label">Failover Auto-Fallback</span>
+                <div class="value">Ready</div>
+                <span class="subtext">Active telemetry monitoring</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Call Join Panel (Displayed when consultation is active) -->
+          <div class="card pat-call-alert" id="pat-active-call-card" style="display: none;">
+            <div class="pat-call-alert-header">
+              <div class="pulse-call-indicator"></div>
+              <div>
+                <h4>🎥 Consultation Ready</h4>
+                <p>Your tele-health consultation with <strong id="pat-active-doc-name">Dr. Vikram</strong> is ready. Click below to connect.</p>
+              </div>
+            </div>
+            <button class="btn-primary" style="margin-top: 12px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px;" onclick="joinPatientCall()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+              Join Consultation Call
+            </button>
+          </div>
+
+          <!-- Book Appointment Card -->
+          <div class="card pat-book-card">
+            <div class="card-title-bar pat-card-header">
+              <div class="pat-header-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                <h3>Book Appointment</h3>
+              </div>
+            </div>
+            <form id="pat-booking-form" onsubmit="bookPatientAppointment(event)">
+              <div class="form-group">
+                <label for="pat-book-symptoms">Primary Symptoms</label>
+                <input type="text" id="pat-book-symptoms" class="form-input" placeholder="e.g., Fever, cough, high blood pressure" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="pat-book-specialty">Required Clinic / Specialty</label>
+                <select id="pat-book-specialty" class="form-input">
+                  <option value="General Medicine">General Medicine (Dr. Vikram)</option>
+                  <option value="Cardiology">Cardiology (Dr. Dharani)</option>
+                  <option value="Neurology">Neurology (Dr. Naveen)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="pat-book-urgency">Estimated Urgency (Optional)</label>
+                <select id="pat-book-urgency" class="form-input">
+                  <option value="Normal">Routine Checkup</option>
+                  <option value="Moderate">Mild discomfort / Pain</option>
+                  <option value="Severe">Severe symptoms (requires immediate triage)</option>
+                </select>
+              </div>
+
+              <button type="submit" class="btn-primary pat-btn-book">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                Request Booking &amp; Token
+              </button>
+              <button type="button" id="pat-cancel-appointment-btn" class="pat-btn-cancel" style="width: 100%; margin-top: 10px; display: none;" onclick="cancelActiveAppointment()">
+                ✕ Cancel Active Appointment
+              </button>
+            </form>
           </div>
         </div>
-        <div class="metric-card">
-          <div class="metric-icon amber">⏳</div>
-          <div class="metric-info">
-            <span class="label">Estimated Wait</span>
-            <div class="value" id="pat-wait-val">-- mins</div>
-            <span class="subtext">Based on queue length</span>
+
+        <!-- RIGHT COLUMN: Open Profile / Virtual ID Card & Consultation History -->
+        <div class="patient-col-right">
+          <!-- Switcher Tabs -->
+          <div class="pat-tabs-nav">
+            <button type="button" class="pat-tab-btn active" id="btn-pat-tab-profile" onclick="switchPatientRightTab('profile')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+              <span>Open Profile / Virtual ID</span>
+            </button>
+            <button type="button" class="pat-tab-btn" id="btn-pat-tab-history" onclick="switchPatientRightTab('history')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>Consultation History</span>
+            </button>
           </div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-icon green">👨‍⚕️</div>
-          <div class="metric-info">
-            <span class="label">Assigned Doctor</span>
-            <div class="value" id="pat-doc-val">Dr. Vikram</div>
-            <span class="subtext">General Medicine Clinic</span>
+
+          <!-- TAB PANE 1: Virtual ID & Complete Profile -->
+          <div id="pat-tab-pane-profile" class="pat-tab-pane active">
+            <div class="virtual-id-card">
+              <!-- Card Header Banner -->
+              <div class="virtual-id-header">
+                <div class="virtual-id-brand">
+                  <div class="virtual-id-logo">✚</div>
+                  <div>
+                    <h4>VillageMed Tele-Health</h4>
+                    <span>Digital Health Identity Card</span>
+                  </div>
+                </div>
+                <div class="virtual-id-chip">
+                  <span class="chip-dot"></span> Active Patient
+                </div>
+              </div>
+
+              <!-- Patient Identity Hero -->
+              <div class="virtual-id-hero">
+                <div class="virtual-id-avatar-frame">
+                  <div class="virtual-id-avatar" id="pat-disp-avatar">
+                    <span id="pat-disp-initials">P</span>
+                  </div>
+                </div>
+                <div class="virtual-id-hero-info">
+                  <h3 class="virtual-id-name" id="pat-disp-name">Sarah Mitchell</h3>
+                  <div class="virtual-id-tags">
+                    <span class="virtual-id-badge" id="pat-disp-id">ID: pat-1</span>
+                    <span class="virtual-id-healthid" id="pat-disp-health-id">ABHA: VM-PAT1-2026</span>
+                  </div>
+                </div>
+                <button type="button" class="btn-toggle-edit" onclick="togglePatientEditForm()" title="Edit Patient Details">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  <span id="pat-edit-toggle-label">Edit Profile</span>
+                </button>
+              </div>
+
+              <!-- Demographics Display Grid -->
+              <div class="virtual-id-details-grid" id="pat-id-details-view">
+                <div class="detail-tile">
+                  <span class="tile-label">Age</span>
+                  <strong class="tile-value" id="pat-disp-age">67 yrs</strong>
+                </div>
+                <div class="detail-tile">
+                  <span class="tile-label">Gender</span>
+                  <strong class="tile-value" id="pat-disp-gender">Female</strong>
+                </div>
+                <div class="detail-tile">
+                  <span class="tile-label">Phone Number</span>
+                  <strong class="tile-value" id="pat-disp-phone">9876543210</strong>
+                </div>
+                <div class="detail-tile">
+                  <span class="tile-label">Address / Village</span>
+                  <strong class="tile-value" id="pat-disp-village">Village Clinic A</strong>
+                </div>
+              </div>
+
+              <!-- Editable Form (Toggled when user clicks Edit Profile) -->
+              <div class="virtual-id-edit-box" id="pat-id-edit-view" style="display: none;">
+                <form id="pat-profile-form" onsubmit="updatePatientProfile(event)">
+                  <div class="form-group">
+                    <label for="pat-prof-name">Full Name</label>
+                    <input type="text" id="pat-prof-name" class="form-input" placeholder="Your name..." required>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div class="form-group">
+                      <label for="pat-prof-age">Age</label>
+                      <input type="number" id="pat-prof-age" class="form-input" placeholder="Age..." required>
+                    </div>
+                    <div class="form-group">
+                      <label for="pat-prof-gender">Gender</label>
+                      <select id="pat-prof-gender" class="form-input">
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="pat-prof-phone">Phone Number</label>
+                    <input type="text" id="pat-prof-phone" class="form-input" placeholder="Update phone...">
+                  </div>
+                  <div class="form-group">
+                    <label for="pat-prof-address">Address / Village Name</label>
+                    <input type="text" id="pat-prof-address" class="form-input" placeholder="Update village...">
+                  </div>
+                  <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button type="submit" class="btn-primary" style="flex: 1;">Save Profile Details</button>
+                    <button type="button" class="btn-secondary" onclick="togglePatientEditForm(false)">Cancel</button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- Integrated SCAN QR Section at Bottom of ID Card -->
+              <div class="virtual-id-qr-section">
+                <div class="qr-section-divider">
+                  <span class="qr-pill-label">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+                    SCAN QR
+                  </span>
+                </div>
+                <div class="qr-code-frame">
+                  <img id="pat-qr-code-img" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=pat-1" alt="Patient QR Code">
+                </div>
+                <div class="qr-caption">
+                  <p class="qr-pat-name" id="pat-card-name">Sarah Mitchell</p>
+                  <p class="qr-pat-id" id="pat-card-id">ID: pat-1</p>
+                </div>
+                <div class="virtual-id-btn-group">
+                  <button class="btn-id-action" onclick="window.downloadPatientIdCard()" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download ID
+                  </button>
+                  <button class="btn-id-action" onclick="window.sharePatientIdCard()" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                    Share
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-icon red">📶</div>
-          <div class="metric-info">
-            <span class="label">Failover Auto-Failback</span>
-            <div class="value">Ready</div>
-            <span class="subtext">Active monitoring</span>
+
+          <!-- TAB PANE 2: Consultation History -->
+          <div id="pat-tab-pane-history" class="pat-tab-pane" style="display: none;">
+            <div class="card pat-history-card">
+              <div class="card-title-bar pat-card-header">
+                <div class="pat-header-title">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  <h3>Consultation History</h3>
+                </div>
+              </div>
+              <div class="table-wrapper pat-history-table-wrapper">
+                <table class="pat-history-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Doctor / Clinic</th>
+                      <th style="text-align: right; padding-right: 18px;">Prescription</th>
+                    </tr>
+                  </thead>
+                  <tbody id="pat-history-tbody">
+                    <!-- Filled dynamically by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
-      <div class="dashboard-grid">
-        <!-- Live Call Join Panel -->
-        <div class="card col-12" id="pat-active-call-card" style="display: none; background-color: var(--primary-light); border-color: var(--primary);">
-          <div class="card-title-bar" style="border-bottom-color: rgba(79, 70, 229, 0.2);">
-            <h3 style="color: var(--primary);">🎥 Consultation Ready</h3>
-            <span class="badge badge-success">Doctor is Online</span>
-          </div>
-          <p style="margin-bottom: 12px; font-size: 14px; color: var(--text-medium);">Your tele-health consultation with <strong id="pat-active-doc-name">Dr. Vikram</strong> is ready. Please click the button below to connect with full low-bandwidth auto-failover capabilities.</p>
-          <button class="btn-primary" style="width: auto; display: inline-flex;" onclick="joinPatientCall()">Join Consultation Call</button>
-        </div>
-
-        <!-- Appointment Booking Form -->
-        <div class="card col-4">
-          <div class="card-title-bar">
-            <h3>📅 Book Appointment</h3>
-          </div>
-          <form id="pat-booking-form" onsubmit="bookPatientAppointment(event)">
-            <div class="form-group">
-              <label for="pat-book-symptoms">Primary Symptoms</label>
-              <input type="text" id="pat-book-symptoms" class="form-input" placeholder="e.g., Fever, cough, high blood pressure" required>
-            </div>
-            
-            <div class="form-group">
-              <label for="pat-book-specialty">Required Clinic/Specialty</label>
-              <select id="pat-book-specialty" class="form-input">
-                <option value="General Medicine">General Medicine (Dr. Vikram)</option>
-                <option value="Cardiology">Cardiology (Dr. Dharani)</option>
-                <option value="Neurology">Neurology (Dr. Naveen)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label for="pat-book-urgency">Estimated Urgency (Optional)</label>
-              <select id="pat-book-urgency" class="form-input">
-                <option value="Normal">Routine Checkup</option>
-                <option value="Moderate">Mild discomfort / Pain</option>
-                <option value="Severe">Severe symptoms (requires immediate triage)</option>
-              </select>
-            </div>
-
-            <button type="submit" class="btn-primary">Request Booking & Token</button>
-            <button type="button" id="pat-cancel-appointment-btn" class="btn-secondary" style="width:100%; margin-top: 8px; display: none;" onclick="cancelActiveAppointment()">Cancel Active Appointment</button>
-          </form>
-        </div>
-
-        <!-- Profile Update -->
-        <div class="card col-4">
-          <div class="card-title-bar">
-            <h3>👤 Patient Profile Info</h3>
-          </div>
-          <form id="pat-profile-form" onsubmit="updatePatientProfile(event)">
-            <div class="form-group">
-              <label for="pat-prof-name">Full Name</label>
-              <input type="text" id="pat-prof-name" class="form-input" placeholder="Your name..." required>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="pat-prof-age">Age</label>
-                <input type="number" id="pat-prof-age" class="form-input" style="margin-bottom:0;" placeholder="Age..." required>
-              </div>
-              <div class="form-group" style="margin-bottom: 0;">
-                <label for="pat-prof-gender">Gender</label>
-                <select id="pat-prof-gender" class="form-input" style="margin-bottom:0;">
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="pat-prof-phone">Phone Number</label>
-              <input type="text" id="pat-prof-phone" class="form-input" placeholder="Update phone...">
-            </div>
-            <div class="form-group">
-              <label for="pat-prof-address">Address / Village Name</label>
-              <input type="text" id="pat-prof-address" class="form-input" placeholder="Update village...">
-            </div>
-            <button type="submit" class="btn-primary">Update Profile</button>
-          </form>
-        </div>
-
-        <!-- Digital Health ID Card -->
-        <div class="card col-4">
-          <div class="card-title-bar">
-            <h3>🪪 Digital Health ID Card</h3>
-          </div>
-          <div style="text-align: center; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
-            <div style="background: white; padding: 12px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 12px; display: inline-block;">
-              <img id="pat-qr-code-img" src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=pat-1" alt="Patient QR Code" style="width: 140px; height: 140px; display: block;">
-            </div>
-            <p style="font-weight: bold; margin-bottom: 4px; font-size: 16px; color: var(--text-heading);" id="pat-card-name">Sarah Mitchell</p>
-            <p style="font-family: monospace; font-size: 12px; color: var(--text-muted); background: rgba(15,23,42,0.05); padding: 2px 8px; border-radius: 4px; margin-bottom: 0;" id="pat-card-id">ID: pat-1</p>
-          </div>
-        </div>
-
-        <!-- Medical History & Prescriptions -->
-        <div class="card col-4">
-          <div class="card-title-bar">
-            <h3>📜 Consultation History</h3>
-          </div>
-          <div class="table-wrapper" style="max-height: 280px; overflow-y: auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Clinic</th>
-                  <th>Prescription</th>
-                </tr>
-              </thead>
-              <tbody id="pat-history-tbody">
-                <!-- Filled dynamically by JS -->
-              </tbody>
-            </table>
-          </div>
-        </div>
 
         <!-- Active Patient Videocall Frame (Initially hidden, loads on call start) -->
         <div class="card col-12" id="pat-telehealth-box" style="display: none;">
