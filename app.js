@@ -61,9 +61,9 @@ const DEFAULT_APPOINTMENTS = [
 ];
 
 const DEFAULT_CONSULTATIONS = [
-  { id: "VIL-A-800", date: "30/08/2026", patientName: "Priya S.", village: "Village Clinic A", doctorName: "Dr. Abinesh V", diagnosis: "Viral Fever", medicines: "Paracetamol, ORS", failoverState: "HD Video", referral: false },
-  { id: "VIL-B-712", date: "30/08/2026", patientName: "Murugan K.", village: "Village Clinic B", doctorName: "Dr. Abinesh V", diagnosis: "Hypertension", medicines: "Amlodipine 5mg", failoverState: "HD Video", referral: "Cardiology" },
-  { id: "VIL-A-655", date: "29/08/2026", patientName: "Lalitha V.", village: "Village Clinic A", doctorName: "Dr. Abinesh V", diagnosis: "Type 2 Diabetes follow-up", medicines: "Metformin 500mg", failoverState: "HD Video", referral: false }
+  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
+  { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false },
+  { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false }
 ];
 
 const DEFAULT_FAILOVER_LOGS = {
@@ -281,8 +281,14 @@ async function initDB() {
 
   // If appointments are empty or missing reference tokens, populate them
   DEFAULT_APPOINTMENTS.forEach(defApp => {
-    if (!db.appointments.some(a => a.token === defApp.token)) {
+    const existing = db.appointments.find(a => a.token === defApp.token);
+    if (!existing) {
       db.appointments.push(defApp);
+    } else {
+      existing.vitals = defApp.vitals;
+      existing.symptoms = defApp.symptoms;
+      existing.urgency = defApp.urgency;
+      existing.assignedDoctorId = defApp.assignedDoctorId;
     }
   });
 
@@ -1463,9 +1469,8 @@ function loadDoctorDashboard() {
     if (consultSec) consultSec.style.display = "none";
   }
 
-  // Include both triaged patients and new bookings waiting for vitals
-  const myQueue = db.appointments.filter(a => (a.assignedDoctorId === currentUser.id || !a.assignedDoctorId || a.assignedDoctorId === "doc-all") && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
-  const queueList = myQueue.length > 0 ? myQueue : db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
+  // Active consultation queue across the network
+  const queueList = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
   
   let criticalCount = 0;
   queueList.forEach(q => {
@@ -1475,8 +1480,7 @@ function loadDoctorDashboard() {
     }
   });
 
-  const myConsultations = db.consultations.filter(c => c.doctorName === currentUser.name);
-  const consultedList = myConsultations.length > 0 ? myConsultations : db.consultations;
+  const consultedList = db.consultations && db.consultations.length > 0 ? db.consultations : DEFAULT_CONSULTATIONS;
 
   const statQueue = document.getElementById("doc-stat-queue");
   if (statQueue) statQueue.innerText = `${queueList.length} Waiting`;
@@ -1523,10 +1527,18 @@ function renderDoctorQueue(searchQuery = "") {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  let list = db.appointments.filter(a => (a.assignedDoctorId === currentUser.id || !a.assignedDoctorId || a.assignedDoctorId === "doc-all") && (a.vitals !== null || a.status === "Waiting" || a.status === "Active"));
+  // Active queue appointments across all clinicians
+  let list = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
   if (list.length === 0) {
-    list = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
+    list = [...DEFAULT_APPOINTMENTS];
   }
+
+  // Ensure reference appointments exist for consistent preview
+  DEFAULT_APPOINTMENTS.forEach(defApp => {
+    if (!list.some(a => a.token === defApp.token)) {
+      list.push(defApp);
+    }
+  });
 
   // Sorting: Active -> Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
   list.sort((a, b) => {
@@ -1554,7 +1566,7 @@ function renderDoctorQueue(searchQuery = "") {
   }
 
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No patients currently waiting in your queue.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No patients currently waiting in active queue.</td></tr>`;
     return;
   }
 
@@ -1607,15 +1619,21 @@ function renderDoctorQueue(searchQuery = "") {
           </div>
         </div>
       </td>
-      <td style="color:#334155; font-size:13px; max-width:220px; line-height:1.4;">${a.symptoms || "None reported"}</td>
+      <td style="color:#334155; font-size:13.5px; max-width:220px; line-height:1.4;">${a.symptoms || "None reported"}</td>
       <td>${vitalsHtml}</td>
       <td>${priorityBadge}</td>
-      <td style="color:#0f172a; font-weight:500; font-size:13px;">${docName}</td>
+      <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-          Start Call
-        </button>
+        <div style="display:inline-flex; align-items:center; gap:6px; justify-content:flex-end;">
+          <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+            Start Call
+          </button>
+          <button class="btn-queue-action" onclick="openVitalsModal('${p ? p.id : a.patientId}', ${a.isHomeVisit || false})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Log Vitals
+          </button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1631,10 +1649,7 @@ function renderDoctorCompletedLogs() {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  let myLogs = db.consultations.filter(c => c.doctorName === currentUser.name);
-  if (myLogs.length === 0 && db.consultations.length > 0) {
-    myLogs = db.consultations;
-  }
+  const myLogs = db.consultations && db.consultations.length > 0 ? db.consultations : DEFAULT_CONSULTATIONS;
 
   const badge = document.getElementById("doc-completed-count-badge");
   if (badge) {
@@ -1642,18 +1657,19 @@ function renderDoctorCompletedLogs() {
   }
 
   if (myLogs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
     return;
   }
 
   myLogs.forEach(l => {
     const tr = document.createElement("tr");
     const referralBadge = l.referral 
-      ? `<span class="pill-referral-specialist">${typeof l.referral === 'string' && l.referral !== 'true' ? l.referral : 'Cardiology'}</span>` 
-      : `<span style="color:#64748b; font-size:12px; font-weight:500;">None</span>`;
+      ? `<span class="triage-pill triage-warning">${typeof l.referral === 'string' && l.referral !== 'true' ? l.referral : 'Cardiology'}</span>` 
+      : `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> None</span>`;
 
     const pat = db.patients.find(p => p.name === l.patientName || p.id === l.patientId);
-    const patAgeGender = pat ? `${pat.age} yrs / ${pat.gender}` : (l.village || "Clinic Patient");
+    const patMeta = pat ? `${pat.age} yrs / ${pat.gender}` : (l.village || "Clinic Patient");
+    const docName = l.doctorName || "Dr. Vikram";
 
     tr.innerHTML = `
       <td>
@@ -1667,13 +1683,14 @@ function renderDoctorCompletedLogs() {
           ${getVhwPatientAvatarHtml(pat || l.patientName, pat ? pat.id : l.id)}
           <div>
             <div class="patient-name-bold">${l.patientName}</div>
-            <div class="patient-sub-meta">${patAgeGender}</div>
+            <div class="patient-sub-meta">${patMeta}</div>
           </div>
         </div>
       </td>
       <td style="color:#334155; font-size:13px; font-weight:500;">${l.diagnosis || "—"}</td>
       <td style="color:#334155; font-size:12.5px; max-width:220px; line-height:1.4;">${l.medicines || "—"}</td>
       <td>${referralBadge}</td>
+      <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
       <td style="text-align: right; padding-right: 20px;">
         <button class="btn-doc-view-rx" onclick="viewDigitalPrescriptionPopup('${l.id}')">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
