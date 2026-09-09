@@ -9,8 +9,8 @@
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
   <!-- Supabase JS CDN Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" crossorigin src="./assets/index-C_IguSML.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CIE_wije.css">
+  <script type="module" crossorigin src="./assets/index-7OuHCBJH.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-d_8Gzs6-.css">
 </head>
 <body>
 
@@ -44,11 +44,16 @@
       <div class="current-time" id="live-clock">June 30, 2026 09:30 AM</div>
       
       <!-- User profile state -->
-      <div class="user-profile" id="header-user-profile" style="display: none; align-items: center; gap: 12px;">
-        <div class="avatar" id="header-user-avatar">?</div>
-        <div class="user-info">
-          <span class="user-name" id="header-user-name">Guest User</span>
-          <span class="user-role" id="header-user-role">Guest</span>
+      <div class="user-profile" id="header-user-profile" style="display: none; align-items: center; gap: 10px;">
+        <div class="header-user-clickable" id="header-user-clickable" onclick="window.handleHeaderProfileClick()" title="Click to view complete Profile &amp; Virtual ID" role="button" tabindex="0">
+          <div class="avatar" id="header-user-avatar">?</div>
+          <div class="user-info">
+            <span class="user-name" id="header-user-name">Guest User</span>
+            <span class="user-role" id="header-user-role">Guest</span>
+          </div>
+          <span class="header-profile-badge" title="Open Profile">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+          </span>
         </div>
         <button class="header-btn-logout" onclick="logout()" type="button" title="Sign Out">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -119,56 +124,71 @@
 
     <!-- 1. PATIENT MODULE -->
     <section id="view-patient" class="view-section patient-dashboard-view">
-      <div class="patient-main-layout">
-        <!-- LEFT COLUMN: Status Cards & Book Appointment -->
-        <div class="patient-col-left">
-          <!-- Active Status Cards Grid -->
-          <div class="patient-status-grid">
-            <div class="pat-stat-card token-card">
-              <div class="pat-stat-icon blue">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
-              </div>
-              <div class="pat-stat-info">
-                <span class="label">Your Active Token</span>
-                <div class="value" id="pat-token-val">No Token</div>
-                <span class="subtext" id="pat-token-sub">No active appointment</span>
-              </div>
-            </div>
+      <!-- Patient Dashboard Header Banner -->
+      <div class="pat-dashboard-header">
+        <div class="pat-header-title-wrap">
+          <h2>Patient Health Dashboard</h2>
+          <p class="pat-dashboard-sub">Track active queue tokens, live tele-consultations, and digital prescriptions</p>
+        </div>
+        <div class="pat-header-actions">
+          <button type="button" class="btn-open-virtual-id" onclick="window.openPatientProfileModal()" title="View your complete Virtual Health ID Card &amp; profile">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+            <span>Virtual Health ID Card</span>
+          </button>
+        </div>
+      </div>
 
-            <div class="pat-stat-card wait-card">
-              <div class="pat-stat-icon amber">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              </div>
-              <div class="pat-stat-info">
-                <span class="label">Estimated Wait</span>
-                <div class="value" id="pat-wait-val">-- mins</div>
-                <span class="subtext">Based on queue length</span>
-              </div>
-            </div>
-
-            <div class="pat-stat-card doctor-card">
-              <div class="pat-stat-icon purple">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-              </div>
-              <div class="pat-stat-info">
-                <span class="label">Assigned Doctor</span>
-                <div class="value" id="pat-doc-val">Dr. Vikram</div>
-                <span class="subtext">General Medicine Clinic</span>
-              </div>
-            </div>
-
-            <div class="pat-stat-card failover-card">
-              <div class="pat-stat-icon green">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V4"/></svg>
-              </div>
-              <div class="pat-stat-info">
-                <span class="label">Failover Auto-Fallback</span>
-                <div class="value">Ready</div>
-                <span class="subtext">Active telemetry monitoring</span>
-              </div>
-            </div>
+      <!-- Active Status Cards Grid -->
+      <div class="patient-status-grid">
+        <div class="pat-stat-card token-card">
+          <div class="pat-stat-icon blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
           </div>
+          <div class="pat-stat-info">
+            <span class="label">Your Active Token</span>
+            <div class="value" id="pat-token-val">No Token</div>
+            <span class="subtext" id="pat-token-sub">No active appointment</span>
+          </div>
+        </div>
 
+        <div class="pat-stat-card wait-card">
+          <div class="pat-stat-icon amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="pat-stat-info">
+            <span class="label">Estimated Wait</span>
+            <div class="value" id="pat-wait-val">-- mins</div>
+            <span class="subtext">Based on queue length</span>
+          </div>
+        </div>
+
+        <div class="pat-stat-card doctor-card">
+          <div class="pat-stat-icon purple">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+          </div>
+          <div class="pat-stat-info">
+            <span class="label">Assigned Doctor</span>
+            <div class="value" id="pat-doc-val">Dr. Vikram</div>
+            <span class="subtext">General Medicine Clinic</span>
+          </div>
+        </div>
+
+        <div class="pat-stat-card failover-card">
+          <div class="pat-stat-icon green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V4"/></svg>
+          </div>
+          <div class="pat-stat-info">
+            <span class="label">Failover Auto-Fallback</span>
+            <div class="value">Ready</div>
+            <span class="subtext">Active telemetry monitoring</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Front-Page Two-Column Workflow: Book Appointment & Consultation History -->
+      <div class="patient-front-grid">
+        <!-- Left Column: Live Call Alert & Book Appointment -->
+        <div class="pat-col-left">
           <!-- Live Call Join Panel (Displayed when consultation is active) -->
           <div class="card pat-call-alert" id="pat-active-call-card" style="display: none;">
             <div class="pat-call-alert-header">
@@ -227,22 +247,56 @@
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: Open Profile / Virtual ID Card & Consultation History -->
-        <div class="patient-col-right">
-          <!-- Switcher Tabs -->
-          <div class="pat-tabs-nav">
-            <button type="button" class="pat-tab-btn active" id="btn-pat-tab-profile" onclick="switchPatientRightTab('profile')">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
-              <span>Open Profile / Virtual ID</span>
-            </button>
-            <button type="button" class="pat-tab-btn" id="btn-pat-tab-history" onclick="switchPatientRightTab('history')">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              <span>Consultation History</span>
+        <!-- Right Column: Consultation History -->
+        <div class="pat-col-right">
+          <div class="card pat-history-card">
+            <div class="card-title-bar pat-card-header">
+              <div class="pat-header-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                <div>
+                  <h3 style="margin: 0;">Consultation History</h3>
+                  <span style="font-size: 11.5px; color: #64748b; display: block; font-weight: 500; margin-top: 2px;">Past medical reports and prescriptions</span>
+                </div>
+              </div>
+            </div>
+            <div class="table-wrapper pat-history-table-wrapper">
+              <table class="pat-history-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Doctor / Clinic</th>
+                    <th style="text-align: right; padding-right: 18px;">Prescription</th>
+                  </tr>
+                </thead>
+                <tbody id="pat-history-tbody">
+                  <!-- Filled dynamically by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Patient Profile & Virtual ID Modal Popup (Opens via top-right Sarah Mitchell header profile click) -->
+      <div id="patient-profile-modal" class="patient-modal-backdrop" style="display: none;" onclick="if(event.target===this) window.closePatientProfileModal()">
+        <div class="patient-modal-container" role="dialog" aria-modal="true" aria-labelledby="pat-modal-title-lbl">
+          <div class="patient-modal-header">
+            <div class="patient-modal-title" id="pat-modal-title-lbl">
+              <div class="patient-modal-title-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+              </div>
+              <div>
+                <h4>Patient Identity &amp; Profile</h4>
+                <span>Virtual Health ID Card &amp; Demographics</span>
+              </div>
+            </div>
+            <button type="button" class="patient-modal-close" onclick="window.closePatientProfileModal()" title="Close Profile (Esc)" aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
 
-          <!-- TAB PANE 1: Virtual ID & Complete Profile -->
-          <div id="pat-tab-pane-profile" class="pat-tab-pane active">
+          <div class="patient-modal-body">
+            <!-- Virtual ID Card -->
             <div class="virtual-id-card">
               <!-- Card Header Banner -->
               <div class="virtual-id-header">
@@ -359,32 +413,6 @@
                     Share
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB PANE 2: Consultation History -->
-          <div id="pat-tab-pane-history" class="pat-tab-pane" style="display: none;">
-            <div class="card pat-history-card">
-              <div class="card-title-bar pat-card-header">
-                <div class="pat-header-title">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                  <h3>Consultation History</h3>
-                </div>
-              </div>
-              <div class="table-wrapper pat-history-table-wrapper">
-                <table class="pat-history-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Doctor / Clinic</th>
-                      <th style="text-align: right; padding-right: 18px;">Prescription</th>
-                    </tr>
-                  </thead>
-                  <tbody id="pat-history-tbody">
-                    <!-- Filled dynamically by JS -->
-                  </tbody>
-                </table>
               </div>
             </div>
           </div>
