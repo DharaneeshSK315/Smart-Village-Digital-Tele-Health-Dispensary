@@ -829,6 +829,45 @@ function loadPatientDashboard() {
   }
 }
 
+window.handleHeaderProfileClick = function() {
+  if (currentRole === "patient" || (currentUser && currentUser.role === "patient")) {
+    window.openPatientProfileModal();
+  } else {
+    const roleTitle = currentRole ? currentRole.charAt(0).toUpperCase() + currentRole.slice(1) : "User";
+    showToast(`Logged in as ${currentUser ? currentUser.name : 'User'} (${roleTitle})`, "info");
+  }
+};
+
+window.openPatientProfileModal = function() {
+  const modal = document.getElementById("patient-profile-modal");
+  if (!modal) return;
+  if (typeof loadPatientDashboard === "function" && currentUser) {
+    loadPatientDashboard();
+  }
+  modal.style.display = "flex";
+  document.body.style.overflow = "hidden";
+};
+
+window.closePatientProfileModal = function() {
+  const modal = document.getElementById("patient-profile-modal");
+  if (!modal) return;
+  modal.style.display = "none";
+  document.body.style.overflow = "";
+  if (typeof window.togglePatientEditForm === "function") {
+    window.togglePatientEditForm(false);
+  }
+};
+
+// Keyboard accessibility: Close patient profile modal on Escape
+window.addEventListener("keydown", function(e) {
+  if (e.key === "Escape") {
+    const modal = document.getElementById("patient-profile-modal");
+    if (modal && modal.style.display !== "none") {
+      window.closePatientProfileModal();
+    }
+  }
+});
+
 window.switchPatientRightTab = function(tab) {
   const profilePane = document.getElementById("pat-tab-pane-profile");
   const historyPane = document.getElementById("pat-tab-pane-history");
