@@ -683,6 +683,7 @@ tr:hover td {
   position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 380px;
 }
 
 .main-feed-container {
@@ -691,6 +692,9 @@ tr:hover td {
   display: flex;
   justify-content: center;
   align-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 .main-canvas {
@@ -698,6 +702,7 @@ tr:hover td {
   height: 100%;
   object-fit: cover;
   background-color: #1e293b;
+  display: block;
 }
 
 .remote-avatar-fallback {
@@ -2806,14 +2811,39 @@ body:has(#view-doctor.active),
   gap: 14px;
 }
 
-.doc-call-viewport {
+.doc-call-viewport,
+.doc-col-video .call-viewport,
+#doc-viewport-container {
   background-color: #0f172a;
   border-radius: 12px;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
   height: 380px;
+  min-height: 380px;
   border: 1px solid #1e293b;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+#doc-viewport-container .main-feed-container,
+.doc-call-viewport .main-feed-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+#doc-viewport-container .main-canvas,
+.doc-call-viewport .main-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .patient-floating-badge {

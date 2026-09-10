@@ -1712,9 +1712,9 @@ const NETWORK_STATES = {
 };
 
 function initSimulatedCallState(token, role) {
-  const app = db.appointments.find(a => a.token === token);
-  const patient = db.patients.find(p => p.id === app.patientId);
-  const doctor = db.doctors.find(d => d.id === app.assignedDoctorId);
+  const app = db.appointments.find(a => a.token === token) || {};
+  const patient = db.patients.find(p => p.id === app.patientId) || { id: app.patientId || "pat-fallback", name: "Patient", age: 30, gender: "Other", village: "Village Clinic" };
+  const doctor = db.doctors.find(d => d.id === app.assignedDoctorId) || { id: app.assignedDoctorId || "doc-fallback", name: (currentUser && currentUser.name) ? currentUser.name : "Dr. Vikram" };
 
   activeCall = {
     token,
@@ -1732,7 +1732,7 @@ function initSimulatedCallState(token, role) {
     aiPredicting: false,
     chat: [
       { sender: "system", text: "Encrypted rural tele-health session established." },
-      { sender: "worker", text: `Hello ${doctor.name}, Nurse Anjali here assisting ${patient.name}. Vitals have been synchronized.` }
+      { sender: "worker", text: `Hello ${doctor.name || "Doctor"}, Nurse Anjali here assisting ${patient.name || "Patient"}. Vitals have been synchronized.` }
     ],
     files: [
       { name: "Clinical Vitals Record.pdf", size: "45 KB", type: "pdf" }
@@ -2270,8 +2270,9 @@ function renderWebcams(remoteCanvas, localCanvas) {
     // Name text
     remoteCtx.fillStyle = "white";
     remoteCtx.font = "14px Inter";
-    remoteCtx.textAlign = "center";
-    const remoteName = activeCall.role === "doctor" ? activeCall.patient.name : activeCall.doctor.name;
+    const remoteName = activeCall.role === "doctor"
+      ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
+      : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Doctor");
     remoteCtx.fillText(remoteName, centerX, remoteCanvas.height - 20);
 
     // Apply adaptive downsampling
@@ -3675,20 +3676,36 @@ function updateNetworkUI() {
   });
 
   const viewport = document.getElementById(`${role}-viewport-container`);
-  if (viewport) viewport.className = `call-viewport ${state.class}`;
+  if (viewport) {
+    const roleSpecificClass = role === "doc" ? "doc-call-viewport" : "";
+    viewport.className = `call-viewport ${roleSpecificClass} ${state.class}`.trim();
+  }
 
+  const mainCanvas = document.getElementById(`${role}-remote-canvas`);
+  const pipCanvas = document.getElementById(`${role}-local-canvas`);
   const fallback = document.getElementById(`${role}-remote-audio-fallback`);
   const remoteContainer = document.getElementById(`${role}-remote-video-container`);
   const localContainer = document.getElementById(`${role}-local-video-container`);
 
   if (activeCall.callMode === CALL_MODES.AUDIO_ONLY) {
     if (fallback) fallback.style.display = "flex";
+    if (mainCanvas) mainCanvas.style.display = "none";
+    if (pipCanvas) pipCanvas.style.display = "none";
     if (remoteContainer) remoteContainer.style.display = "none";
     if (localContainer) localContainer.style.display = "none";
   } else {
     if (fallback) fallback.style.display = "none";
-    if (remoteContainer) remoteContainer.style.display = "block";
-    if (localContainer) localContainer.style.display = "block";
+    if (shouldUseAgora()) {
+      if (mainCanvas) mainCanvas.style.display = "none";
+      if (pipCanvas) pipCanvas.style.display = "none";
+      if (remoteContainer) remoteContainer.style.display = "block";
+      if (localContainer) localContainer.style.display = "block";
+    } else {
+      if (mainCanvas) mainCanvas.style.display = "block";
+      if (pipCanvas) pipCanvas.style.display = "block";
+      if (remoteContainer) remoteContainer.style.display = "none";
+      if (localContainer) localContainer.style.display = "none";
+    }
   }
 
   const docLabel = document.getElementById("doc-network-lbl");
