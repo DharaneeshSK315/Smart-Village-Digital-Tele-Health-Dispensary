@@ -84,16 +84,10 @@
       <td>${u}</td>
       <td style="color:#1e293b; font-weight:600; font-size:13px;">${p}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <div style="display:inline-flex; align-items:center; gap:6px; justify-content:flex-end;">
-          <button class="btn-doc-start-call" onclick="startDoctorConsultation('${o.token}')">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-            Start Call
-          </button>
-          <button class="btn-queue-action" onclick="openVitalsModal('${l?l.id:o.patientId}', ${o.isHomeVisit||!1})">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Log Vitals
-          </button>
-        </div>
+        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${o.token}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          Start Call
+        </button>
       </td>
     `,e.appendChild(f)})}window.docSearchQueue=function(t){ye(t.trim())};function Ge(){const t=document.getElementById("doc-completed-tbody");if(!t)return;t.innerHTML="";const e=a.consultations&&a.consultations.length>0?a.consultations:Z,n=document.getElementById("doc-completed-count-badge");if(n&&(n.innerText=`${e.length} Completed`),e.length===0){t.innerHTML='<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>';return}e.forEach(i=>{const o=document.createElement("tr"),l=i.referral?`<span class="triage-pill triage-warning">${typeof i.referral=="string"&&i.referral!=="true"?i.referral:"Cardiology"}</span>`:'<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> None</span>',r=a.patients.find(u=>u.name===i.patientName||u.id===i.patientId),p=r?`${r.age} yrs / ${r.gender}`:i.village||"Clinic Patient",d=i.doctorName||"Dr. Vikram";o.innerHTML=`
       <td>
