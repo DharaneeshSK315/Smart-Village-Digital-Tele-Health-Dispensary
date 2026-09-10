@@ -1624,16 +1624,10 @@ function renderDoctorQueue(searchQuery = "") {
       <td>${priorityBadge}</td>
       <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <div style="display:inline-flex; align-items:center; gap:6px; justify-content:flex-end;">
-          <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-            Start Call
-          </button>
-          <button class="btn-queue-action" onclick="openVitalsModal('${p ? p.id : a.patientId}', ${a.isHomeVisit || false})">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Log Vitals
-          </button>
-        </div>
+        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          Start Call
+        </button>
       </td>
     `;
     tbody.appendChild(tr);
