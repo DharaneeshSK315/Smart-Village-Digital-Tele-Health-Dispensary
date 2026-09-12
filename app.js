@@ -385,31 +385,39 @@ async function saveDB(tableName = null) {
         pending.consultations = true;
       }
       localStorage.setItem("pending_syncs", JSON.stringify(pending));
-      return;
+      return true;
     }
 
     try {
       if (tableName === "patients" || !tableName) {
-        await supabase.from("patients").upsert(db.patients);
+        const { error } = await supabase.from("patients").upsert(db.patients);
+        if (error) throw error;
       }
       if (tableName === "doctors" || !tableName) {
-        await supabase.from("doctors").upsert(db.doctors);
+        const { error } = await supabase.from("doctors").upsert(db.doctors);
+        if (error) throw error;
       }
       if (tableName === "appointments" || !tableName) {
-        await supabase.from("appointments").upsert(db.appointments);
+        const { error } = await supabase.from("appointments").upsert(db.appointments);
+        if (error) throw error;
       }
       if (tableName === "consultations" || !tableName) {
-        await supabase.from("consultations").upsert(db.consultations);
+        const { error } = await supabase.from("consultations").upsert(db.consultations);
+        if (error) throw error;
       }
       console.log(`Supabase synced successfully: ${tableName || 'all tables'}`);
+      return true;
     } catch (err) {
       console.error("Supabase sync failed, caching locally for auto-retry:", err);
       let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
       if (tableName) pending[tableName] = true;
       else { pending.patients = true; pending.doctors = true; pending.appointments = true; pending.consultations = true; }
       localStorage.setItem("pending_syncs", JSON.stringify(pending));
+      return false;
     }
   }
+
+  return true;
 }
 
 async function refreshAppointmentsFromSupabase() {
@@ -731,7 +739,9 @@ async function loadPatientDashboard() {
   if (supabase) await refreshConsultationsFromSupabase();
   
   // Active appointment check
-  const activeApp = db.appointments.find(a => a.patientId === currentUser.id);
+  const activeApp = db.appointments.find(a =>
+    a.patientId === currentUser.id && a.status !== "Completed"
+  );
   
   const tokenVal = document.getElementById("pat-token-val");
   const tokenSub = document.getElementById("pat-token-sub");
@@ -821,7 +831,8 @@ async function loadPatientDashboard() {
   const historyTbody = document.getElementById("pat-history-tbody");
   historyTbody.innerHTML = "";
   const historical = db.consultations.filter(c =>
-    c.patientId === currentUser.id || (!c.patientId && c.patientName === currentUser.name)
+    (c.status === "completed" || !c.status) &&
+    (c.patientId === currentUser.id || (!c.patientId && c.patientName === currentUser.name))
   );
   
   if (historical.length === 0) {
@@ -962,7 +973,9 @@ window.bookPatientAppointment = async function(e) {
   const docId = document.getElementById("pat-book-specialty").value;
   const urgency = document.getElementById("pat-book-urgency").value;
 
-  const existingApp = db.appointments.find(a => a.patientId === currentUser.id);
+  const existingApp = db.appointments.find(a =>
+    a.patientId === currentUser.id && a.status !== "Completed"
+  );
   if (existingApp) {
     showToast("You already have an active appointment or token pending.", "warning");
     return;
@@ -1381,7 +1394,7 @@ function renderVhwQueue() {
   const tbody = document.getElementById("vhw-queue-tbody");
   tbody.innerHTML = "";
 
-  const list = db.appointments;
+  const list = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
   if (list.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 24px;">No patients currently waiting in consultation queue</td></tr>`;
     return;
@@ -1464,8 +1477,10 @@ window.vhwCancelToken = function(token) {
 };
 
 // --- DOCTOR DASHBOARD ---
-function loadDoctorDashboard() {
+async function loadDoctorDashboard() {
   if (currentRole !== "doctor") return;
+
+  if (supabase) await refreshConsultationsFromSupabase();
 
   // If no active call, make sure overview is shown and consultation suite is hidden
   if (!activeCall) {
@@ -1495,7 +1510,7 @@ function loadDoctorDashboard() {
     }
   });
 
-  const consultedList = db.consultations && db.consultations.length > 0 ? db.consultations : DEFAULT_CONSULTATIONS;
+  const consultedList = db.consultations || [];
 
   const statQueue = document.getElementById("doc-stat-queue");
   if (statQueue) statQueue.innerText = `${queueList.length} Waiting`;
@@ -1658,7 +1673,10 @@ function renderDoctorCompletedLogs() {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  const myLogs = db.consultations && db.consultations.length > 0 ? db.consultations : DEFAULT_CONSULTATIONS;
+  const myLogs = (db.consultations || []).filter(log =>
+    (log.status === "completed" || !log.status) &&
+    (log.doctorId === currentUser.id || (!log.doctorId && log.doctorName === currentUser.name))
+  );
 
   const badge = document.getElementById("doc-completed-count-badge");
   if (badge) {
@@ -2798,7 +2816,7 @@ window.resetPrescriptionForm = function() {
   syncPrescriptionLabels();
 };
 
-window.submitDigitalPrescription = function(e) {
+window.submitDigitalPrescription = async function(e) {
   e.preventDefault();
   if (!activeCall) return;
 
@@ -2821,8 +2839,12 @@ window.submitDigitalPrescription = function(e) {
 
   const newConsultation = {
     id: conId,
+    token: activeCall.token,
     patientId: activeCall.patient.id,
+    doctorId: currentUser.id,
+    status: "completed",
     date: new Date().toISOString().split("T")[0],
+    completedAt: new Date().toISOString(),
     patientName: activeCall.patient.name,
     village: activeCall.patient.village,
     doctorName: currentUser.name,
@@ -2848,9 +2870,18 @@ window.submitDigitalPrescription = function(e) {
 
   // Delete active appointment token
   const appIdx = db.appointments.findIndex(a => a.token === activeCall.token);
-  if (appIdx >= 0) db.appointments.splice(appIdx, 1);
+  if (appIdx >= 0) {
+    db.appointments[appIdx].status = "Completed";
+    db.appointments[appIdx].completedAt = new Date().toISOString();
+  }
 
-  saveDB();
+  const consultationSaved = await saveDB("consultations");
+  if (!consultationSaved && window.isNetworkOnline) {
+    showToast("Consultation could not be saved to the database. Please retry.", "danger");
+    return;
+  }
+  await saveDB("patients");
+  await saveDB("appointments");
 
   // Stop simulated webcam feed
   if (activeCall.animationFrameId) {
