@@ -1,6 +1,7 @@
 // Smart Village Tele-Health Dispensary Dashboard Controller
 import { supabase } from './supabaseClient.js';
 import { createAuthGuard } from './authGuard.mjs';
+import { findActivePatientAppointment } from './authStateGuard.js';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -740,9 +741,7 @@ async function loadPatientDashboard() {
   if (supabase) await refreshConsultationsFromSupabase();
   
   // Active appointment check
-  const activeApp = db.appointments.find(a =>
-    a.patientId === currentUser.id && a.status !== "Completed"
-  );
+  const activeApp = findActivePatientAppointment(db.appointments, currentUser && currentUser.id);
   
   const tokenVal = document.getElementById("pat-token-val");
   const tokenSub = document.getElementById("pat-token-sub");
@@ -1008,6 +1007,10 @@ window.bookPatientAppointment = async function(e) {
   db.appointments.push(newApp);
   saveDB();
   showToast(`Appointment booked successfully! Token: ${token}. Please visit your local health worker for vitals check-in.`, "success");
+  const patientCurrent = db.appointments.find((appointment) => appointment.patientId === currentUser.id && appointment.token === token);
+  if (patientCurrent) {
+    currentUser = db.patients.find(p => p.id === currentUser.id) || currentUser;
+  }
   loadPatientDashboard();
   
   document.getElementById("pat-book-symptoms").value = "";

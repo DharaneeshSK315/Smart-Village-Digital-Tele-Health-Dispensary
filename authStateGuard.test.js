@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldAutoRestoreSession } from './authStateGuard.js';
+import { shouldAutoRestoreSession, findActivePatientAppointment } from './authStateGuard.js';
 
 test('ignores auth restore during sign-out', () => {
   assert.equal(
@@ -19,4 +19,18 @@ test('restores session only for valid signed-in events', () => {
     shouldAutoRestoreSession({ isSigningOut: false, event: 'SIGNED_OUT', session: null }),
     false
   );
+});
+
+test('finds the active appointment for the patient even when earlier records exist', () => {
+  const appointments = [
+    { token: 'VIL-A-100', patientId: 'pat-1', status: 'Completed' },
+    { token: 'VIL-A-200', patientId: 'pat-2', status: 'Waiting' },
+    { token: 'VIL-A-300', patientId: 'pat-1', status: 'Active' }
+  ];
+
+  assert.deepEqual(findActivePatientAppointment(appointments, 'pat-1'), {
+    token: 'VIL-A-300',
+    patientId: 'pat-1',
+    status: 'Active'
+  });
 });
