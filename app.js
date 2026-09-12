@@ -725,8 +725,10 @@ function evaluateTriageUrgency(vitals) {
 }
 
 // --- PATIENT DASHBOARD ---
-function loadPatientDashboard() {
+async function loadPatientDashboard() {
   if (currentRole !== "patient") return;
+
+  if (supabase) await refreshConsultationsFromSupabase();
   
   // Active appointment check
   const activeApp = db.appointments.find(a => a.patientId === currentUser.id);
@@ -818,7 +820,9 @@ function loadPatientDashboard() {
   // Consultation history
   const historyTbody = document.getElementById("pat-history-tbody");
   historyTbody.innerHTML = "";
-  const historical = db.consultations.filter(c => c.patientName === currentUser.name);
+  const historical = db.consultations.filter(c =>
+    c.patientId === currentUser.id || (!c.patientId && c.patientName === currentUser.name)
+  );
   
   if (historical.length === 0) {
     historyTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding: 24px;">No past consultation reports found</td></tr>`;
@@ -975,6 +979,10 @@ window.bookPatientAppointment = async function(e) {
   const newApp = {
     token,
     patientId: currentUser.id,
+    patientName: currentUser.name,
+    patientAge: currentUser.age,
+    patientGender: currentUser.gender,
+    patientVillage: currentUser.village,
     symptoms,
     urgency,
     specialty,
@@ -1380,7 +1388,14 @@ function renderVhwQueue() {
   }
 
   list.forEach(a => {
-    const p = db.patients.find(pat => pat.id === a.patientId);
+    const directoryPatient = db.patients.find(pat => pat.id === a.patientId);
+    const p = directoryPatient || (a.patientName ? {
+      id: a.patientId,
+      name: a.patientName,
+      age: a.patientAge,
+      gender: a.patientGender,
+      village: a.patientVillage
+    } : null);
     const doc = db.doctors.find(d => d.id === a.assignedDoctorId);
     
     let vitalsHtml = `<span style="color:#94a3b8; font-size:12px; font-style:italic;">Pending Vitals Check</span>`;
@@ -1789,6 +1804,12 @@ function stopDocCallTimer() {
 }
 
 window.startDoctorConsultation = function(token) {
+  const consultSec = document.getElementById("doc-consultation-section");
+  if (!consultSec) {
+    showToast("The consultation room is unavailable.", "danger");
+    return;
+  }
+
   initSimulatedCallState(token, "doctor");
   
   // Hide Doctor Overview panels
@@ -1805,8 +1826,8 @@ window.startDoctorConsultation = function(token) {
   if (alertStrip) alertStrip.style.display = "none";
 
   // Show Live 3-Column Consultation Suite
-  const consultSec = document.getElementById("doc-consultation-section");
   if (consultSec) consultSec.style.display = "block";
+  consultSec.scrollIntoView({ behavior: "smooth", block: "start" });
 
   const patName = (activeCall && activeCall.patient) ? activeCall.patient.name : "Patient";
   const docPatName = document.getElementById("doc-call-pat-name");
@@ -1929,6 +1950,28 @@ async function refreshConsultationStateFromCloud() {
   return false;
 }
 
+async function refreshConsultationsFromSupabase() {
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await supabase.from("consultations").select("*");
+    if (error) {
+      console.warn("Unable to refresh consultations from Supabase:", error);
+      return false;
+    }
+
+    if (data) {
+      db.consultations = data;
+      localStorage.setItem("telehealth_db", JSON.stringify(db));
+      return true;
+    }
+  } catch (err) {
+    console.warn("Consultation cloud refresh failed:", err);
+  }
+
+  return false;
+}
+
 window.joinPatientCall = async function() {
   console.log("[Patient] Join call button clicked");
   console.log("[Patient] Current user:", currentUser);
@@ -1939,15 +1982,15 @@ window.joinPatientCall = async function() {
     return;
   }
 
-  if (supabase) {
-    await refreshConsultationStateFromCloud();
-  }
+  const localAppointments = Array.isArray(db.appointments) ? [...db.appointments] : [];
+  if (supabase) await refreshConsultationStateFromCloud();
 
   const urlToken = new URLSearchParams(window.location.search).get("token") || new URLSearchParams(window.location.hash.substring(1)).get("token");
-  const activeApp = db.appointments.find(a => {
+  const findPatientAppointment = appointments => appointments.find(a => {
     if (a.patientId !== currentUser.id) return false;
     return a.status === "Active" || (urlToken && a.token === urlToken);
-  }) || (urlToken ? db.appointments.find(a => a.token === urlToken && a.patientId === currentUser.id) : null);
+  }) || (urlToken ? appointments.find(a => a.token === urlToken && a.patientId === currentUser.id) : null);
+  const activeApp = findPatientAppointment(db.appointments) || findPatientAppointment(localAppointments);
 
   console.log("[Patient] Active appointment found:", activeApp);
   
@@ -1957,9 +2000,6 @@ window.joinPatientCall = async function() {
     return;
   }
 
-  console.log("[Patient] Initializing call state with token:", activeApp.token);
-  initSimulatedCallState(activeApp.token, "patient");
-  
   const activeCallCard = document.getElementById("pat-active-call-card");
   const telehealthBox = document.getElementById("pat-telehealth-box");
   
@@ -1970,9 +2010,13 @@ window.joinPatientCall = async function() {
     showToast("Error: Video UI elements not found. Please refresh the page.", "error");
     return;
   }
+
+  console.log("[Patient] Initializing call state with token:", activeApp.token);
+  initSimulatedCallState(activeApp.token, "patient");
   
   activeCallCard.style.display = "none";
   telehealthBox.style.display = "block";
+  telehealthBox.scrollIntoView({ behavior: "smooth", block: "start" });
   
   console.log("[Patient] UI elements shown, starting call loop");
   startCallLoop();
@@ -2777,6 +2821,7 @@ window.submitDigitalPrescription = function(e) {
 
   const newConsultation = {
     id: conId,
+    patientId: activeCall.patient.id,
     date: new Date().toISOString().split("T")[0],
     patientName: activeCall.patient.name,
     village: activeCall.patient.village,
