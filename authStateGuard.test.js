@@ -34,3 +34,15 @@ test('finds the active appointment for the patient even when earlier records exi
     status: 'Active'
   });
 });
+
+test('does not treat a completed appointment as active', () => {
+  assert.equal(
+    findActivePatientAppointment([{ token: 'VIL-A-100', patientId: 'pat-1', status: 'Completed' }], 'pat-1'),
+    null
+  );
+
+  assert.equal(
+    findActivePatientAppointment([{ token: 'VIL-A-100', patientId: 'pat-1', status: 'Completed' }], 'pat-1', 'VIL-A-100'),
+    null
+  );
+});
