@@ -70,9 +70,9 @@ input, select, textarea {
 
 /* Global Layout Header */
 header {
-  background-color: #0f172a;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
-  padding: 12px 24px;
+  background-color: #0b1220;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  padding: 10px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -98,16 +98,16 @@ header {
 }
 
 .brand-icon {
-  background-color: #1f2937;
+  background-color: #0f172a;
   color: white;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: bold;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .brand-info h1 {
@@ -295,13 +295,13 @@ main {
 }
 
 .login-card {
-  background-color: rgba(255,255,255,0.92);
-  border: 1px solid #d7dee6;
+  background-color: rgba(255,255,255,0.98);
+  border: 1px solid #dfe7f1;
   border-radius: 0;
   box-shadow: none;
   width: 100%;
   max-width: 420px;
-  padding: 32px 32px 26px;
+  padding: 26px 28px 22px;
   text-align: left;
 }
 
@@ -375,6 +375,7 @@ main {
   justify-content: center;
   gap: 8px;
   box-shadow: none;
+  border: 1px solid #111827;
 }
 
 .card {
@@ -3610,20 +3611,20 @@ body:has(#view-doctor.active),
 .patient-status-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-bottom: 22px;
+  gap: 12px;
+  margin-bottom: 18px;
 }
 
 .pat-stat-card {
   background: #ffffff;
   border-radius: 0;
-  padding: 14px 16px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border: 1px solid #dfe7f1;
   box-shadow: none;
-  min-height: 92px;
+  min-height: 88px;
 }
 
 .pat-stat-card:hover {
@@ -3705,15 +3706,15 @@ body:has(#view-doctor.active),
 
 .pat-stat-info .label {
   font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
+  font-weight: 700;
+  color: #475569;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.02em;
   margin-bottom: 2px;
 }
 
 .pat-stat-info .value {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
@@ -3723,7 +3724,7 @@ body:has(#view-doctor.active),
 
 .pat-stat-info .subtext {
   font-size: 11px;
-  color: #94a3b8;
+  color: #64748b;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
