@@ -39,10 +39,14 @@
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background-color: #f3f4f6;
+  background-color: #f1f3f5;
   color: var(--text-main);
   line-height: 1.5;
   overflow-x: hidden;
+}
+
+main {
+  padding: 20px 24px 32px;
 }
 
 a {
@@ -94,11 +98,11 @@ header {
 }
 
 .brand-icon {
-  background-color: var(--primary);
+  background-color: #1f2937;
   color: white;
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-md);
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -109,12 +113,12 @@ header {
 .brand-info h1 {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-main);
+  color: #f8fafc;
 }
 
 .brand-info p {
   font-size: 11px;
-  color: var(--text-muted);
+  color: #cbd5e1;
 }
 
 .nav-controls {
@@ -125,11 +129,11 @@ header {
 
 .current-time {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #e2e8f0;
   font-weight: 500;
-  background-color: var(--bg-secondary);
+  background-color: rgba(148, 163, 184, 0.12);
   padding: 6px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
 }
 
 /* Developer Quick Switcher styling */
@@ -291,8 +295,8 @@ main {
 }
 
 .login-card {
-  background-color: rgba(255,255,255,0.8);
-  border: 1px solid #dbe3ef;
+  background-color: rgba(255,255,255,0.92);
+  border: 1px solid #d7dee6;
   border-radius: 0;
   box-shadow: none;
   width: 100%;
@@ -370,6 +374,15 @@ main {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: none;
+}
+
+.card {
+  background-color: #ffffff;
+  border: 1px solid #e1e8f0;
+  border-radius: 0;
+  padding: 18px;
+  box-shadow: none;
 }
 
 .btn-primary:hover {
@@ -3597,8 +3610,8 @@ body:has(#view-doctor.active),
 .patient-status-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 22px;
 }
 
 .pat-stat-card {
@@ -3610,6 +3623,7 @@ body:has(#view-doctor.active),
   gap: 12px;
   border: 1px solid #dfe7f1;
   box-shadow: none;
+  min-height: 92px;
 }
 
 .pat-stat-card:hover {
@@ -3658,48 +3672,19 @@ body:has(#view-doctor.active),
   background: #ffffff;
   border-color: #dfe7f1;
 }
-.pat-stat-card.token-card .pat-stat-icon {
-  color: #2563eb;
-  background: #dbeafe;
-}
-.pat-stat-card.token-card .pat-stat-info .value {
-  color: #2563eb;
-}
-
-.pat-stat-card.wait-card {
-  background: #ffffff;
-  border-color: #dfe7f1;
-}
-.pat-stat-card.wait-card .pat-stat-icon {
-  color: #ca8a04;
-  background: #fef9c3;
-}
-.pat-stat-card.wait-card .pat-stat-info .value {
-  color: #a16207;
-}
-
-.pat-stat-card.doctor-card {
-  background: #ffffff;
-  border-color: #dfe7f1;
-}
-.pat-stat-card.doctor-card .pat-stat-icon {
-  color: #9333ea;
-  background: #f3e8ff;
-}
-.pat-stat-card.doctor-card .pat-stat-info .value {
-  color: #7e22ce;
-}
-
-.pat-stat-card.failover-card {
-  background: #ffffff;
-  border-color: #dfe7f1;
-}
+.pat-stat-card.token-card .pat-stat-icon,
+.pat-stat-card.wait-card .pat-stat-icon,
+.pat-stat-card.doctor-card .pat-stat-icon,
 .pat-stat-card.failover-card .pat-stat-icon {
-  color: #16a34a;
-  background: #dcfce7;
+  color: #0f172a;
+  background: #e5e7eb;
 }
+
+.pat-stat-card.token-card .pat-stat-info .value,
+.pat-stat-card.wait-card .pat-stat-info .value,
+.pat-stat-card.doctor-card .pat-stat-info .value,
 .pat-stat-card.failover-card .pat-stat-info .value {
-  color: #15803d;
+  color: #111827;
 }
 
 .pat-stat-icon {
@@ -3746,9 +3731,9 @@ body:has(#view-doctor.active),
 
 /* Call Ready Banner */
 .pat-call-alert {
-  background: linear-gradient(135deg, #eff6ff, #e0e7ff) !important;
-  border: 1px solid #c7d2fe !important;
-  border-radius: 14px !important;
+  background: #f8fafc !important;
+  border: 1px solid #dfe7f1 !important;
+  border-radius: 0 !important;
   padding: 16px !important;
 }
 
@@ -3764,7 +3749,7 @@ body:has(#view-doctor.active),
   background-color: #10b981;
   border-radius: 50%;
   margin-top: 4px;
-  animation: pulse-dot 1.5s infinite;
+  animation: none;
   flex-shrink: 0;
 }
 
