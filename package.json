@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Smart Village Digital Tele-Health Dispensary Dashboard with Low-Bandwidth Video Failovers",
   "scripts": {
-    "dev": "vite",
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -11,7 +12,5 @@
     "rollup": "^4.63.1",
     "vite": "^5.0.0"
   },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.109.0"
-  }
+  "dependencies": {}
 }

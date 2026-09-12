@@ -1,0 +1,237 @@
+{
+  "users": [
+    {
+      "id": "doc-1",
+      "role": "doctor",
+      "email": "doc.vikram@villagemed.in",
+      "passwordHash": "eb2fa7dc4b230e9c11e297ec98441f54:56ca8d902141214c2f9cb85daf99ccaa3c961d0c6a2989fc7e1427ee24f588603544680c4418d401f4bf1f6c53d66ad7e43936ea3e562cd26143c0017c1eecc6",
+      "profileId": "doc-1"
+    },
+    {
+      "id": "doc-2",
+      "role": "doctor",
+      "email": "doc.dharani@villagemed.in",
+      "passwordHash": "91cc03be8ea503128b1b25b9f85743c5:2e20a5945e6cbeeba96e4ea1e1f3a6a877c5c2e565a101d4bee8501650286783d3e693b8f4fc7aa0907b4a3608b1d27f0d63df99606bacc94abcab51ba53ca32",
+      "profileId": "doc-2"
+    },
+    {
+      "id": "doc-3",
+      "role": "doctor",
+      "email": "doc.naveen@villagemed.in",
+      "passwordHash": "f4777110ba9ba7a37424e95f9596d97e:465d145462f66a04e570ef7da6b19b128750a8ccef52df45e54d27eda3842b341a7b56814d39e54147be4f8b4cdf927031ffaf3214cb8b00d53000618e62a331",
+      "profileId": "doc-3"
+    },
+    {
+      "id": "doc-4",
+      "role": "doctor",
+      "email": "doc.abinesh@villagemed.in",
+      "passwordHash": "50cb003359665b752fefc2851a2f16ee:141f3719c55b9883750fed3b3e698f1afdc01e9da6003e78aa8d80b00d5682f6a011b7ca22179dc08df52dacc99cbf6d393c3b0c2f557f3b67978e45cb3b1e94",
+      "profileId": "doc-4"
+    },
+    {
+      "id": "doc-5",
+      "role": "doctor",
+      "email": "doc.priya@villagemed.in",
+      "passwordHash": "6f07cd1e4dc7866b24096a8ae1ce2352:8b0a10e32abfc6cfaa72d232705b0877a13147cb3199363d14f9ce1458ad6276c1b81bfd39d4f60d373e9c625ab9795bcb45daead824f2d8f322e2e21216ad42",
+      "profileId": "doc-5"
+    },
+    {
+      "id": "user-pat-5",
+      "role": "patient",
+      "email": "dharaneesh@gmail.com",
+      "phone": "9876543211",
+      "passwordHash": "56ae0f16a00c7a8de262d59d2b07706c:731147dc1fde76504771542e0e6d9cb1f1280cf39441026f634e392698d73c8f5d21d174137e8d7a0d4b0b0d78160abbc46dc6e511c60463aa91ce5b3b270535",
+      "profileId": "pat-5"
+    },
+    {
+      "id": "user-pat-9",
+      "role": "patient",
+      "email": "meenakshi@gmail.com",
+      "phone": "9876543212",
+      "passwordHash": "a30f4ac482600b8ec910581f1e46a2f6:416659dd160e9bb6255e8429782d3af4fef9acfd5a15e1f29e0be53caf02e971e0245bb2c8b17f6361de29fd47869a5ac5b23afd2ce09c893583bb423bcd5128",
+      "profileId": "pat-9"
+    },
+    {
+      "id": "user-pat-12",
+      "role": "patient",
+      "email": "rajan@gmail.com",
+      "phone": "9876543213",
+      "passwordHash": "d56f0dfbf7f3207dee91038a077052b3:ca4ebe1fae1f8e58bfb759fbb325e94b73299943fa9eb3fa8f65390efdbff031676cfb56f66583404a62bf2f83ea8934ffbf57a5f9257d7d8b070528da4f1bc7",
+      "profileId": "pat-12"
+    },
+    {
+      "id": "user-pat-1",
+      "role": "patient",
+      "email": "sarah@gmail.com",
+      "phone": "9876543210",
+      "passwordHash": "091d6c635f5839294300c55b3cae2e86:846ec7ad79bacb5bf323f40de5ce2de115a61fefe9d8bee2df28d43d952cf93229f8fa88b44b8f151230fd4942fb665a68da0b9edc33fd17e32bda2fe82dc6bf",
+      "profileId": "pat-1"
+    },
+    {
+      "id": "user-pat-2",
+      "role": "patient",
+      "email": "fatima@gmail.com",
+      "phone": "9845612307",
+      "passwordHash": "1b8b70586f2d79836ab434518bacbe02:d773afa9813aa6b570153535af9e7662b0404a94fcb5ddca44a85ecfb01eba74df45192f04695fcaff1f0283beb94986756f8773f20407daec3a270da7005e64",
+      "profileId": "pat-2"
+    },
+    {
+      "id": "user-pat-3",
+      "role": "patient",
+      "email": "james@gmail.com",
+      "phone": "8123456789",
+      "passwordHash": "ecc54129977ddd954a7c6784678de377:4f7879b362930733209686396da067881192907e59df39c18eeeaa2c87bd7cc80a8e5a608cedaec6208840836407106ba0acb1038ef2fdcf9dde088d5b500931",
+      "profileId": "pat-3"
+    },
+    {
+      "id": "user-pat-4",
+      "role": "patient",
+      "email": "robert@gmail.com",
+      "phone": "9012345678",
+      "passwordHash": "6d578c535deff2dd3c8dde019bf2686b:4b24e7b2ddec1cdfef9a6a56a0dedc02dfde48c875ff515f687d645784f58a2649a717f91061ac34ddd3cf50a03a1d0b1dc55ff9f308c3e1f1f93f81020538c8",
+      "profileId": "pat-4"
+    },
+    {
+      "id": "user-vhw-1",
+      "role": "vhw",
+      "email": "vhw@villagemed.in",
+      "passwordHash": "a7e319b04a295eafc8680797a7f6c475:06a37388f697349816a33e5481ac7ff6dec993894679a1cfd3c956e9e9d0fb89935bfc063a3f2e3ec33a819244efdb3cd5d8f84ac0bd2eae2b096233f39beca4",
+      "profileId": "vhw-1"
+    },
+    {
+      "id": "user-admin-1",
+      "role": "admin",
+      "email": "admin@villagemed.in",
+      "passwordHash": "b2d8eead16ed0583a4388014c6ea8626:4380337ce412552a748af8d18ee3bb65e69cdf50b9a69950a03a749ef21ffa035ae103ecee778044ab8407f1a8de8d4075c2cfa7a4d91750a72cbe705f4f7e09",
+      "profileId": "admin-1"
+    }
+  ],
+  "doctors": [
+    {
+      "id": "doc-1",
+      "name": "Dr. Vikram",
+      "specialty": "General Medicine",
+      "email": "doc.vikram@villagemed.in",
+      "online": true
+    },
+    {
+      "id": "doc-2",
+      "name": "Dr. Dharani",
+      "specialty": "Cardiology",
+      "email": "doc.dharani@villagemed.in",
+      "online": true
+    },
+    {
+      "id": "doc-3",
+      "name": "Dr. Naveen",
+      "specialty": "Neurology",
+      "email": "doc.naveen@villagemed.in",
+      "online": true
+    },
+    {
+      "id": "doc-4",
+      "name": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "email": "doc.abinesh@villagemed.in",
+      "online": true
+    },
+    {
+      "id": "doc-5",
+      "name": "Dr. Priya",
+      "specialty": "Cardiology",
+      "email": "doc.priya@villagemed.in",
+      "online": true
+    }
+  ],
+  "patients": [
+    {
+      "id": "pat-5",
+      "name": "Dharaneesh",
+      "age": 21,
+      "gender": "Male",
+      "phone": "9876543211",
+      "email": "dharaneesh@gmail.com",
+      "village": "Village Clinic A",
+      "history": []
+    },
+    {
+      "id": "pat-9",
+      "name": "Meenakshi",
+      "age": 54,
+      "gender": "Female",
+      "phone": "9876543212",
+      "email": "meenakshi@gmail.com",
+      "village": "Village Clinic B",
+      "history": []
+    },
+    {
+      "id": "pat-12",
+      "name": "Rajan Kumar",
+      "age": 34,
+      "gender": "Male",
+      "phone": "9876543213",
+      "email": "rajan@gmail.com",
+      "village": "Village Clinic A",
+      "history": []
+    },
+    {
+      "id": "pat-1",
+      "name": "Sarah Mitchell",
+      "age": 67,
+      "gender": "Female",
+      "phone": "9876543210",
+      "email": "sarah@gmail.com",
+      "village": "Village Clinic A",
+      "history": []
+    },
+    {
+      "id": "pat-2",
+      "name": "Fatima Al-Hassan",
+      "age": 61,
+      "gender": "Female",
+      "phone": "9845612307",
+      "email": "fatima@gmail.com",
+      "village": "Village Clinic B",
+      "history": []
+    },
+    {
+      "id": "pat-3",
+      "name": "James Rodriguez",
+      "age": 45,
+      "gender": "Male",
+      "phone": "8123456789",
+      "email": "james@gmail.com",
+      "village": "Village Clinic A",
+      "history": []
+    },
+    {
+      "id": "pat-4",
+      "name": "Robert Okafor",
+      "age": 78,
+      "gender": "Male",
+      "phone": "9012345678",
+      "email": "robert@gmail.com",
+      "village": "Village Clinic C",
+      "history": []
+    }
+  ],
+  "appointments": [],
+  "consultations": [],
+  "villages": [
+    "Village Clinic A",
+    "Village Clinic B",
+    "Village Clinic C"
+  ],
+  "failoverLogs": {
+    "hd": 0,
+    "low": 0,
+    "audio": 0
+  },
+  "currentUser": {
+    "id": "doc-1",
+    "name": "Dr. Vikram",
+    "specialty": "General Medicine",
+    "email": "doc.vikram@villagemed.in",
+    "online": true
+  }
+}
