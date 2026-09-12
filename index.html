@@ -2,8 +2,22 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-            Use the credentials issued by your administrator. Patients may sign in with their registered phone number.
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Village Tele-Health Dispensary Dashboard</title>
   <meta name="description" content="Low-Bandwidth Failover Tele-health System for Rural Dispensaries">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Agora Web SDK CDN -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
+  <!-- Supabase JS CDN Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- Global Emergency Red Alert Banner -->
+  <div class="emergency-alert-banner" id="global-emergency-banner" style="display: none;">
+    <div class="emergency-banner-content">
+      <span>🚨 <strong>RED ALERT:</strong> Critical Vitals for <span id="emergency-pat-name">James</span>! SpO2: <span id="emergency-spo2">88</span>% | BP: <span id="emergency-bp">185</span> | HR: <span id="emergency-hr">135</span></span>
+      <span class="dispatch-badge">🚑 Ambulance Dispatched to <span id="emergency-clinic">Clinic A</span> (ETA: 12m)</span>
     </div>
     <button class="btn-action" style="background: white; color: #dc2626;" onclick="window.dismissEmergencyBanner()">Acknowledge</button>
   </div>
@@ -89,8 +103,20 @@
             <button type="submit" class="btn-primary">Sign In</button>
           </form>
           <p style="font-size: 12px; color: var(--text-medium); margin-top: 12px; line-height: 1.5;">
-            Use the credentials issued by your administrator. Patients may sign in with their registered phone number.
+            Demo login: Doctors can use <strong>doc.vikram@villagemed.in</strong>, <strong>doc.dharani@villagemed.in</strong>, or <strong>doc.naveen@villagemed.in</strong> with password <strong>password</strong>.<br>
+            Patients may sign in using their phone number in the Email field.
           </p>
+
+          <div class="quick-login-divider">OR</div>
+          <button class="google-signin-btn" type="button" onclick="window.openGoogleSignInModal()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; background: white; border: 1px solid var(--border-color); color: var(--text-heading); font-weight: 600; padding: 10px; border-radius: var(--radius-md); cursor: pointer; transition: background 0.2s; font-size: 14px;">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.47h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.91a8.78 8.78 0 0 0 2.69-6.6z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.2l-2.91-2.26a5.52 5.52 0 0 1-8.09-2.9H1.02v2.33A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.96 10.64a5.4 5.4 0 0 1 0-3.28V5.03H1.02a9 9 0 0 0 0 7.94l2.94-2.33z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 1.02 5.03l2.94 2.33a5.52 5.52 0 0 1 8.09-2.9L9 3.58z"/>
+            </svg>
+            Continue with Google
+          </button>
         </div>
       </div>
     </section>
@@ -1690,6 +1716,45 @@
 
   <!-- TOAST ALERTS SYSTEM -->
   <div class="toast-container" id="toast-bin"></div>
+
+  <!-- GOOGLE OAUTH ACCOUNT PICKER MODAL -->
+  <div class="modal-overlay" id="google-signin-modal" style="display: none; align-items: center; justify-content: center; z-index: 1300; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px);">
+    <div class="modal-card" style="max-width: 400px; background: white; border-radius: 12px; overflow: hidden; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color);">
+      <div style="padding: 24px; text-align: center; border-bottom: 1px solid var(--border-color);">
+        <svg width="24" height="24" viewBox="0 0 18 18" style="margin-bottom: 12px; display: inline-block;">
+          <path fill="#4285F4" d="M17.64 9.2c0-.63-.06-1.25-.16-1.84H9v3.47h4.84a4.14 4.14 0 0 1-1.8 2.71v2.26h2.91a8.78 8.78 0 0 0 2.69-6.6z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.2l-2.91-2.26a5.52 5.52 0 0 1-8.09-2.9H1.02v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.96 10.64a5.4 5.4 0 0 1 0-3.28V5.03H1.02a9 9 0 0 0 0 7.94l2.94-2.33z"/>
+          <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 1.02 5.03l2.94 2.33a5.52 5.52 0 0 1 8.09-2.9L9 3.58z"/>
+        </svg>
+        <h3 style="margin: 0 0 4px 0; font-size: 18px; color: var(--text-heading); font-weight: 600;">Sign in with Google</h3>
+        <p style="margin: 0; font-size: 12px; color: var(--text-muted);">to continue to VillageMed Tele-Health</p>
+      </div>
+      <div style="padding: 16px 0; max-height: 320px; overflow-y: auto;" id="google-accounts-list">
+        <!-- Mock accounts list -->
+      </div>
+      <div style="padding: 12px 24px; background: rgba(15,23,42,0.02); text-align: right; border-top: 1px solid var(--border-color);">
+        <button class="btn-secondary" onclick="window.closeGoogleSignInModal()" style="width: auto; padding: 6px 12px; font-size: 12px;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- POST-GOOGLE OAUTH ROLE CHOOSE MODAL -->
+  <div class="modal-overlay" id="google-role-modal" style="display: none; align-items: center; justify-content: center; z-index: 1300; background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px);">
+    <div class="modal-card" style="max-width: 400px; background: white; border-radius: 12px; overflow: hidden; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color);">
+      <div style="padding: 24px; text-align: center; border-bottom: 1px solid var(--border-color);">
+        <div style="font-size: 28px; margin-bottom: 8px;">🔑</div>
+        <h3 style="margin: 0 0 4px 0; font-size: 18px; color: var(--text-heading); font-weight: 600;">Confirm Your Role</h3>
+        <p style="margin: 0; font-size: 12px; color: var(--text-muted);" id="google-role-email-label">Logged in as: email@gmail.com</p>
+      </div>
+      <div style="padding: 16px 24px; display: flex; flex-direction: column; gap: 10px;">
+        <button class="btn-primary" onclick="window.selectGoogleRole('patient')" style="background-color: #3b82f6;">Enter as Patient</button>
+        <button class="btn-primary" onclick="window.selectGoogleRole('vhw')" style="background-color: #10b981;">Enter as Health Worker (VHW)</button>
+        <button class="btn-primary" onclick="window.selectGoogleRole('doctor')" style="background-color: #6366f1;">Enter as Medical Doctor</button>
+        <button class="btn-primary" onclick="window.selectGoogleRole('admin')" style="background-color: #f59e0b;">Enter as Administrator</button>
+      </div>
+    </div>
+  </div>
 
   <!-- RECORDING PLAYBACK AUDITOR MODAL -->
   <div class="modal-overlay" id="playback-modal" style="display: none; align-items: center; justify-content: center; z-index: 1200;">

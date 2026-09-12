@@ -1,10 +1,553 @@
 // Smart Village Tele-Health Dispensary Dashboard Controller
-import { api } from './apiClient.js';
+import { supabase } from './supabaseClient.js';
 import { createAuthGuard } from './authGuard.mjs';
 
 // --- MOCK DATABASE CONFIGURATION ---
-/*
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
+
+const DEFAULT_DOCTORS = [
+  { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true },
+  { id: "doc-2", name: "Dr. Dharani", specialty: "Cardiology", email: "doc.dharani@villagemed.in", password: "password", online: true },
+  { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true },
+  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true },
+  { id: "doc-5", name: "Dr. Priya", specialty: "Cardiology", email: "doc.priya@villagemed.in", password: "password", online: true, photo: "doctor_portrait.jpg" }
+];
+
+const DEFAULT_PATIENTS = [
+  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh@gmail.com", photo: "dharaneesh_portrait.jpg", history: [] },
+  { id: "pat-9", name: "Meenakshi", age: 54, gender: "Female", phone: "9876543212", village: "Village Clinic B", photo: "patient_portrait.jpg", history: [] },
+  { id: "pat-12", name: "Rajan Kumar", age: 34, gender: "Male", phone: "9876543213", village: "Village Clinic A", photo: "rajan_portrait.jpg", history: [] },
+  { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [
+    { date: "2026-05-12", clinic: "Cardiology", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", doctor: "Dr. Dharani" }
+  ]},
+  { id: "pat-2", name: "Fatima Al-Hassan", age: 61, gender: "Female", phone: "9845612307", village: "Village Clinic B", history: [
+    { date: "2026-04-30", clinic: "General Medicine", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", doctor: "Dr. Vikram" }
+  ]},
+  { id: "pat-3", name: "James Rodriguez", age: 45, gender: "Male", phone: "8123456789", village: "Village Clinic A", history: [] },
+  { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] }
+];
+
+const DEFAULT_APPOINTMENTS = [
+  {
+    token: "VIL-A-431",
+    patientId: "pat-5",
+    symptoms: "Fever, headache",
+    urgency: "Normal",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-1",
+    status: "Waiting",
+    vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.5, spo2: 98, hr: 75, pain: 0, photo: null }
+  },
+  {
+    token: "VIL-B-219",
+    patientId: "pat-9",
+    symptoms: "Chest pain, shortness of breath",
+    urgency: "Critical",
+    specialty: "Cardiology",
+    assignedDoctorId: "doc-5",
+    status: "Waiting",
+    vitals: { bpSystolic: 155, bpDiastolic: 95, sugar: 140, temp: 37.2, spo2: 91, hr: 102, pain: 6, photo: null }
+  },
+  {
+    token: "VIL-A-432",
+    patientId: "pat-12",
+    symptoms: "Back pain, fatigue",
+    urgency: "Urgent",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-1",
+    status: "Waiting",
+    vitals: { bpSystolic: 130, bpDiastolic: 85, sugar: 120, temp: 37.0, spo2: 96, hr: 88, pain: 4, photo: null }
+  }
+];
+
+const DEFAULT_CONSULTATIONS = [
+  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
+  { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false },
+  { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false }
+];
+
+const DEFAULT_FAILOVER_LOGS = {
+  hd: 15,
+  low: 28,
+  audio: 8
+};
+
+// State Variables
+let db = {};
+let currentUser = null;
+let currentRole = "guest";
+let activeCall = null; // { token, patient, doctor, networkQuality, autoFluctuate, chat: [], files: [], animationId: null }
+let activeCallPrescriptionMeds = [];
+const authGuard = createAuthGuard();
+
+// Agora WebRTC State
+let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-room" };
+let agoraClient = null;
+let localAudioTrack = null;
+let localVideoTrack = null;
+
+function getAgoraRolePrefix(role) {
+  if (role === "doctor" || role === "doc") return "doc";
+  if (role === "patient" || role === "pat") return "pat";
+  if (role === "vhw") return "vhw";
+  return role;
+}
+
+function validateAgoraAppId(appid) {
+  if (!appid || typeof appid !== "string") return false;
+  const value = appid.trim();
+  const placeholder = "aab8b3f972274fcb87cc25048d089e94";
+  const appIdRegex = /^[A-Za-z0-9]{32}$/;
+  return appIdRegex.test(value) && value !== placeholder;
+}
+
+// Initialize Database
+async function initDB() {
+  let loadedFromSupabase = false;
+
+  if (supabase) {
+    // Listen for real-time authentication state changes (OAuth Redirects)
+    try {
+      supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") {
+          authGuard.clear();
+          window.googleUser = null;
+          return;
+        }
+
+        if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session && session.user) {
+          const user = session.user;
+          const email = user.email;
+          const name = user.user_metadata.full_name || user.email.split('@')[0];
+
+          window.googleUser = { name, email };
+          const emailLower = email.toLowerCase();
+
+          authGuard.clear();
+          authGuard.schedule(() => {
+            const adminsList = (db && db.authConfig && db.authConfig.admins) ? db.authConfig.admins : ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
+            const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
+            const doctorsList = (db && db.doctors) ? db.doctors : [];
+
+            // Direct auto-login based on authorized email constraints
+            if (adminsList.includes(emailLower)) {
+              currentUser = { name: `Admin ${name}`, role: "Admin", email };
+              switchView("view-admin", "admin");
+              showToast(`Logged in as Admin: ${currentUser.name}`, "success");
+            } else if (vhwsList.includes(emailLower)) {
+              currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
+              switchView("view-vhw", "vhw");
+              showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
+            } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
+              let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
+              if (!doctor) {
+                doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+                if (db && db.doctors) {
+                  db.doctors.push(doctor);
+                  saveDB();
+                }
+              }
+              currentUser = doctor;
+              switchView("view-doctor", "doctor");
+              showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
+            } else {
+              // Default to Patient
+              let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
+              if (!patient) {
+                patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+                if (db && db.patients) {
+                  db.patients.push(patient);
+                  saveDB();
+                }
+              }
+              currentUser = patient;
+              switchView("view-patient", "patient");
+              showToast(`Logged in as Patient: ${currentUser.name}`, "success");
+            }
+          }, 800);
+        }
+      });
+    } catch (authErr) {
+      console.warn("OAuth Session check error:", authErr);
+    }
+
+    try {
+      console.log("Supabase connection detected. Fetching data...");
+      const [patientsRes, doctorsRes, appointmentsRes, consultationsRes] = await Promise.all([
+        supabase.from("patients").select("*"),
+        supabase.from("doctors").select("*"),
+        supabase.from("appointments").select("*"),
+        supabase.from("consultations").select("*")
+      ]);
+
+      if (!patientsRes.error && !doctorsRes.error && !appointmentsRes.error && !consultationsRes.error) {
+        const localCached = localStorage.getItem("telehealth_db");
+        const cachedDb = localCached ? JSON.parse(localCached) : null;
+        const localVillages = cachedDb ? cachedDb.villages : DEFAULT_VILLAGES;
+        const localLogs = cachedDb ? cachedDb.failoverLogs : DEFAULT_FAILOVER_LOGS;
+        const localAuthConfig = cachedDb ? cachedDb.authConfig : {
+          admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+          vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+        };
+
+        if (patientsRes.data.length === 0 && doctorsRes.data.length === 0) {
+          console.log("Supabase database is empty. Seeding defaults...");
+          db = {
+            villages: localVillages,
+            doctors: DEFAULT_DOCTORS,
+            patients: DEFAULT_PATIENTS,
+            appointments: DEFAULT_APPOINTMENTS,
+            consultations: DEFAULT_CONSULTATIONS,
+            failoverLogs: localLogs,
+            authConfig: localAuthConfig
+          };
+          await saveDB();
+        } else {
+          db = {
+            villages: localVillages,
+            doctors: doctorsRes.data.length > 0 ? doctorsRes.data : DEFAULT_DOCTORS,
+            patients: patientsRes.data.length > 0 ? patientsRes.data : DEFAULT_PATIENTS,
+            appointments: appointmentsRes.data || [],
+            consultations: consultationsRes.data || [],
+            failoverLogs: localLogs,
+            authConfig: localAuthConfig
+          };
+        }
+        loadedFromSupabase = true;
+        console.log("Data successfully loaded from Supabase.");
+      } else {
+        console.warn("Error fetching from Supabase, falling back to localStorage.", {
+          patients: patientsRes.error,
+          doctors: doctorsRes.error,
+          appointments: appointmentsRes.error,
+          consultations: consultationsRes.error
+        });
+      }
+    } catch (err) {
+      console.error("Failed to connect to Supabase, falling back to localStorage:", err);
+    }
+  }
+
+  if (!loadedFromSupabase) {
+    console.log("Running in offline/local storage fallback mode.");
+    if (!localStorage.getItem("telehealth_db")) {
+      db = {
+        villages: DEFAULT_VILLAGES,
+        doctors: DEFAULT_DOCTORS,
+        patients: DEFAULT_PATIENTS,
+        appointments: DEFAULT_APPOINTMENTS,
+        consultations: DEFAULT_CONSULTATIONS,
+        failoverLogs: DEFAULT_FAILOVER_LOGS
+      };
+      saveDB();
+    } else {
+      db = JSON.parse(localStorage.getItem("telehealth_db"));
+    }
+  }
+
+  // Guarantee arrays exist to prevent schema discrepancy crashes
+  db.villages = db.villages || DEFAULT_VILLAGES;
+  db.doctors = db.doctors || [...DEFAULT_DOCTORS];
+  db.patients = db.patients || [...DEFAULT_PATIENTS];
+  db.appointments = db.appointments || [...DEFAULT_APPOINTMENTS];
+  db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
+  db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
+  db.authConfig = db.authConfig || {
+    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+    vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+  };
+
+  // Sync reference doctors (e.g. Dr. Priya)
+  DEFAULT_DOCTORS.forEach(doc => {
+    if (!db.doctors.some(d => d.id === doc.id)) {
+      db.doctors.push(doc);
+    }
+  });
+
+  // Sync reference patients (Dharaneesh, Meenakshi, Rajan Kumar)
+  DEFAULT_PATIENTS.forEach(pat => {
+    const existing = db.patients.find(p => p.id === pat.id);
+    if (!existing) {
+      db.patients.push(pat);
+    } else {
+      if (pat.photo) existing.photo = pat.photo;
+      if (pat.id === "pat-5" || pat.id === "pat-9" || pat.id === "pat-12") {
+        existing.age = pat.age;
+        existing.gender = pat.gender;
+        existing.village = pat.village;
+      }
+    }
+  });
+
+  // If appointments are empty or missing reference tokens, populate them
+  DEFAULT_APPOINTMENTS.forEach(defApp => {
+    const existing = db.appointments.find(a => a.token === defApp.token);
+    if (!existing) {
+      db.appointments.push(defApp);
+    } else {
+      existing.vitals = defApp.vitals;
+      existing.symptoms = defApp.symptoms;
+      existing.urgency = defApp.urgency;
+      existing.assignedDoctorId = defApp.assignedDoctorId;
+    }
+  });
+
+  // Sync across tabs/windows so view updates when appointments change.
+  window.addEventListener("storage", (event) => {
+    if (event.key !== "telehealth_db" || !event.newValue) return;
+    const updatedDb = JSON.parse(event.newValue);
+    if (!updatedDb || !Array.isArray(updatedDb.appointments)) return;
+
+    db.appointments = updatedDb.appointments;
+    if (currentRole === "patient") {
+      loadPatientDashboard();
+    } else if (currentRole === "doctor") {
+      loadDoctorDashboard();
+    } else if (currentRole === "vhw") {
+      loadVhwDashboard();
+    }
+  });
+  
+  // Force upgrade cache if demo email is missing from admins list
+  if (!db.authConfig.admins.includes("tvillage.admin.demo@gmail.com")) {
+    db.authConfig.admins.push("tvillage.admin.demo@gmail.com");
+    saveDB();
+  }
+
+  db.recordings = db.recordings || [];
+
+  // Load Agora Config
+  agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
+  if (!agoraConfig || !agoraConfig.appid) {
+    agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  }
+
+  if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
+    console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
+    agoraConfig.enabled = false;
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  }
+
+  if (supabase) {
+    const realtimeChannel = supabase.channel("telehealth-live-updates");
+    realtimeChannel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "appointments" },
+      async (payload) => {
+        console.info("Appointment change received from Supabase", payload);
+        try {
+          const { data, error } = await supabase.from("appointments").select("*");
+          if (!error && data) {
+            db.appointments = data;
+            saveDB();
+            if (currentRole === "patient") loadPatientDashboard();
+            else if (currentRole === "doctor") loadDoctorDashboard();
+            else if (currentRole === "vhw") loadVhwDashboard();
+          }
+        } catch (syncErr) {
+          console.warn("Realtime appointment sync failed.", syncErr);
+        }
+      }
+    );
+    realtimeChannel.subscribe();
+  }
+  
+  // Populate UI inputs on load
+  setTimeout(() => {
+    const appidInput = document.getElementById("agora-appid");
+    const tokenInput = document.getElementById("agora-token");
+    const chanInput = document.getElementById("agora-channel");
+    const enableCheck = document.getElementById("agora-enabled");
+    
+    if (appidInput) appidInput.value = agoraConfig.appid || "";
+    if (tokenInput) tokenInput.value = agoraConfig.token || "";
+    if (chanInput) chanInput.value = agoraConfig.channel || "telehealth-room";
+    if (enableCheck) enableCheck.checked = agoraConfig.enabled || false;
+  }, 500);
+}
+
+async function saveDB(tableName = null) {
+  // Always update local cache instantly for smooth UI
+  localStorage.setItem("telehealth_db", JSON.stringify(db));
+
+  if (supabase) {
+    if (!window.isNetworkOnline) {
+      console.log("Device is Offline. Consultation saved locally. Will sync when Online.");
+      // Record pending sync
+      let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
+      if (tableName) {
+        pending[tableName] = true;
+      } else {
+        pending.patients = true;
+        pending.doctors = true;
+        pending.appointments = true;
+        pending.consultations = true;
+      }
+      localStorage.setItem("pending_syncs", JSON.stringify(pending));
+      return true;
+    }
+
+    try {
+      if (tableName === "patients" || !tableName) {
+        const { error } = await supabase.from("patients").upsert(db.patients);
+        if (error) throw error;
+      }
+      if (tableName === "doctors" || !tableName) {
+        const { error } = await supabase.from("doctors").upsert(db.doctors);
+        if (error) throw error;
+      }
+      if (tableName === "appointments" || !tableName) {
+        const { error } = await supabase.from("appointments").upsert(db.appointments);
+        if (error) throw error;
+      }
+      if (tableName === "consultations" || !tableName) {
+        const { error } = await supabase.from("consultations").upsert(db.consultations);
+        if (error) throw error;
+      }
+      console.log(`Supabase synced successfully: ${tableName || 'all tables'}`);
+      return true;
+    } catch (err) {
+      console.error("Supabase sync failed, caching locally for auto-retry:", err);
+      window.lastDatabaseError = err;
+      let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
+      if (tableName) pending[tableName] = true;
+      else { pending.patients = true; pending.doctors = true; pending.appointments = true; pending.consultations = true; }
+      localStorage.setItem("pending_syncs", JSON.stringify(pending));
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function refreshAppointmentsFromSupabase() {
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await supabase.from("appointments").select("*");
+    if (error) {
+      console.warn("Could not refresh appointments from Supabase:", error);
+      return false;
+    }
+
+    if (data) {
+      db.appointments = data;
+      localStorage.setItem("telehealth_db", JSON.stringify(db));
+      if (currentRole === "patient") loadPatientDashboard();
+      if (currentRole === "vhw") loadVhwDashboard();
+      if (currentRole === "doctor") loadDoctorDashboard();
+      return true;
+    }
+  } catch (err) {
+    console.warn("Supabase appointment refresh error:", err);
+  }
+
+  return false;
+}
+
+// Clock updates
+function startClock() {
+  const clockEl = document.getElementById("live-clock");
+  setInterval(() => {
+    const now = new Date();
+    clockEl.innerText = now.toLocaleString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    });
+  }, 1000);
+}
+
+// Toast alerts utility
+function showToast(message, type = "info") {
+  const container = document.getElementById("toast-bin");
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <span>${message}</span>
+    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+  `;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 5000);
+}
+
+// View switcher
+window.switchView = function(viewId, roleName) {
+  document.querySelectorAll(".view-section").forEach(sec => sec.classList.remove("active"));
+  document.querySelectorAll(".dev-btn").forEach(btn => btn.classList.remove("active"));
+  
+  const targetView = document.getElementById(viewId);
+  if (targetView) targetView.classList.add("active");
+  
+  const devBtn = document.getElementById(`dev-btn-${roleName}`);
+  if (devBtn) devBtn.classList.add("active");
+
+  currentRole = roleName;
+  updateHeaderProfile();
+
+  // Load dashboards based on role
+  if (roleName === "patient") {
+    if (supabase) refreshAppointmentsFromSupabase();
+    loadPatientDashboard();
+  } else if (roleName === "vhw") {
+    if (supabase) refreshAppointmentsFromSupabase();
+    loadVhwDashboard();
+  } else if (roleName === "doctor") {
+    if (supabase) refreshAppointmentsFromSupabase();
+    loadDoctorDashboard();
+  } else if (roleName === "admin") {
+    loadAdminDashboard();
+  }
+};
+
+window.quickLogin = function(role) {
+  if (role === "patient") {
+    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [] };
+  } else if (role === "vhw") {
+    currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
+  } else if (role === "doctor") {
+    currentUser = (db.doctors && db.doctors.length > 0) ? db.doctors[0] : { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true };
+  } else if (role === "admin") {
+    currentUser = { name: "System Admin", role: "Admin" };
+  }
+  switchView(`view-${role}`, role);
+};
+
+window.logout = function() {
+  authGuard.clear();
+  currentUser = null;
+  currentRole = "guest";
+  window.googleUser = null;
+  document.getElementById("header-user-profile").style.display = "none";
+  
+  if (supabase) {
+    supabase.auth.signOut().then(() => {
+      console.log("Logged out of Supabase session.");
+    });
+  }
+  
+  switchView("view-login", "login");
+};
+
+function updateHeaderProfile() {
+  const profileEl = document.getElementById("header-user-profile");
+  if (!currentUser || currentRole === "guest") {
+    profileEl.style.display = "none";
+    return;
+  }
+  profileEl.style.display = "flex";
+  document.getElementById("header-user-name").innerText = currentUser.name;
+  document.getElementById("header-user-role").innerText = currentRole;
+  document.getElementById("header-user-avatar").innerText = currentUser.name.split(" ").map(n => n[0]).join("");
+}
+
+// Authentication
+window.handleLogin = async function(e) {
   e.preventDefault();
   const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
@@ -29,18 +572,18 @@ const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clini
     return;
   }
 
-  if (disabledAuthAdapter) {
+  if (supabase) {
     showToast("Authenticating credentials...", "info");
     try {
-      const { data, error } = await disabledAuthAdapter.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: email,
         password: password
       });
 
       if (error) {
-        console.warn("Legacy auth failed", error);
+        console.warn("Supabase auth failed", error);
 
-        // Legacy fallback retained only inside the disabled migration block.
+        // Fallback to local demo accounts when Supabase login is not configured or user is not registered remotely
         if (role === "doctor") {
           const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
           if (doctor && doctor.password === password) {
@@ -86,7 +629,7 @@ const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clini
           switchView("view-doctor", "doctor");
           showToast(`Welcome back, ${doctor.name}`, "success");
         } else {
-          // Auto-generate doctor profile in the legacy migration block.
+          // Auto-generate doctor profile if authenticated in Supabase Auth
           const name = email.split('@')[0];
           const newDoc = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
           db.doctors.push(newDoc);
@@ -158,139 +701,6 @@ const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clini
   }
 };
 
-window.handleLogin = async function(e) {
-  e.preventDefault();
-  const identifier = document.getElementById("login-email").value.trim();
-  const password = document.getElementById("login-password").value;
-  const role = document.getElementById("login-role").value;
-
-  try {
-    showToast("Authenticating credentials...", "info");
-    const result = await api.login({ identifier, password, role });
-    sessionStorage.setItem("telehealth_access_token", result.token);
-    currentUser = result.user;
-    db = result.state;
-    switchView(`view-${role}`, role);
-    showToast(`Welcome back, ${currentUser.name}`, "success");
-  } catch (error) {
-    showToast(`Authentication failed: ${error.message}`, "danger");
-  }
-};
-
-*/
-const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
-const DEFAULT_DOCTORS = [];
-const DEFAULT_PATIENTS = [];
-const DEFAULT_APPOINTMENTS = [];
-const DEFAULT_CONSULTATIONS = [];
-const DEFAULT_FAILOVER_LOGS = { hd: 0, low: 0, audio: 0 };
-let db = { villages: [], doctors: [], patients: [], appointments: [], consultations: [], failoverLogs: {}, recordings: [] };
-let currentUser = null;
-let currentRole = "guest";
-let activeCall = null;
-let activeCallPrescriptionMeds = [];
-const authGuard = createAuthGuard();
-let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-room" };
-let agoraClient = null;
-let localAudioTrack = null;
-let localVideoTrack = null;
-
-async function initDB() {
-  window.isNetworkOnline = true;
-  agoraConfig = JSON.parse(localStorage.getItem("agora_config") || "null") || agoraConfig;
-}
-
-async function saveDB() {
-  if (!currentUser) return false;
-  try {
-    db = { ...db, ...(await api.saveState(db)) };
-    return true;
-  } catch (error) {
-    console.error("Backend state save failed:", error);
-    window.lastDatabaseError = error;
-    return false;
-  }
-}
-
-async function refreshStateFromBackend() {
-  if (!currentUser) return false;
-  try {
-    db = { ...db, ...(await api.state()) };
-    return true;
-  } catch (error) {
-    console.error("Backend state refresh failed:", error);
-    return false;
-  }
-}
-
-function startClock() {
-  const clockEl = document.getElementById("live-clock");
-  setInterval(() => {
-    if (clockEl) clockEl.innerText = new Date().toLocaleString("en-US", { month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
-  }, 1000);
-}
-
-function showToast(message, type = "info") {
-  const container = document.getElementById("toast-bin");
-  if (!container) return;
-  const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${message}</span><button class="toast-close" onclick="this.parentElement.remove()">x</button>`;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 5000);
-}
-
-window.switchView = function(viewId, roleName) {
-  document.querySelectorAll(".view-section").forEach(section => section.classList.remove("active"));
-  const target = document.getElementById(viewId);
-  if (target) target.classList.add("active");
-  currentRole = roleName;
-  updateHeaderProfile();
-  if (roleName === "patient") loadPatientDashboard();
-  if (roleName === "vhw") loadVhwDashboard();
-  if (roleName === "doctor") loadDoctorDashboard();
-  if (roleName === "admin") loadAdminDashboard();
-};
-
-window.quickLogin = function() {
-  showToast("Please sign in with your backend account.", "info");
-};
-
-window.logout = function() {
-  api.logout().catch(() => {});
-  sessionStorage.removeItem("telehealth_access_token");
-  currentUser = null;
-  currentRole = "guest";
-  switchView("view-login", "login");
-};
-
-function updateHeaderProfile() {
-  const profile = document.getElementById("header-user-profile");
-  if (!profile) return;
-  profile.style.display = currentUser && currentRole !== "guest" ? "flex" : "none";
-  if (!currentUser) return;
-  document.getElementById("header-user-name").innerText = currentUser.name;
-  document.getElementById("header-user-role").innerText = currentRole;
-  document.getElementById("header-user-avatar").innerText = currentUser.name.split(" ").map(part => part[0]).join("");
-}
-
-window.handleLogin = async function(e) {
-  e.preventDefault();
-  const identifier = document.getElementById("login-email").value.trim();
-  const password = document.getElementById("login-password").value;
-  const role = document.getElementById("login-role").value;
-  try {
-    const result = await api.login({ identifier, password, role });
-    sessionStorage.setItem("telehealth_access_token", result.token);
-    currentUser = result.user;
-    db = result.state;
-    switchView(`view-${role}`, role);
-    showToast(`Welcome back, ${currentUser.name}`, "success");
-  } catch (error) {
-    showToast(`Authentication failed: ${error.message}`, "danger");
-  }
-};
-
 // --- TRIAGE URGENCY EVALUATOR ---
 function evaluateTriageUrgency(vitals) {
   if (!vitals) return { flag: "Normal", score: 0 };
@@ -327,7 +737,7 @@ function evaluateTriageUrgency(vitals) {
 async function loadPatientDashboard() {
   if (currentRole !== "patient") return;
 
-  await refreshStateFromBackend();
+  if (supabase) await refreshConsultationsFromSupabase();
   
   // Active appointment check
   const activeApp = db.appointments.find(a =>
@@ -556,7 +966,9 @@ window.sharePatientIdCard = function() {
 
 window.bookPatientAppointment = async function(e) {
   e.preventDefault();
-  await refreshStateFromBackend();
+  if (supabase) {
+    await refreshAppointmentsFromSupabase();
+  }
 
   const symptoms = document.getElementById("pat-book-symptoms").value;
   const docId = document.getElementById("pat-book-specialty").value;
@@ -765,7 +1177,12 @@ window.adminDeletePatient = function(id) {
     // Clear any active tokens/appointments for this patient
     db.appointments = db.appointments.filter(a => a.patientId !== id);
 
-    api.deletePatient(id).catch(error => showToast(`Patient deletion failed: ${error.message}`, "danger"));
+    if (supabase) {
+      supabase.from("patients").delete().eq("id", id).then(({ error }) => {
+        if (error) console.error("Error deleting patient from Supabase:", error);
+        else console.log("Patient deleted from Supabase successfully");
+      });
+    }
 
     saveDB();
     showToast("Patient account removed successfully", "warning");
@@ -1064,7 +1481,7 @@ window.vhwCancelToken = function(token) {
 async function loadDoctorDashboard() {
   if (currentRole !== "doctor") return;
 
-  await refreshStateFromBackend();
+  if (supabase) await refreshConsultationsFromSupabase();
 
   // If no active call, make sure overview is shown and consultation suite is hidden
   if (!activeCall) {
@@ -1530,6 +1947,50 @@ window.startDoctorConsultation = function(token) {
   showToast(`Connected to clinic. Tele-consultation session started.`, "success");
 };
 
+async function refreshConsultationStateFromCloud() {
+  if (!supabase || !currentUser || !currentUser.id) return false;
+
+  try {
+    const { data: appointmentsData, error: appointmentsError } = await supabase.from("appointments").select("*");
+    if (appointmentsError) {
+      console.warn("Unable to refresh appointments from Supabase:", appointmentsError);
+      return false;
+    }
+
+    if (appointmentsData) {
+      db.appointments = appointmentsData;
+      saveDB();
+      return true;
+    }
+  } catch (err) {
+    console.warn("Cloud refresh failed:", err);
+  }
+
+  return false;
+}
+
+async function refreshConsultationsFromSupabase() {
+  if (!supabase) return false;
+
+  try {
+    const { data, error } = await supabase.from("consultations").select("*");
+    if (error) {
+      console.warn("Unable to refresh consultations from Supabase:", error);
+      return false;
+    }
+
+    if (data) {
+      db.consultations = data;
+      localStorage.setItem("telehealth_db", JSON.stringify(db));
+      return true;
+    }
+  } catch (err) {
+    console.warn("Consultation cloud refresh failed:", err);
+  }
+
+  return false;
+}
+
 window.joinPatientCall = async function() {
   console.log("[Patient] Join call button clicked");
   console.log("[Patient] Current user:", currentUser);
@@ -1541,7 +2002,7 @@ window.joinPatientCall = async function() {
   }
 
   const localAppointments = Array.isArray(db.appointments) ? [...db.appointments] : [];
-  await refreshStateFromBackend();
+  if (supabase) await refreshConsultationStateFromCloud();
 
   const urlToken = new URLSearchParams(window.location.search).get("token") || new URLSearchParams(window.location.hash.substring(1)).get("token");
   const findPatientAppointment = appointments => appointments.find(a => {
@@ -2380,7 +2841,6 @@ window.submitDigitalPrescription = async function(e) {
   const newConsultation = {
     id: conId,
     token: activeCall.token,
-    appointmentId: activeCall.token,
     patientId: activeCall.patient.id,
     doctorId: currentUser.id,
     status: "completed",
@@ -2395,6 +2855,8 @@ window.submitDigitalPrescription = async function(e) {
     failoverState: networkFailoverSummary,
     referral
   };
+
+  db.consultations.push(newConsultation);
 
   // Archive Patient History Record
   const patIndex = db.patients.findIndex(p => p.id === activeCall.patient.id);
@@ -2415,14 +2877,16 @@ window.submitDigitalPrescription = async function(e) {
     db.appointments[appIdx].completedAt = new Date().toISOString();
   }
 
-  try {
-    await api.completeConsultation(newConsultation);
-    db.consultations.push(newConsultation);
-    await saveDB();
-  } catch (error) {
-    showToast(`Consultation could not be saved to the database: ${error.message}`, "danger");
+  const consultationSaved = await saveDB("consultations");
+  if (!consultationSaved && window.isNetworkOnline) {
+    const databaseMessage = window.lastDatabaseError && window.lastDatabaseError.message
+      ? ` ${window.lastDatabaseError.message}`
+      : " Please apply supabase-consultations-migration.sql in Supabase.";
+    showToast(`Consultation could not be saved to the database.${databaseMessage}`, "danger");
     return;
   }
+  await saveDB("patients");
+  await saveDB("appointments");
 
   // Stop simulated webcam feed
   if (activeCall.animationFrameId) {
@@ -2680,6 +3144,29 @@ window.adminAddDoctor = async function(e) {
   const password = document.getElementById("adm-doc-password").value;
   const id = `doc-${Date.now().toString().slice(-4)}`;
 
+  // Register in Supabase Authentication if connected
+  if (supabase) {
+    showToast("Creating Doctor login credentials...", "info");
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email,
+        password: password,
+        options: {
+          data: {
+            full_name: name
+          }
+        }
+      });
+      if (error) {
+        showToast(`Supabase registration failed: ${error.message}`, "danger");
+        return;
+      }
+      showToast("Credentials registered successfully!", "success");
+    } catch (authErr) {
+      console.warn("Supabase Auth signUp error:", authErr);
+    }
+  }
+
   const newDoc = {
     id,
     name,
@@ -2704,6 +3191,13 @@ window.adminAddDoctor = async function(e) {
 window.adminDeleteDoctor = function(idx) {
   const doc = db.doctors[idx];
   db.doctors.splice(idx, 1);
+
+  if (supabase) {
+    supabase.from("doctors").delete().eq("id", doc.id).then(({ error }) => {
+      if (error) console.error("Error deleting doctor from Supabase:", error);
+      else console.log("Doctor deleted from Supabase successfully");
+    });
+  }
 
   saveDB();
   showToast("Doctor removed from staff", "warning");
@@ -2809,13 +3303,13 @@ window.onload = function() {
   initDB();
   startClock();
   
-  // Set initial route to the backend login screen.
+  // Set initial route: open the cleaner default dashboard instead of forcing the login gate.
   const hasOAuthCallback = window.location.hash.includes("access_token=") || 
                            window.location.search.includes("code=") || 
                            window.location.hash.includes("error=");
                            
   if (!hasOAuthCallback) {
-    switchView("view-login", "login");
+    quickLogin("patient");
   }
 
   // Check if patient joined direct appointment
@@ -3454,7 +3948,7 @@ window.dismissEmergencyBanner = function() {
   if (banner) banner.style.display = "none";
 };
 
-// --- CONNECTION STATUS ---
+// --- FEATURE 5: OFFLINE MODE & AUTO-SYNC ---
 window.isNetworkOnline = true;
 
 window.toggleSimulatedInternet = function() {
@@ -3462,9 +3956,10 @@ window.toggleSimulatedInternet = function() {
   updateOnlinePill();
 
   if (window.isNetworkOnline) {
-    showToast("Connection restored. Backend requests are enabled.", "info");
+    showToast("🔄 Connection restored. Auto-syncing pending local changes to Supabase...", "info");
+    runOfflineSync();
   } else {
-    showToast("Offline mode enabled. Changes require a backend connection.", "warning");
+    showToast("🔴 Offline Mode Activated. Changes will be saved locally.", "warning");
   }
 };
 
@@ -3483,10 +3978,44 @@ function updateOnlinePill() {
   }
 }
 
+async function runOfflineSync() {
+  if (!supabase) return;
+  const pending = JSON.parse(localStorage.getItem("pending_syncs"));
+  if (!pending) return;
+
+  try {
+    let syncedCount = 0;
+    if (pending.patients) {
+      await supabase.from("patients").upsert(db.patients);
+      syncedCount++;
+    }
+    if (pending.doctors) {
+      await supabase.from("doctors").upsert(db.doctors);
+      syncedCount++;
+    }
+    if (pending.appointments) {
+      await supabase.from("appointments").upsert(db.appointments);
+      syncedCount++;
+    }
+    if (pending.consultations) {
+      await supabase.from("consultations").upsert(db.consultations);
+      syncedCount++;
+    }
+
+    if (syncedCount > 0) {
+      showToast(`✅ Cloud Sync complete! Successfully uploaded pending changes.`, "success");
+      localStorage.removeItem("pending_syncs");
+    }
+  } catch (err) {
+    console.error("Auto-sync background task failed:", err);
+  }
+}
+
 // Listen to browser network changes automatically
 window.addEventListener('online', () => {
   window.isNetworkOnline = true;
   updateOnlinePill();
+  runOfflineSync();
 });
 window.addEventListener('offline', () => {
   window.isNetworkOnline = false;
@@ -3799,7 +4328,7 @@ function renderAdminRecordings() {
       <td><strong>${rec.id}</strong></td>
       <td>${rec.date}</td>
       <td><strong>${rec.patientName}</strong></td>
-      <td style="font-family: monospace; font-size: 11px; color:#10b981;">/api/recordings/${rec.secureUrl}</td>
+      <td style="font-family: monospace; font-size: 11px; color:#10b981;">supabase://buckets/recordings/${rec.secureUrl}</td>
       <td>${rec.duration}</td>
       <td>
         <button class="btn-action success" onclick="window.playRecording('${rec.id}')">▶️ Playback</button>
@@ -3830,6 +4359,73 @@ window.playRecording = function(recId) {
 window.closePlaybackModal = function() {
   const modal = document.getElementById("playback-modal");
   if (modal) modal.style.display = "none";
+};
+
+// --- GOOGLE SIGN IN OAUTH ACCOUNT PICKER ENGINE ---
+window.openGoogleSignInModal = async function() {
+  if (!supabase) {
+    showToast("Supabase is not configured yet. Cannot sign in with Google.", "danger");
+    return;
+  }
+  showToast("Redirecting to Google Sign-In...", "info");
+  
+  try {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin + window.location.pathname
+      }
+    });
+    
+    if (error) {
+      showToast(`Google OAuth Error: ${error.message}. Make sure Google Provider is enabled in Supabase Dashboard.`, "danger");
+    }
+  } catch (err) {
+    showToast(`OAuth Trigger Failed: ${err.message}`, "danger");
+  }
+};
+
+window.closeGoogleSignInModal = function() {
+  const modal = document.getElementById("google-signin-modal");
+  if (modal) modal.style.display = "none";
+};
+
+window.selectGoogleRole = function(role) {
+  const roleModal = document.getElementById("google-role-modal");
+  if (roleModal) roleModal.style.display = "none";
+
+  if (!window.googleUser) {
+    showToast("No Google account verified.", "danger");
+    return;
+  }
+
+  const { name, email } = window.googleUser;
+  
+  if (role === "patient") {
+    // Check if patient exists or register them
+    let patient = db.patients.find(p => p.phone === email || p.name === name);
+    if (!patient) {
+      patient = { id: `pat-${Date.now().toString().slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+      db.patients.push(patient);
+      saveDB();
+    }
+    currentUser = patient;
+  } else if (role === "vhw") {
+    currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A" };
+  } else if (role === "doctor") {
+    let doctor = db.doctors.find(d => d.email === email);
+    if (!doctor) {
+      doctor = { id: `doc-${Date.now().toString().slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+      db.doctors.push(doctor);
+      saveDB();
+    }
+    currentUser = doctor;
+  } else if (role === "admin") {
+    currentUser = { name: `Admin ${name}`, role: "Admin" };
+  }
+
+  switchView(`view-${role}`, role);
+  showToast(`Logged in successfully as ${currentUser.name}!`, "success");
 };
 
 // --- FEATURE: ROLE-BASED ACCESS CONTROL (RBAC) MANAGER ---
