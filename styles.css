@@ -70,7 +70,7 @@ input, select, textarea {
 
 /* Global Layout Header */
 header {
-  background-color: #0b1220;
+  background-color: #ffffff;
   border-bottom: 1px solid rgba(148, 163, 184, 0.28);
   padding: 10px 20px;
   display: flex;
@@ -88,7 +88,7 @@ header {
 .user-name,
 .user-role,
 .header-btn-logout {
-  color: #f8fafc;
+  color: var(--text-main);
 }
 
 .brand {
@@ -98,8 +98,8 @@ header {
 }
 
 .brand-icon {
-  background-color: #0f172a;
-  color: white;
+  background-color: #eff6ff;
+  color: #2563eb;
   width: 34px;
   height: 34px;
   border-radius: 0;
@@ -113,12 +113,12 @@ header {
 .brand-info h1 {
   font-size: 16px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--text-main);
 }
 
 .brand-info p {
   font-size: 11px;
-  color: #cbd5e1;
+  color: var(--text-muted);
 }
 
 .nav-controls {
@@ -129,9 +129,9 @@ header {
 
 .current-time {
   font-size: 13px;
-  color: #e2e8f0;
+  color: var(--text-medium);
   font-weight: 500;
-  background-color: rgba(148, 163, 184, 0.12);
+  background-color: var(--bg-secondary);
   padding: 6px 12px;
   border-radius: 0;
 }
