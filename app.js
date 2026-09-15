@@ -1,7 +1,6 @@
 // Smart Village Tele-Health Dispensary Dashboard Controller
 import { supabase } from './supabaseClient.js';
 import { createAuthGuard } from './authGuard.mjs';
-import { findActivePatientAppointment } from './authStateGuard.js';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -10,12 +9,12 @@ const DEFAULT_DOCTORS = [
   { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true },
   { id: "doc-2", name: "Dr. Dharani", specialty: "Cardiology", email: "doc.dharani@villagemed.in", password: "password", online: true },
   { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true },
-  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "abinesh.doctor@gmail.com", password: "Abinesh@123", online: true },
+  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true },
   { id: "doc-5", name: "Dr. Priya", specialty: "Cardiology", email: "doc.priya@villagemed.in", password: "password", online: true, photo: "doctor_portrait.jpg" }
 ];
 
 const DEFAULT_PATIENTS = [
-  { id: "pat-5", name: "Dharaneesh S", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh.patient@gmail.com", password: "Dharanee@123", photo: "dharaneesh_portrait.jpg", history: [] },
+  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh@gmail.com", photo: "dharaneesh_portrait.jpg", history: [] },
   { id: "pat-9", name: "Meenakshi", age: 54, gender: "Female", phone: "9876543212", village: "Village Clinic B", photo: "patient_portrait.jpg", history: [] },
   { id: "pat-12", name: "Rajan Kumar", age: 34, gender: "Male", phone: "9876543213", village: "Village Clinic A", photo: "rajan_portrait.jpg", history: [] },
   { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [
@@ -86,17 +85,6 @@ let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-r
 let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
-
-function readLocalJson(key, fallback = null) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (error) {
-    console.warn(`Ignoring invalid local storage value for ${key}.`, error);
-    localStorage.removeItem(key);
-    return fallback;
-  }
-}
 
 function getAgoraRolePrefix(role) {
   if (role === "doctor" || role === "doc") return "doc";
@@ -193,7 +181,8 @@ async function initDB() {
       ]);
 
       if (!patientsRes.error && !doctorsRes.error && !appointmentsRes.error && !consultationsRes.error) {
-        const cachedDb = readLocalJson("telehealth_db");
+        const localCached = localStorage.getItem("telehealth_db");
+        const cachedDb = localCached ? JSON.parse(localCached) : null;
         const localVillages = cachedDb ? cachedDb.villages : DEFAULT_VILLAGES;
         const localLogs = cachedDb ? cachedDb.failoverLogs : DEFAULT_FAILOVER_LOGS;
         const localAuthConfig = cachedDb ? cachedDb.authConfig : {
@@ -241,8 +230,7 @@ async function initDB() {
 
   if (!loadedFromSupabase) {
     console.log("Running in offline/local storage fallback mode.");
-    const cachedDb = readLocalJson("telehealth_db");
-    if (!cachedDb) {
+    if (!localStorage.getItem("telehealth_db")) {
       db = {
         villages: DEFAULT_VILLAGES,
         doctors: DEFAULT_DOCTORS,
@@ -253,7 +241,7 @@ async function initDB() {
       };
       saveDB();
     } else {
-      db = cachedDb;
+      db = JSON.parse(localStorage.getItem("telehealth_db"));
     }
   }
 
@@ -265,8 +253,8 @@ async function initDB() {
   db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
   db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
   db.authConfig = db.authConfig || {
-    admins: ["admin@telehealth.com", "admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
-    vhws: ["sangeetha.health@gmail.com", "vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+    vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
 
   // Sync reference doctors (e.g. Dr. Priya)
@@ -291,15 +279,23 @@ async function initDB() {
     }
   });
 
-  // Seed demo appointments only for a new or empty database. Never overwrite live records.
-  if (db.appointments.length === 0) {
-    db.appointments.push(...DEFAULT_APPOINTMENTS);
-  }
+  // If appointments are empty or missing reference tokens, populate them
+  DEFAULT_APPOINTMENTS.forEach(defApp => {
+    const existing = db.appointments.find(a => a.token === defApp.token);
+    if (!existing) {
+      db.appointments.push(defApp);
+    } else {
+      existing.vitals = defApp.vitals;
+      existing.symptoms = defApp.symptoms;
+      existing.urgency = defApp.urgency;
+      existing.assignedDoctorId = defApp.assignedDoctorId;
+    }
+  });
 
   // Sync across tabs/windows so view updates when appointments change.
   window.addEventListener("storage", (event) => {
     if (event.key !== "telehealth_db" || !event.newValue) return;
-    const updatedDb = readLocalJson("telehealth_db");
+    const updatedDb = JSON.parse(event.newValue);
     if (!updatedDb || !Array.isArray(updatedDb.appointments)) return;
 
     db.appointments = updatedDb.appointments;
@@ -321,7 +317,7 @@ async function initDB() {
   db.recordings = db.recordings || [];
 
   // Load Agora Config
-  agoraConfig = readLocalJson("agora_config");
+  agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
   if (!agoraConfig || !agoraConfig.appid) {
     agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
@@ -344,7 +340,7 @@ async function initDB() {
           const { data, error } = await supabase.from("appointments").select("*");
           if (!error && data) {
             db.appointments = data;
-            localStorage.setItem("telehealth_db", JSON.stringify(db));
+            saveDB();
             if (currentRole === "patient") loadPatientDashboard();
             else if (currentRole === "doctor") loadDoctorDashboard();
             else if (currentRole === "vhw") loadVhwDashboard();
@@ -379,7 +375,7 @@ async function saveDB(tableName = null) {
     if (!window.isNetworkOnline) {
       console.log("Device is Offline. Consultation saved locally. Will sync when Online.");
       // Record pending sync
-      let pending = readLocalJson("pending_syncs", {}) || {};
+      let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
       if (tableName) {
         pending[tableName] = true;
       } else {
@@ -394,13 +390,11 @@ async function saveDB(tableName = null) {
 
     try {
       if (tableName === "patients" || !tableName) {
-        const patientsForCloud = db.patients.map(({ photo, ...patient }) => patient);
-        const { error } = await supabase.from("patients").upsert(patientsForCloud);
+        const { error } = await supabase.from("patients").upsert(db.patients);
         if (error) throw error;
       }
       if (tableName === "doctors" || !tableName) {
-        const doctorsForCloud = db.doctors.map(({ photo, ...doctor }) => doctor);
-        const { error } = await supabase.from("doctors").upsert(doctorsForCloud);
+        const { error } = await supabase.from("doctors").upsert(db.doctors);
         if (error) throw error;
       }
       if (tableName === "appointments" || !tableName) {
@@ -416,7 +410,7 @@ async function saveDB(tableName = null) {
     } catch (err) {
       console.error("Supabase sync failed, caching locally for auto-retry:", err);
       window.lastDatabaseError = err;
-      let pending = readLocalJson("pending_syncs", {}) || {};
+      let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
       if (tableName) pending[tableName] = true;
       else { pending.patients = true; pending.doctors = true; pending.appointments = true; pending.consultations = true; }
       localStorage.setItem("pending_syncs", JSON.stringify(pending));
@@ -561,12 +555,6 @@ window.handleLogin = async function(e) {
 
   const AUTHORIZED_ADMINS = db.authConfig.admins;
   const AUTHORIZED_VHWS = db.authConfig.vhws;
-  const DEMO_PASSWORDS = {
-    admin: "Admin@123",
-    vhw: "Sangeetha@123",
-    doctor: "Abinesh@123",
-    patient: "Dharanee@123"
-  };
 
   // 1. Authorize Admin
   if (role === "admin" && !AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
@@ -582,29 +570,6 @@ window.handleLogin = async function(e) {
   if (role === "doctor" && !email.toLowerCase().endsWith("@villagemed.in") && !db.doctors.some(d => d.email.toLowerCase() === email.toLowerCase())) {
     showToast("Unauthorized: This email is not registered as a Medical Doctor.", "danger");
     return;
-  }
-
-  if (role === "admin" && password !== DEMO_PASSWORDS.admin) {
-    showToast("Invalid admin password for this account.", "danger");
-    return;
-  }
-  if (role === "vhw" && password !== DEMO_PASSWORDS.vhw) {
-    showToast("Invalid health worker password for this account.", "danger");
-    return;
-  }
-  if (role === "doctor" && password !== DEMO_PASSWORDS.doctor) {
-    const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
-    if (!doctor || doctor.password !== password) {
-      showToast("Invalid doctor password for this account.", "danger");
-      return;
-    }
-  }
-  if (role === "patient" && password !== DEMO_PASSWORDS.patient) {
-    const patient = db.patients.find(p => p.email && p.email.toLowerCase() === email.toLowerCase());
-    if (!patient || patient.password !== password) {
-      showToast("Invalid patient password for this account.", "danger");
-      return;
-    }
   }
 
   if (supabase) {
@@ -658,7 +623,7 @@ window.handleLogin = async function(e) {
       const user = data.user;
 
       if (role === "doctor") {
-        const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
+        const doctor = db.doctors.find(d => d.email === email);
         if (doctor) {
           currentUser = doctor;
           switchView("view-doctor", "doctor");
@@ -702,39 +667,36 @@ window.handleLogin = async function(e) {
   } else {
     // Offline local fallback logic (no real password check)
     if (role === "doctor") {
-      const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
-      if (doctor && doctor.password === password) {
+      const doctor = db.doctors.find(d => d.email === email);
+      if (doctor) {
         currentUser = doctor;
         switchView("view-doctor", "doctor");
         showToast(`Welcome back, ${doctor.name} (Offline Mode)`, "success");
       } else {
-        showToast("Doctor account not found in local cache or password is incorrect", "danger");
+        showToast("Doctor account not found in local cache", "danger");
       }
     } else if (role === "vhw") {
-      if (AUTHORIZED_VHWS.includes(email.toLowerCase()) && password === DEMO_PASSWORDS.vhw) {
-        currentUser = { name: "Sangeetha K", role: "VHW", village: "Village Clinic A", email };
-        switchView("view-vhw", "vhw");
-        showToast("VHW Nurse Console authenticated (Offline Mode)", "success");
-      } else {
-        showToast("Invalid health worker email or password.", "danger");
-      }
+      currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
+      switchView("view-vhw", "vhw");
+      showToast("VHW Nurse Console authenticated (Offline Mode)", "success");
     } else if (role === "patient") {
-      const patient = db.patients.find(p => (p.email && p.email.toLowerCase() === email.toLowerCase()) || p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
-      if (patient && patient.password === password) {
+      const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+      if (patient) {
         currentUser = patient;
         switchView("view-patient", "patient");
         showToast(`Logged in as patient: ${patient.name} (Offline Mode)`, "success");
       } else {
-        showToast("Patient account not found or password is incorrect", "danger");
+        const newPat = { id: `pat-${Date.now()}`, name: email, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+        db.patients.push(newPat);
+        saveDB();
+        currentUser = newPat;
+        switchView("view-patient", "patient");
+        showToast(`New offline patient registered: ${email}`, "success");
       }
     } else if (role === "admin") {
-      if (AUTHORIZED_ADMINS.includes(email.toLowerCase()) && password === DEMO_PASSWORDS.admin) {
-        currentUser = { name: "System Admin", role: "Admin", email };
-        switchView("view-admin", "admin");
-        showToast("Admin Console authenticated (Offline Mode)", "success");
-      } else {
-        showToast("Invalid admin email or password.", "danger");
-      }
+      currentUser = { name: "System Admin", role: "Admin" };
+      switchView("view-admin", "admin");
+      showToast("Admin Console authenticated (Offline Mode)", "success");
     }
   }
 };
@@ -778,7 +740,9 @@ async function loadPatientDashboard() {
   if (supabase) await refreshConsultationsFromSupabase();
   
   // Active appointment check
-  const activeApp = findActivePatientAppointment(db.appointments, currentUser && currentUser.id);
+  const activeApp = db.appointments.find(a =>
+    a.patientId === currentUser.id && a.status !== "Completed"
+  );
   
   const tokenVal = document.getElementById("pat-token-val");
   const tokenSub = document.getElementById("pat-token-sub");
@@ -1044,19 +1008,13 @@ window.bookPatientAppointment = async function(e) {
   db.appointments.push(newApp);
   saveDB();
   showToast(`Appointment booked successfully! Token: ${token}. Please visit your local health worker for vitals check-in.`, "success");
-  const patientCurrent = db.appointments.find((appointment) => appointment.patientId === currentUser.id && appointment.token === token);
-  if (patientCurrent) {
-    currentUser = db.patients.find(p => p.id === currentUser.id) || currentUser;
-  }
   loadPatientDashboard();
   
   document.getElementById("pat-book-symptoms").value = "";
 };
 
 window.cancelActiveAppointment = function() {
-  const activeAppIndex = db.appointments.findIndex(a =>
-    a.patientId === currentUser.id && a.status !== "Completed"
-  );
+  const activeAppIndex = db.appointments.findIndex(a => a.patientId === currentUser.id);
   if (activeAppIndex >= 0) {
     db.appointments.splice(activeAppIndex, 1);
     saveDB();
@@ -1167,7 +1125,7 @@ function renderVhwPatientList(searchQuery = "") {
   }
 
   list.forEach(p => {
-    const activeApp = findActivePatientAppointment(db.appointments, p.id);
+    const activeApp = db.appointments.find(a => a.patientId === p.id);
     let buttonHtml = "";
 
     if (activeApp && activeApp.status === "Active") {
@@ -1270,7 +1228,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   document.getElementById("vitals-pat-id").value = patientId;
   document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
 
-  const app = findActivePatientAppointment(db.appointments, patientId);
+  const app = db.appointments.find(a => a.patientId === patientId);
   const defaultDemoData = {
     symptoms: "Chronic chest pain, high fever...",
     vitals: {
@@ -1316,7 +1274,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
         document.getElementById("vitals-pain").value = 0;
         document.getElementById("pain-lbl-val").innerText = 0;
       } else {
-        const savedApp = findActivePatientAppointment(db.appointments, patientId);
+        const savedApp = db.appointments.find(a => a.patientId === patientId);
         const fallback = {
           symptoms: "Chronic chest pain, high fever...",
           vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.8, spo2: 98, hr: 75, pain: 0 }
@@ -1384,8 +1342,7 @@ window.vhwSubmitVitals = function(e) {
   const triage = evaluateTriageUrgency(vitals);
 
   // Check if existing booked app
-  const activeApp = findActivePatientAppointment(db.appointments, patientId);
-  const appIndex = activeApp ? db.appointments.findIndex(a => a.token === activeApp.token) : -1;
+  const appIndex = db.appointments.findIndex(a => a.patientId === patientId);
   
   if (appIndex >= 0) {
     db.appointments[appIndex].vitals = vitals;
@@ -2048,11 +2005,10 @@ window.joinPatientCall = async function() {
   if (supabase) await refreshConsultationStateFromCloud();
 
   const urlToken = new URLSearchParams(window.location.search).get("token") || new URLSearchParams(window.location.hash.substring(1)).get("token");
-  const findPatientAppointment = appointments => appointments.find(a =>
-    a.patientId === currentUser.id
-    && a.status === "Active"
-    && (!urlToken || a.token === urlToken)
-  );
+  const findPatientAppointment = appointments => appointments.find(a => {
+    if (a.patientId !== currentUser.id) return false;
+    return a.status === "Active" || (urlToken && a.token === urlToken);
+  }) || (urlToken ? appointments.find(a => a.token === urlToken && a.patientId === currentUser.id) : null);
   const activeApp = findPatientAppointment(db.appointments) || findPatientAppointment(localAppointments);
 
   console.log("[Patient] Active appointment found:", activeApp);
@@ -3076,7 +3032,7 @@ window.adminBookAppointment = function(e) {
 
   if (!p || !doc) return;
 
-  const existingApp = db.appointments.find(a => a.patientId === patientId && a.status !== "Completed");
+  const existingApp = db.appointments.find(a => a.patientId === patientId);
   if (existingApp) {
     showToast(`${p.name} already has an active appointment or token!`, "warning");
     return;
@@ -3343,17 +3299,17 @@ function renderAdminCharts() {
 }
 
 // --- INITIALIZE APPLICATION ---
-window.onload = async function() {
-  await initDB();
+window.onload = function() {
+  initDB();
   startClock();
   
-  // Set initial route: open the cleaner default dashboard instead of forcing the login gate.
+  // Set initial route: Only go to Login if we are NOT returning from a Google redirect
   const hasOAuthCallback = window.location.hash.includes("access_token=") || 
                            window.location.search.includes("code=") || 
                            window.location.hash.includes("error=");
                            
   if (!hasOAuthCallback) {
-    quickLogin("patient");
+    switchView("view-login", "login");
   }
 
   // Check if patient joined direct appointment
@@ -4024,21 +3980,17 @@ function updateOnlinePill() {
 
 async function runOfflineSync() {
   if (!supabase) return;
-  const pending = readLocalJson("pending_syncs");
+  const pending = JSON.parse(localStorage.getItem("pending_syncs"));
   if (!pending) return;
 
   try {
     let syncedCount = 0;
     if (pending.patients) {
-      const patientsForCloud = db.patients.map(({ photo, ...patient }) => patient);
-      const { error } = await supabase.from("patients").upsert(patientsForCloud);
-      if (error) throw error;
+      await supabase.from("patients").upsert(db.patients);
       syncedCount++;
     }
     if (pending.doctors) {
-      const doctorsForCloud = db.doctors.map(({ photo, ...doctor }) => doctor);
-      const { error } = await supabase.from("doctors").upsert(doctorsForCloud);
-      if (error) throw error;
+      await supabase.from("doctors").upsert(db.doctors);
       syncedCount++;
     }
     if (pending.appointments) {

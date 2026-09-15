@@ -11,5 +11,7 @@
     "rollup": "^4.63.1",
     "vite": "^5.0.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@supabase/supabase-js": "^2.109.0"
+  }
 }
