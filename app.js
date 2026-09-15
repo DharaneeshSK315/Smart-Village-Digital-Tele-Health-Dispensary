@@ -10,12 +10,12 @@ const DEFAULT_DOCTORS = [
   { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true },
   { id: "doc-2", name: "Dr. Dharani", specialty: "Cardiology", email: "doc.dharani@villagemed.in", password: "password", online: true },
   { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true },
-  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true },
+  { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "abinesh.doctor@gmail.com", password: "Abinesh@123", online: true },
   { id: "doc-5", name: "Dr. Priya", specialty: "Cardiology", email: "doc.priya@villagemed.in", password: "password", online: true, photo: "doctor_portrait.jpg" }
 ];
 
 const DEFAULT_PATIENTS = [
-  { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh@gmail.com", photo: "dharaneesh_portrait.jpg", history: [] },
+  { id: "pat-5", name: "Dharaneesh S", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh.patient@gmail.com", password: "Dharanee@123", photo: "dharaneesh_portrait.jpg", history: [] },
   { id: "pat-9", name: "Meenakshi", age: 54, gender: "Female", phone: "9876543212", village: "Village Clinic B", photo: "patient_portrait.jpg", history: [] },
   { id: "pat-12", name: "Rajan Kumar", age: 34, gender: "Male", phone: "9876543213", village: "Village Clinic A", photo: "rajan_portrait.jpg", history: [] },
   { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [
@@ -265,8 +265,8 @@ async function initDB() {
   db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
   db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
   db.authConfig = db.authConfig || {
-    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
-    vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+    admins: ["admin@telehealth.com", "admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+    vhws: ["sangeetha.health@gmail.com", "vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
   };
 
   // Sync reference doctors (e.g. Dr. Priya)
@@ -561,6 +561,12 @@ window.handleLogin = async function(e) {
 
   const AUTHORIZED_ADMINS = db.authConfig.admins;
   const AUTHORIZED_VHWS = db.authConfig.vhws;
+  const DEMO_PASSWORDS = {
+    admin: "Admin@123",
+    vhw: "Sangeetha@123",
+    doctor: "Abinesh@123",
+    patient: "Dharanee@123"
+  };
 
   // 1. Authorize Admin
   if (role === "admin" && !AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
@@ -576,6 +582,29 @@ window.handleLogin = async function(e) {
   if (role === "doctor" && !email.toLowerCase().endsWith("@villagemed.in") && !db.doctors.some(d => d.email.toLowerCase() === email.toLowerCase())) {
     showToast("Unauthorized: This email is not registered as a Medical Doctor.", "danger");
     return;
+  }
+
+  if (role === "admin" && password !== DEMO_PASSWORDS.admin) {
+    showToast("Invalid admin password for this account.", "danger");
+    return;
+  }
+  if (role === "vhw" && password !== DEMO_PASSWORDS.vhw) {
+    showToast("Invalid health worker password for this account.", "danger");
+    return;
+  }
+  if (role === "doctor" && password !== DEMO_PASSWORDS.doctor) {
+    const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
+    if (!doctor || doctor.password !== password) {
+      showToast("Invalid doctor password for this account.", "danger");
+      return;
+    }
+  }
+  if (role === "patient" && password !== DEMO_PASSWORDS.patient) {
+    const patient = db.patients.find(p => p.email && p.email.toLowerCase() === email.toLowerCase());
+    if (!patient || patient.password !== password) {
+      showToast("Invalid patient password for this account.", "danger");
+      return;
+    }
   }
 
   if (supabase) {
@@ -674,35 +703,38 @@ window.handleLogin = async function(e) {
     // Offline local fallback logic (no real password check)
     if (role === "doctor") {
       const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
-      if (doctor) {
+      if (doctor && doctor.password === password) {
         currentUser = doctor;
         switchView("view-doctor", "doctor");
         showToast(`Welcome back, ${doctor.name} (Offline Mode)`, "success");
       } else {
-        showToast("Doctor account not found in local cache", "danger");
+        showToast("Doctor account not found in local cache or password is incorrect", "danger");
       }
     } else if (role === "vhw") {
-      currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
-      switchView("view-vhw", "vhw");
-      showToast("VHW Nurse Console authenticated (Offline Mode)", "success");
+      if (AUTHORIZED_VHWS.includes(email.toLowerCase()) && password === DEMO_PASSWORDS.vhw) {
+        currentUser = { name: "Sangeetha K", role: "VHW", village: "Village Clinic A", email };
+        switchView("view-vhw", "vhw");
+        showToast("VHW Nurse Console authenticated (Offline Mode)", "success");
+      } else {
+        showToast("Invalid health worker email or password.", "danger");
+      }
     } else if (role === "patient") {
-      const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
-      if (patient) {
+      const patient = db.patients.find(p => (p.email && p.email.toLowerCase() === email.toLowerCase()) || p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+      if (patient && patient.password === password) {
         currentUser = patient;
         switchView("view-patient", "patient");
         showToast(`Logged in as patient: ${patient.name} (Offline Mode)`, "success");
       } else {
-        const newPat = { id: `pat-${Date.now()}`, name: email, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
-        db.patients.push(newPat);
-        saveDB();
-        currentUser = newPat;
-        switchView("view-patient", "patient");
-        showToast(`New offline patient registered: ${email}`, "success");
+        showToast("Patient account not found or password is incorrect", "danger");
       }
     } else if (role === "admin") {
-      currentUser = { name: "System Admin", role: "Admin" };
-      switchView("view-admin", "admin");
-      showToast("Admin Console authenticated (Offline Mode)", "success");
+      if (AUTHORIZED_ADMINS.includes(email.toLowerCase()) && password === DEMO_PASSWORDS.admin) {
+        currentUser = { name: "System Admin", role: "Admin", email };
+        switchView("view-admin", "admin");
+        showToast("Admin Console authenticated (Offline Mode)", "success");
+      } else {
+        showToast("Invalid admin email or password.", "danger");
+      }
     }
   }
 };
