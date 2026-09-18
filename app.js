@@ -761,7 +761,9 @@ async function loadPatientDashboard() {
     waitVal.innerText = queueIndex >= 0 ? `${(queueIndex + 1) * 12} mins` : activeApp.status === "Active" ? "In Call" : "Pending";
     
     const doc = db.doctors.find(d => d.id === activeApp.assignedDoctorId);
-    docVal.innerText = doc ? doc.name : "Assigned Clinic";
+    docVal.innerText = doc ? doc.name : "Dr. Vikram";
+    const docSub = document.getElementById("pat-doc-sub");
+    if (docSub) docSub.innerText = doc ? `${doc.specialty} Clinic` : "General Medicine Clinic";
 
     if (activeApp.status === "Active") {
       callCard.style.display = "block";
@@ -773,7 +775,9 @@ async function loadPatientDashboard() {
     tokenVal.innerText = "No Token";
     tokenSub.innerText = "No active appointment";
     waitVal.innerText = "-- mins";
-    docVal.innerText = "None";
+    docVal.innerText = "Dr. Vikram";
+    const docSub = document.getElementById("pat-doc-sub");
+    if (docSub) docSub.innerText = "General Medicine Clinic";
     callCard.style.display = "none";
     cancelBtn.style.display = "none";
   }
