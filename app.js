@@ -899,7 +899,14 @@ async function initDB() {
   // Load Agora Config
   agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
   if (!agoraConfig || !agoraConfig.appid) {
-    agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  }
+
+  // Recover the bundled Agora configuration after an earlier client-side failure.
+  if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.enabled && agoraConfig.lastFail) {
+    agoraConfig.enabled = true;
+    delete agoraConfig.lastFail;
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
   }
 
@@ -4187,12 +4194,7 @@ async function joinAgoraRoom(role) {
 
     // Publish tracks
     await agoraClient.publish([localAudioTrack, localVideoTrack]);
-      localVideoTrack.play(`${prefix}-local-video-container`).catch(err => {
-        console.error("Agora local video resume failed:", err);
-      });
     console.info("Agora local tracks published successfully");
-      if (localContainer) localContainer.style.display = "block";
-      if (localCanvas) localCanvas.style.display = "none";
       updateNetworkUI();
     showToast("Agora stream published! Real video calling active.", "success");
 
