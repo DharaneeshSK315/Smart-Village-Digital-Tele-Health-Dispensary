@@ -4152,11 +4152,16 @@ async function joinAgoraRoom(role) {
     const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
     
     if (localContainer && localCanvas) {
-      localCanvas.style.display = "none";
+        if (localCanvas) localCanvas.style.display = "none";
       localContainer.style.display = "block";
       localContainer.innerHTML = ""; // Clear
       try {
         await localVideoTrack.play(`${agoraPrefix}-local-video-container`);
+          if (activeCall) {
+            activeCall.camActive = true;
+            activeCall.manualVideoDisabled = false;
+          }
+          updateNetworkUI();
         console.info("Agora local video track playing", { role, container: `${agoraPrefix}-local-video-container` });
       } catch (playErr) {
         console.error("Agora local video track play failed:", playErr);
@@ -4168,7 +4173,13 @@ async function joinAgoraRoom(role) {
 
     // Publish tracks
     await agoraClient.publish([localAudioTrack, localVideoTrack]);
+      localVideoTrack.play(`${prefix}-local-video-container`).catch(err => {
+        console.error("Agora local video resume failed:", err);
+      });
     console.info("Agora local tracks published successfully");
+      if (localContainer) localContainer.style.display = "block";
+      if (localCanvas) localCanvas.style.display = "none";
+      updateNetworkUI();
     showToast("Agora stream published! Real video calling active.", "success");
 
   } catch (err) {
