@@ -103,6 +103,9 @@ let localWebcamStream = null;
 let remoteWebcamStream = null;
 let nativePeerConnection = null;
 let nativeSignalingChannel = null;
+let nativeSignalingHeartbeat = null;
+let virtualWebcamCanvas = null;
+let virtualWebcamAnimId = null;
 
 function attachStreamToContainer(stream, containerId, isMuted = false) {
   const container = document.getElementById(containerId);
@@ -123,74 +126,329 @@ function attachStreamToContainer(stream, containerId, isMuted = false) {
   return video;
 }
 
-async function initNativeWebcam(role) {
+async function acquireHardwareMediaStream() {
   if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    console.warn("navigator.mediaDevices.getUserMedia is not supported.");
-    return null;
+    const notSupportedErr = new Error("Camera API not supported in this environment");
+    notSupportedErr.name = "NotSupportedError";
+    throw notSupportedErr;
   }
 
+  // Attempt 1: Safe desktop constraints (ideal dimensions, no strict facingMode, with audio)
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: true
+    });
+    return { stream, type: "hardware", hasAudio: true };
+  } catch (err1) {
+    console.warn("[Webcam] Attempt 1 (video+audio) failed:", err1.name, err1.message);
+    if (err1.name === "NotAllowedError" || err1.name === "PermissionDeniedError") {
+      throw err1;
+    }
+  }
+
+  // Attempt 2: Video-only with ideal dimensions (handles no microphone found or audio blocked)
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    return { stream, type: "hardware", hasAudio: false };
+  } catch (err2) {
+    console.warn("[Webcam] Attempt 2 (video-only) failed:", err2.name, err2.message);
+    if (err2.name === "NotAllowedError" || err2.name === "PermissionDeniedError") {
+      throw err2;
+    }
+  }
+
+  // Attempt 3: Bare video: true
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    return { stream, type: "hardware", hasAudio: false };
+  } catch (err3) {
+    console.warn("[Webcam] Attempt 3 (bare video) failed:", err3.name, err3.message);
+    throw err3;
+  }
+}
+
+function createVirtualMedicalStream(role) {
+  if (virtualWebcamAnimId) {
+    cancelAnimationFrame(virtualWebcamAnimId);
+    virtualWebcamAnimId = null;
+  }
+
+  if (!virtualWebcamCanvas) {
+    virtualWebcamCanvas = document.createElement("canvas");
+    virtualWebcamCanvas.width = 640;
+    virtualWebcamCanvas.height = 480;
+  }
+
+  const vCtx = virtualWebcamCanvas.getContext("2d");
+  const isDoctor = (role === "doctor" || role === "doc");
+  const participantName = isDoctor
+    ? (currentUser ? currentUser.name : "Dr. Vikram")
+    : (currentUser ? currentUser.name : "Village Patient");
+  const roleLabel = isDoctor ? "Consulting Physician • Telehealth Room" : "Patient Station • Village Clinic A";
+  const initials = participantName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || (isDoctor ? "DR" : "PT");
+  const themeColor = isDoctor ? "#2563eb" : "#0d9488";
+
+  let ecgX = 0;
+  const ecgPoints = [];
+
+  function drawVirtualFrame() {
+    if (!activeCall) return;
+
+    const w = virtualWebcamCanvas.width;
+    const h = virtualWebcamCanvas.height;
+
+    if (!activeCall.camActive) {
+      vCtx.fillStyle = "#0f172a";
+      vCtx.fillRect(0, 0, w, h);
+      vCtx.fillStyle = "#ef4444";
+      vCtx.font = "bold 16px Inter, system-ui, sans-serif";
+      vCtx.textAlign = "center";
+      vCtx.fillText("📵 Camera Off", w / 2, h / 2);
+      virtualWebcamAnimId = requestAnimationFrame(drawVirtualFrame);
+      return;
+    }
+
+    // 1. Clinical background gradient with tech vignette
+    const bgGrad = vCtx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, w / 1.3);
+    bgGrad.addColorStop(0, isDoctor ? "#172554" : "#042f2e");
+    bgGrad.addColorStop(1, "#020617");
+    vCtx.fillStyle = bgGrad;
+    vCtx.fillRect(0, 0, w, h);
+
+    // Subtle medical background grid
+    vCtx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+    vCtx.lineWidth = 1;
+    for (let x = 0; x < w; x += 40) {
+      vCtx.beginPath();
+      vCtx.moveTo(x, 0);
+      vCtx.lineTo(x, h);
+      vCtx.stroke();
+    }
+    for (let y = 0; y < h; y += 40) {
+      vCtx.beginPath();
+      vCtx.moveTo(0, y);
+      vCtx.lineTo(w, y);
+      vCtx.stroke();
+    }
+
+    // 2. Animated Radar / Pulse Ring
+    const now = Date.now();
+    const pulse = Math.sin(now / 350) * 6;
+    vCtx.strokeStyle = isDoctor ? "rgba(59, 130, 246, 0.35)" : "rgba(20, 184, 166, 0.35)";
+    vCtx.lineWidth = 3;
+    vCtx.beginPath();
+    vCtx.arc(w / 2, h / 2 - 35, 70 + pulse, 0, Math.PI * 2);
+    vCtx.stroke();
+
+    // 3. Central Professional Avatar Circle
+    vCtx.fillStyle = themeColor;
+    vCtx.beginPath();
+    vCtx.arc(w / 2, h / 2 - 35, 60, 0, Math.PI * 2);
+    vCtx.fill();
+
+    // Avatar Initials
+    vCtx.fillStyle = "#ffffff";
+    vCtx.font = "bold 32px Inter, system-ui, sans-serif";
+    vCtx.textAlign = "center";
+    vCtx.textBaseline = "middle";
+    vCtx.fillText(initials, w / 2, h / 2 - 35);
+
+    // 4. Participant Name & Role
+    vCtx.textBaseline = "alphabetic";
+    vCtx.fillStyle = "#ffffff";
+    vCtx.font = "bold 20px Inter, system-ui, sans-serif";
+    vCtx.fillText(participantName, w / 2, h / 2 + 55);
+
+    vCtx.fillStyle = isDoctor ? "#93c5fd" : "#99f6e4";
+    vCtx.font = "13px Inter, system-ui, sans-serif";
+    vCtx.fillText(roleLabel, w / 2, h / 2 + 78);
+
+    // 5. Live ECG Heartbeat Waveform at bottom
+    vCtx.strokeStyle = "rgba(16, 185, 129, 0.75)";
+    vCtx.lineWidth = 2;
+    vCtx.beginPath();
+    const ecgY = h - 55;
+    ecgX = (ecgX + 4) % w;
+    const waveY = Math.abs((ecgX % 120) - 60) < 15 ? (Math.sin(now / 40) * 18) : 0;
+    ecgPoints.push({ x: ecgX, y: ecgY + waveY });
+    if (ecgPoints.length > w / 4) ecgPoints.shift();
+
+    for (let i = 0; i < ecgPoints.length; i++) {
+      if (i === 0) vCtx.moveTo(ecgPoints[i].x, ecgPoints[i].y);
+      else vCtx.lineTo(ecgPoints[i].x, ecgPoints[i].y);
+    }
+    vCtx.stroke();
+
+    // 6. Live HUD Overlays (Top Bar)
+    vCtx.fillStyle = "rgba(15, 23, 42, 0.75)";
+    vCtx.fillRect(16, 16, 275, 32);
+    vCtx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+    vCtx.strokeRect(16, 16, 275, 32);
+
+    // Green recording/live dot
+    vCtx.fillStyle = "#10b981";
+    vCtx.beginPath();
+    vCtx.arc(32, 32, 5, 0, Math.PI * 2);
+    vCtx.fill();
+
+    vCtx.fillStyle = "#f8fafc";
+    vCtx.font = "bold 11px Inter, system-ui, sans-serif";
+    vCtx.textAlign = "left";
+    vCtx.fillText("SIMULATED TELE-FEED • 720p HD", 45, 36);
+
+    // Audio frequency bars simulation
+    const audioLevel = Math.abs(Math.sin(now / 150));
+    vCtx.fillStyle = "#38bdf8";
+    for (let b = 0; b < 5; b++) {
+      const barH = 4 + (audioLevel * ((b + 1) * 3)) % 14;
+      vCtx.fillRect(w - 60 + (b * 6), 34 - barH, 4, barH);
+    }
+
+    // Timestamp
+    const timeStr = new Date().toLocaleTimeString();
+    vCtx.fillStyle = "rgba(203, 213, 225, 0.8)";
+    vCtx.font = "11px Inter, monospace";
+    vCtx.textAlign = "right";
+    vCtx.fillText(`LIVE ${timeStr}`, w - 75, 36);
+
+    virtualWebcamAnimId = requestAnimationFrame(drawVirtualFrame);
+  }
+
+  drawVirtualFrame();
+
+  const stream = virtualWebcamCanvas.captureStream(30);
+  stream._isVirtual = true;
+  return stream;
+}
+
+async function initNativeWebcam(role, forceReal = false) {
   const agoraPrefix = getAgoraRolePrefix(role);
   const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
   const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
 
-  try {
-    if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
-      localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
-      if (localContainer) {
-        attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
-        localContainer.style.display = "block";
-      }
-      if (localCanvas) localCanvas.style.display = "none";
-      return localWebcamStream;
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
-      audio: true
-    });
-    localWebcamStream = stream;
-    console.info("[Webcam] Local camera stream acquired successfully:", stream.id);
-
+  // If we already have a live physical stream and not forcing a retry
+  if (!forceReal && localWebcamStream && !localWebcamStream._isVirtual && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+    localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
     if (localContainer) {
       attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
       localContainer.style.display = "block";
     }
     if (localCanvas) localCanvas.style.display = "none";
+    if (activeCall) activeCall.camActive = true;
+    return localWebcamStream;
+  }
 
-    if (nativePeerConnection) {
-      localWebcamStream.getTracks().forEach(track => {
+  let acquiredStream = null;
+  let isHardware = false;
+
+  // Try physical webcam first
+  try {
+    const res = await acquireHardwareMediaStream();
+    acquiredStream = res.stream;
+    isHardware = true;
+    console.info("[Webcam] Acquired physical webcam stream:", acquiredStream.id);
+  } catch (err) {
+    console.warn("[Webcam] Physical camera not acquired:", err.name, err.message);
+
+    if (forceReal) {
+      // User explicitly requested real camera
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        showToast("Camera permission blocked. Click the 🔒 icon in your browser address bar to Allow Camera.", "warning");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        showToast("No physical webcam detected on this device.", "warning");
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        showToast("Webcam is currently in use by another tab or app.", "warning");
+      } else {
+        showToast(`Camera error: ${err.message || 'Unable to access webcam'}.`, "warning");
+      }
+      return null;
+    }
+
+    // Auto-fallback to simulated medical video stream
+    console.info("[Webcam] Falling back to simulated medical video stream");
+    acquiredStream = createVirtualMedicalStream(role);
+    isHardware = false;
+
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      showToast("Camera access was blocked. Activated Simulated Tele-Health Stream. (Click 🔒 in address bar to allow real webcam)", "info");
+    } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+      showToast("No physical webcam detected. Activated Simulated Tele-Health Stream.", "info");
+    } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+      showToast("Webcam in use by another tab. Activated Simulated Tele-Health Stream.", "info");
+    } else {
+      showToast("Hardware webcam unavailable. Activated Simulated Tele-Health Stream.", "info");
+    }
+  }
+
+  // Stop old tracks if replacing
+  if (localWebcamStream && localWebcamStream !== acquiredStream) {
+    try {
+      localWebcamStream.getTracks().forEach(t => t.stop());
+    } catch (e) {}
+  }
+
+  localWebcamStream = acquiredStream;
+
+  if (localContainer) {
+    attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+    localContainer.style.display = "block";
+  }
+  if (localCanvas) localCanvas.style.display = "none";
+
+  // Add tracks or replace existing tracks in nativePeerConnection
+  if (nativePeerConnection) {
+    const senders = nativePeerConnection.getSenders();
+    localWebcamStream.getTracks().forEach(track => {
+      const existingSender = senders.find(s => s.track && s.track.kind === track.kind);
+      if (existingSender) {
+        try {
+          existingSender.replaceTrack(track);
+          console.info("[WebRTC] Replaced existing track on sender:", track.kind);
+        } catch (e) {
+          console.warn("[WebRTC] replaceTrack error:", e);
+        }
+      } else {
         try {
           nativePeerConnection.addTrack(track, localWebcamStream);
+          console.info("[WebRTC] Added new track to peer connection:", track.kind);
         } catch (e) {
-          console.warn("[WebRTC] addTrack warning:", e);
+          console.warn("[WebRTC] addTrack error:", e);
         }
-      });
-    }
-
-    const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${agoraPrefix}-cam-toggle`);
-    if (btn) {
-      btn.classList.add("active");
-      btn.innerText = "📷";
-    }
-    if (activeCall) {
-      activeCall.camActive = true;
-    }
-
-    showToast("Camera turned on! Real video streaming active.", "success");
-    return stream;
-  } catch (err) {
-    console.warn("[Webcam] Could not acquire camera:", err);
-    if (localCanvas) localCanvas.style.display = "block";
-    if (localContainer) localContainer.style.display = "none";
-    showToast("Camera access was not granted or webcam unavailable. Click 📷 to retry.", "warning");
-    return null;
+      }
+    });
   }
+
+  const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${agoraPrefix}-cam-toggle`);
+  if (btn) {
+    btn.classList.add("active");
+    btn.innerText = "📷";
+    btn.title = isHardware ? "Real Webcam Active (Click to mute)" : "Simulated Video Active (Click to connect real webcam)";
+  }
+  if (activeCall) {
+    activeCall.camActive = true;
+    activeCall.isVirtualCam = !isHardware;
+  }
+
+  if (isHardware) {
+    showToast("Real webcam connected! Live video active.", "success");
+  }
+
+  return localWebcamStream;
 }
 
 function initNativeWebRTC(token, role) {
   if (typeof BroadcastChannel === "undefined" || typeof RTCPeerConnection === "undefined") {
     console.warn("[WebRTC] BroadcastChannel or RTCPeerConnection not supported.");
     return;
+  }
+
+  if (nativeSignalingHeartbeat) {
+    clearInterval(nativeSignalingHeartbeat);
+    nativeSignalingHeartbeat = null;
   }
 
   if (nativePeerConnection) {
@@ -251,21 +509,38 @@ function initNativeWebRTC(token, role) {
       }
     };
 
+    async function sendOffer() {
+      if (!nativePeerConnection) return;
+      try {
+        const offer = await nativePeerConnection.createOffer();
+        await nativePeerConnection.setLocalDescription(offer);
+        if (nativeSignalingChannel) {
+          nativeSignalingChannel.postMessage({
+            type: "offer",
+            role: role,
+            sdp: nativePeerConnection.localDescription
+          });
+          console.info("[WebRTC] Sent offer from initiator:", role);
+        }
+      } catch (err) {
+        console.warn("[WebRTC] Create offer error:", err);
+      }
+    }
+
     nativeSignalingChannel.onmessage = async (event) => {
       const msg = event.data;
       if (!msg || msg.role === role) return;
 
       try {
-        if (msg.type === "peer-ready") {
-          console.info("[WebRTC] Remote peer ready:", msg.role);
-          if (isInitiator && nativePeerConnection) {
-            const offer = await nativePeerConnection.createOffer();
-            await nativePeerConnection.setLocalDescription(offer);
-            nativeSignalingChannel.postMessage({
-              type: "offer",
-              role: role,
-              sdp: nativePeerConnection.localDescription
-            });
+        if (msg.type === "peer-ready" || msg.type === "peer-ping") {
+          console.info("[WebRTC] Peer announcement from:", msg.role);
+          if (isInitiator) {
+            await sendOffer();
+          } else {
+            // Non-initiator responds so initiator knows we are ready
+            if (nativeSignalingChannel && msg.type === "peer-ready") {
+              nativeSignalingChannel.postMessage({ type: "peer-ping", role: role });
+            }
           }
         } else if (msg.type === "offer") {
           console.info("[WebRTC] Received offer from:", msg.role);
@@ -278,6 +553,7 @@ function initNativeWebRTC(token, role) {
               role: role,
               sdp: nativePeerConnection.localDescription
             });
+            console.info("[WebRTC] Sent answer from:", role);
           }
         } else if (msg.type === "answer") {
           console.info("[WebRTC] Received answer from:", msg.role);
@@ -305,13 +581,37 @@ function initNativeWebRTC(token, role) {
       }
     };
 
+    // Announce presence immediately
     nativeSignalingChannel.postMessage({ type: "peer-ready", role: role });
+
+    // Periodic heartbeat ping until remote track arrives (prevents deadlocks when tabs open out-of-order)
+    nativeSignalingHeartbeat = setInterval(() => {
+      if (remoteWebcamStream) {
+        clearInterval(nativeSignalingHeartbeat);
+        nativeSignalingHeartbeat = null;
+        return;
+      }
+      if (nativeSignalingChannel) {
+        nativeSignalingChannel.postMessage({ type: "peer-ping", role: role });
+      }
+    }, 2500);
+
   } catch (pcErr) {
     console.warn("[WebRTC] RTCPeerConnection initialization failed:", pcErr);
   }
 }
 
 function stopNativeWebcamAndWebRTC() {
+  if (virtualWebcamAnimId) {
+    cancelAnimationFrame(virtualWebcamAnimId);
+    virtualWebcamAnimId = null;
+  }
+
+  if (nativeSignalingHeartbeat) {
+    clearInterval(nativeSignalingHeartbeat);
+    nativeSignalingHeartbeat = null;
+  }
+
   if (localWebcamStream) {
     localWebcamStream.getTracks().forEach(t => t.stop());
     localWebcamStream = null;
@@ -2396,13 +2696,13 @@ function startCallLoop() {
       if (remoteContainer) remoteContainer.style.display = "block";
     }
 
-    // Capture local camera
-    initNativeWebcam(role);
-
-    // Initialize cross-tab WebRTC signaling
-    if (activeCall.token) {
-      initNativeWebRTC(activeCall.token, role);
-    }
+    // Capture local camera first, then initialize cross-tab WebRTC signaling
+    (async () => {
+      await initNativeWebcam(role);
+      if (activeCall && activeCall.token) {
+        initNativeWebRTC(activeCall.token, role);
+      }
+    })();
 
     // Start render loop for standby canvas and failovers
     requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
@@ -2926,14 +3226,24 @@ window.toggleVideoState = async function(role) {
       localVideoTrack.setEnabled(true);
       console.info("Agora local video enabled by manual toggle");
     }
-    if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+    if (activeCall.isVirtualCam) {
+      // User is on virtual camera: prompt user to switch to real webcam
+      showToast("Requesting physical webcam...", "info");
+      const realStream = await initNativeWebcam(role, true);
+      if (!realStream && localWebcamStream) {
+        // Keep virtual stream active if real camera failed
+        localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
+        if (localContainer) localContainer.style.display = "block";
+        if (localCanvas) localCanvas.style.display = "none";
+      }
+    } else if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
       localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
       if (localContainer) localContainer.style.display = "block";
       if (localCanvas) localCanvas.style.display = "none";
+      showToast("Camera turned ON", "info");
     } else {
       await initNativeWebcam(role);
     }
-    showToast("Camera turned ON", "info");
   } else {
     activeCall.manualVideoDisabled = true;
     activeCall.autoVideoDisabled = false;
