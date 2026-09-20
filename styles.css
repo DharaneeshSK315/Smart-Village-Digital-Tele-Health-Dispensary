@@ -704,30 +704,21 @@ tr:hover td {
   border-radius: var(--radius-lg);
   overflow: hidden;
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   height: 380px;
   min-height: 380px;
 }
 
-.call-viewport .main-feed-container,
-.call-viewport .local-pip-feed {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-}
-
 .main-feed-container {
-  grid-column: 1;
-  grid-row: 1;
+  flex: 1;
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
-  height: auto;
-  min-height: 240px;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -796,18 +787,17 @@ tr:hover td {
 }
 
 .local-pip-feed {
-  grid-column: 2;
-  grid-row: 1;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 240px;
+  position: absolute;
+  right: 16px;
+  bottom: 62px;
+  width: 150px;
+  height: 105px;
   border-radius: var(--radius-md);
-  border: 1px solid #475569;
+  border: 2px solid #ffffff;
   overflow: hidden;
-  box-shadow: none;
+  box-shadow: var(--shadow-lg);
   background-color: #334155;
-  z-index: 1;
+  z-index: 20;
 }
 
 .local-pip-canvas {
@@ -817,8 +807,7 @@ tr:hover td {
 }
 
 .call-control-bar {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  flex-shrink: 0;
   background-color: rgba(15, 23, 42, 0.95);
   backdrop-filter: blur(10px);
   padding: 12px 24px;
@@ -2855,9 +2844,8 @@ body:has(#view-doctor.active),
   border-radius: 12px;
   overflow: hidden;
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   height: 380px;
   min-height: 380px;
   border: 1px solid #1e293b;
@@ -2866,26 +2854,15 @@ body:has(#view-doctor.active),
 
 #doc-viewport-container .main-feed-container,
 .doc-call-viewport .main-feed-container {
-  grid-column: 1;
-  grid-row: 1;
-  flex: none;
+  flex: 1;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
   overflow: hidden;
-}
-
-#doc-viewport-container .local-pip-feed,
-.doc-call-viewport .local-pip-feed {
-  grid-column: 2;
-  grid-row: 1;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
 }
 
 #doc-viewport-container .main-canvas,
@@ -2897,8 +2874,14 @@ body:has(#view-doctor.active),
 }
 
 .doc-call-viewport .local-pip-feed {
-  grid-column: 2;
-  grid-row: 1;
+  position: absolute;
+  right: 14px;
+  bottom: 60px;
+  width: 150px;
+  height: 105px;
+  min-height: 0;
+  border: 2px solid #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .patient-floating-badge {
@@ -2931,11 +2914,11 @@ body:has(#view-doctor.active),
 
 .doc-local-pip {
   position: relative;
-  bottom: auto;
-  right: auto;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
+  position: absolute;
+  bottom: 60px;
+  right: 14px;
+  width: 150px;
+  height: 105px;
   border-radius: 8px;
   border: 1px solid #475569;
   overflow: hidden;
