@@ -1,6 +1,11 @@
-// Smart Village Tele-Health Dispensary Dashboard Controller
 import { supabase } from './supabaseClient.js';
 import { createAuthGuard } from './authGuard.mjs';
+import {
+  saveSessionState,
+  loadSessionState,
+  clearSessionState,
+  shouldAutoRestoreSession
+} from './authStateGuard.js';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -111,14 +116,15 @@ async function initDB() {
       supabase.auth.onAuthStateChange((event, session) => {
         if (event === "SIGNED_OUT") {
           authGuard.clear();
+          clearSessionState();
           window.googleUser = null;
           return;
         }
 
-        if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session && session.user) {
+        if (shouldAutoRestoreSession({ isSigningOut: false, event, session })) {
           const user = session.user;
           const email = user.email;
-          const name = user.user_metadata.full_name || user.email.split('@')[0];
+          const name = (user.user_metadata && user.user_metadata.full_name) || user.email.split('@')[0];
 
           window.googleUser = { name, email };
           const emailLower = email.toLowerCase();
@@ -129,15 +135,16 @@ async function initDB() {
             const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
             const doctorsList = (db && db.doctors) ? db.doctors : [];
 
+            let assignedUser = null;
+            let assignedRole = "patient";
+
             // Direct auto-login based on authorized email constraints
             if (adminsList.includes(emailLower)) {
-              currentUser = { name: `Admin ${name}`, role: "Admin", email };
-              switchView("view-admin", "admin");
-              showToast(`Logged in as Admin: ${currentUser.name}`, "success");
+              assignedUser = { name: `Admin ${name}`, role: "Admin", email };
+              assignedRole = "admin";
             } else if (vhwsList.includes(emailLower)) {
-              currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
-              switchView("view-vhw", "vhw");
-              showToast(`Logged in as VHW Nurse: ${currentUser.name}`, "success");
+              assignedUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
+              assignedRole = "vhw";
             } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
               let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
               if (!doctor) {
@@ -147,9 +154,8 @@ async function initDB() {
                   saveDB();
                 }
               }
-              currentUser = doctor;
-              switchView("view-doctor", "doctor");
-              showToast(`Logged in as Doctor: ${currentUser.name}`, "success");
+              assignedUser = doctor;
+              assignedRole = "doctor";
             } else {
               // Default to Patient
               let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
@@ -160,10 +166,15 @@ async function initDB() {
                   saveDB();
                 }
               }
-              currentUser = patient;
-              switchView("view-patient", "patient");
-              showToast(`Logged in as Patient: ${currentUser.name}`, "success");
+              assignedUser = patient;
+              assignedRole = "patient";
             }
+
+            currentUser = assignedUser;
+            currentRole = assignedRole;
+            saveSessionState(currentUser, currentRole);
+            switchView(`view-${currentRole}`, currentRole);
+            showToast(`Logged in as ${currentRole.toUpperCase()}: ${currentUser.name}`, "success");
           }, 800);
         }
       });
@@ -488,6 +499,11 @@ window.switchView = function(viewId, roleName) {
   if (devBtn) devBtn.classList.add("active");
 
   currentRole = roleName;
+  if (roleName !== "login" && currentUser) {
+    saveSessionState(currentUser, currentRole);
+  } else if (roleName === "login") {
+    clearSessionState();
+  }
   updateHeaderProfile();
 
   // Load dashboards based on role
@@ -515,11 +531,13 @@ window.quickLogin = function(role) {
   } else if (role === "admin") {
     currentUser = { name: "System Admin", role: "Admin" };
   }
+  saveSessionState(currentUser, role);
   switchView(`view-${role}`, role);
 };
 
 window.logout = function() {
   authGuard.clear();
+  clearSessionState();
   currentUser = null;
   currentRole = "guest";
   window.googleUser = null;
@@ -528,7 +546,7 @@ window.logout = function() {
   if (supabase) {
     supabase.auth.signOut().then(() => {
       console.log("Logged out of Supabase session.");
-    });
+    }).catch(err => console.warn("Supabase signOut error:", err));
   }
   
   switchView("view-login", "login");
@@ -3307,12 +3325,18 @@ window.onload = function() {
   initDB();
   startClock();
   
-  // Set initial route: Only go to Login if we are NOT returning from a Google redirect
+  // Check if returning from a Google OAuth redirect
   const hasOAuthCallback = window.location.hash.includes("access_token=") || 
                            window.location.search.includes("code=") || 
                            window.location.hash.includes("error=");
                            
-  if (!hasOAuthCallback) {
+  // Restore tab-isolated session from this tab's sessionStorage
+  const restored = loadSessionState();
+  if (restored && restored.user && restored.role) {
+    currentUser = restored.user;
+    currentRole = restored.role;
+    switchView(`view-${restored.role}`, restored.role);
+  } else if (!hasOAuthCallback) {
     switchView("view-login", "login");
   }
 

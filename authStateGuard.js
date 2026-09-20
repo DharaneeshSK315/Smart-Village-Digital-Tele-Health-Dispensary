@@ -1,3 +1,62 @@
+const SESSION_USER_KEY = 'vm_session_user';
+const SESSION_ROLE_KEY = 'vm_session_role';
+
+function resolveStorage(customStorage) {
+  if (customStorage) return customStorage;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    return window.sessionStorage;
+  }
+  return null;
+}
+
+export function saveSessionState(user, role, customStorage = null) {
+  const storage = resolveStorage(customStorage);
+  if (!storage) return false;
+
+  try {
+    if (user && role) {
+      storage.setItem(SESSION_USER_KEY, JSON.stringify(user));
+      storage.setItem(SESSION_ROLE_KEY, role);
+      return true;
+    }
+  } catch (e) {
+    console.warn('Failed to save session state:', e);
+  }
+  return false;
+}
+
+export function loadSessionState(customStorage = null) {
+  const storage = resolveStorage(customStorage);
+  if (!storage) return null;
+
+  try {
+    const rawUser = storage.getItem(SESSION_USER_KEY);
+    const role = storage.getItem(SESSION_ROLE_KEY);
+    if (rawUser && role) {
+      const user = JSON.parse(rawUser);
+      return { user, role };
+    }
+  } catch (e) {
+    console.warn('Failed to load session state:', e);
+    clearSessionState(storage);
+  }
+  return null;
+}
+
+export function clearSessionState(customStorage = null) {
+  const storage = resolveStorage(customStorage);
+  if (!storage) return false;
+
+  try {
+    storage.removeItem(SESSION_USER_KEY);
+    storage.removeItem(SESSION_ROLE_KEY);
+    return true;
+  } catch (e) {
+    console.warn('Failed to clear session state:', e);
+  }
+  return false;
+}
+
 export function shouldAutoRestoreSession({ isSigningOut, event, session }) {
   if (isSigningOut) return false;
   if (!session || !session.user) return false;
