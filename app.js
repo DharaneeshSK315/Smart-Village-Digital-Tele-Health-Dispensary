@@ -121,7 +121,12 @@ async function initDB() {
           return;
         }
 
-        if (shouldAutoRestoreSession({ isSigningOut: false, event, session })) {
+        const hasOAuthCallback = typeof window !== 'undefined' && 
+          (window.location.hash.includes("access_token=") || 
+           window.location.search.includes("code=") || 
+           window.location.hash.includes("error="));
+
+        if (shouldAutoRestoreSession({ isSigningOut: false, event, session, currentRole, hasOAuthCallback })) {
           const user = session.user;
           const email = user.email;
           const name = (user.user_metadata && user.user_metadata.full_name) || user.email.split('@')[0];
@@ -753,7 +758,7 @@ function evaluateTriageUrgency(vitals) {
 
 // --- PATIENT DASHBOARD ---
 async function loadPatientDashboard() {
-  if (currentRole !== "patient") return;
+  if (currentRole !== "patient" || !currentUser) return;
 
   if (supabase) await refreshConsultationsFromSupabase();
   
@@ -1501,7 +1506,7 @@ window.vhwCancelToken = function(token) {
 
 // --- DOCTOR DASHBOARD ---
 async function loadDoctorDashboard() {
-  if (currentRole !== "doctor") return;
+  if (currentRole !== "doctor" || !currentUser) return;
 
   if (supabase) await refreshConsultationsFromSupabase();
 

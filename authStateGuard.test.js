@@ -45,6 +45,56 @@ test('restores session only for valid signed-in events', () => {
   );
 });
 
+test('prevents session hijack if tab already has an active authenticated role', () => {
+  // Tab 1 is currently signed in as Patient
+  assert.equal(
+    shouldAutoRestoreSession({
+      isSigningOut: false,
+      event: 'SIGNED_IN',
+      session: { user: { email: 'doc.vikram@villagemed.in' } },
+      currentRole: 'patient',
+      hasOAuthCallback: false
+    }),
+    false
+  );
+
+  // Tab 2 is currently signed in as Doctor
+  assert.equal(
+    shouldAutoRestoreSession({
+      isSigningOut: false,
+      event: 'SIGNED_IN',
+      session: { user: { email: 'sarah@villagemed.in' } },
+      currentRole: 'doctor',
+      hasOAuthCallback: false
+    }),
+    false
+  );
+
+  // Allows restore if tab is returning with an OAuth callback
+  assert.equal(
+    shouldAutoRestoreSession({
+      isSigningOut: false,
+      event: 'SIGNED_IN',
+      session: { user: { email: 'dharaneesh@gmail.com' } },
+      currentRole: 'patient',
+      hasOAuthCallback: true
+    }),
+    true
+  );
+
+  // Allows restore if tab is currently a guest or on login screen
+  assert.equal(
+    shouldAutoRestoreSession({
+      isSigningOut: false,
+      event: 'SIGNED_IN',
+      session: { user: { email: 'doc.vikram@villagemed.in' } },
+      currentRole: 'guest',
+      hasOAuthCallback: false
+    }),
+    true
+  );
+});
+
 test('finds the active appointment for the patient even when earlier records exist', () => {
   const appointments = [
     { token: 'VIL-A-100', patientId: 'pat-1', status: 'Completed' },

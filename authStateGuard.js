@@ -57,11 +57,20 @@ export function clearSessionState(customStorage = null) {
   return false;
 }
 
-export function shouldAutoRestoreSession({ isSigningOut, event, session }) {
+export function shouldAutoRestoreSession({ isSigningOut, event, session, currentRole = 'guest', hasOAuthCallback = false }) {
   if (isSigningOut) return false;
   if (!session || !session.user) return false;
   const allowedEvents = ['SIGNED_IN', 'INITIAL_SESSION'];
-  return allowedEvents.includes(event);
+  if (!allowedEvents.includes(event)) return false;
+
+  // Tab Isolation Guard:
+  // If this tab already has an active authenticated role and is NOT handling an explicit OAuth redirect callback,
+  // do NOT allow background or cross-tab auth state events to overwrite or switch this tab's role.
+  if (currentRole && currentRole !== 'guest' && currentRole !== 'login' && !hasOAuthCallback) {
+    return false;
+  }
+
+  return true;
 }
 
 export function findActivePatientAppointment(appointments, patientId, token = null) {
