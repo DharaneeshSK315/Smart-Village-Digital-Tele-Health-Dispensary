@@ -98,6 +98,262 @@ function getAgoraRolePrefix(role) {
   return role;
 }
 
+// Native Browser Webcam & WebRTC Peer State
+let localWebcamStream = null;
+let remoteWebcamStream = null;
+let nativePeerConnection = null;
+let nativeSignalingChannel = null;
+
+function attachStreamToContainer(stream, containerId, isMuted = false) {
+  const container = document.getElementById(containerId);
+  if (!container) return null;
+  container.innerHTML = "";
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = isMuted;
+  video.srcObject = stream;
+  video.style.width = "100%";
+  video.style.height = "100%";
+  video.style.objectFit = "cover";
+  video.style.borderRadius = "inherit";
+  video.style.display = "block";
+  container.appendChild(video);
+  video.play().catch(err => console.warn("[Video] Auto-play error:", err));
+  return video;
+}
+
+async function initNativeWebcam(role) {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    console.warn("navigator.mediaDevices.getUserMedia is not supported.");
+    return null;
+  }
+
+  const agoraPrefix = getAgoraRolePrefix(role);
+  const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+  const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+
+  try {
+    if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+      localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
+      if (localContainer) {
+        attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+        localContainer.style.display = "block";
+      }
+      if (localCanvas) localCanvas.style.display = "none";
+      return localWebcamStream;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+      audio: true
+    });
+    localWebcamStream = stream;
+    console.info("[Webcam] Local camera stream acquired successfully:", stream.id);
+
+    if (localContainer) {
+      attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+      localContainer.style.display = "block";
+    }
+    if (localCanvas) localCanvas.style.display = "none";
+
+    if (nativePeerConnection) {
+      localWebcamStream.getTracks().forEach(track => {
+        try {
+          nativePeerConnection.addTrack(track, localWebcamStream);
+        } catch (e) {
+          console.warn("[WebRTC] addTrack warning:", e);
+        }
+      });
+    }
+
+    const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${agoraPrefix}-cam-toggle`);
+    if (btn) {
+      btn.classList.add("active");
+      btn.innerText = "📷";
+    }
+    if (activeCall) {
+      activeCall.camActive = true;
+    }
+
+    showToast("Camera turned on! Real video streaming active.", "success");
+    return stream;
+  } catch (err) {
+    console.warn("[Webcam] Could not acquire camera:", err);
+    if (localCanvas) localCanvas.style.display = "block";
+    if (localContainer) localContainer.style.display = "none";
+    showToast("Camera access was not granted or webcam unavailable. Click 📷 to retry.", "warning");
+    return null;
+  }
+}
+
+function initNativeWebRTC(token, role) {
+  if (typeof BroadcastChannel === "undefined" || typeof RTCPeerConnection === "undefined") {
+    console.warn("[WebRTC] BroadcastChannel or RTCPeerConnection not supported.");
+    return;
+  }
+
+  if (nativePeerConnection) {
+    try { nativePeerConnection.close(); } catch(e) {}
+    nativePeerConnection = null;
+  }
+  if (nativeSignalingChannel) {
+    try { nativeSignalingChannel.close(); } catch(e) {}
+    nativeSignalingChannel = null;
+  }
+
+  const channelName = `vm_webrtc_${token}`;
+  nativeSignalingChannel = new BroadcastChannel(channelName);
+  const isInitiator = (role === "doctor" || role === "doc");
+
+  const pcConfig = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" }
+    ]
+  };
+
+  try {
+    nativePeerConnection = new RTCPeerConnection(pcConfig);
+
+    if (localWebcamStream) {
+      localWebcamStream.getTracks().forEach(track => {
+        try {
+          nativePeerConnection.addTrack(track, localWebcamStream);
+        } catch (e) {
+          console.warn("[WebRTC] addTrack warning:", e);
+        }
+      });
+    }
+
+    nativePeerConnection.ontrack = (event) => {
+      console.info("[WebRTC] Remote track received:", event.track.kind);
+      if (event.streams && event.streams[0]) {
+        remoteWebcamStream = event.streams[0];
+        const agoraPrefix = getAgoraRolePrefix(activeCall ? activeCall.role : role);
+        attachStreamToContainer(remoteWebcamStream, `${agoraPrefix}-remote-video-container`, false);
+
+        const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+        const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+        if (remoteCanvas) remoteCanvas.style.display = "none";
+        if (remoteContainer) remoteContainer.style.display = "block";
+        showToast("Remote participant connected! Live video active.", "success");
+      }
+    };
+
+    nativePeerConnection.onicecandidate = (event) => {
+      if (event.candidate && nativeSignalingChannel) {
+        nativeSignalingChannel.postMessage({
+          type: "ice-candidate",
+          role: role,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    nativeSignalingChannel.onmessage = async (event) => {
+      const msg = event.data;
+      if (!msg || msg.role === role) return;
+
+      try {
+        if (msg.type === "peer-ready") {
+          console.info("[WebRTC] Remote peer ready:", msg.role);
+          if (isInitiator && nativePeerConnection) {
+            const offer = await nativePeerConnection.createOffer();
+            await nativePeerConnection.setLocalDescription(offer);
+            nativeSignalingChannel.postMessage({
+              type: "offer",
+              role: role,
+              sdp: nativePeerConnection.localDescription
+            });
+          }
+        } else if (msg.type === "offer") {
+          console.info("[WebRTC] Received offer from:", msg.role);
+          if (nativePeerConnection) {
+            await nativePeerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+            const answer = await nativePeerConnection.createAnswer();
+            await nativePeerConnection.setLocalDescription(answer);
+            nativeSignalingChannel.postMessage({
+              type: "answer",
+              role: role,
+              sdp: nativePeerConnection.localDescription
+            });
+          }
+        } else if (msg.type === "answer") {
+          console.info("[WebRTC] Received answer from:", msg.role);
+          if (nativePeerConnection && !nativePeerConnection.currentRemoteDescription) {
+            await nativePeerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          }
+        } else if (msg.type === "ice-candidate") {
+          if (nativePeerConnection && msg.candidate) {
+            await nativePeerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          }
+        } else if (msg.type === "peer-hangup") {
+          console.info("[WebRTC] Remote peer hung up");
+          remoteWebcamStream = null;
+          const agoraPrefix = getAgoraRolePrefix(activeCall ? activeCall.role : role);
+          const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+          const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+          if (remoteContainer) {
+            remoteContainer.innerHTML = "";
+            remoteContainer.style.display = "none";
+          }
+          if (remoteCanvas) remoteCanvas.style.display = "block";
+        }
+      } catch (sigErr) {
+        console.warn("[WebRTC] Signaling error:", sigErr);
+      }
+    };
+
+    nativeSignalingChannel.postMessage({ type: "peer-ready", role: role });
+  } catch (pcErr) {
+    console.warn("[WebRTC] RTCPeerConnection initialization failed:", pcErr);
+  }
+}
+
+function stopNativeWebcamAndWebRTC() {
+  if (localWebcamStream) {
+    localWebcamStream.getTracks().forEach(t => t.stop());
+    localWebcamStream = null;
+    console.info("[Webcam] Local webcam tracks stopped");
+  }
+
+  if (nativeSignalingChannel) {
+    try {
+      nativeSignalingChannel.postMessage({ type: "peer-hangup" });
+      nativeSignalingChannel.close();
+    } catch (e) {}
+    nativeSignalingChannel = null;
+  }
+
+  if (nativePeerConnection) {
+    try {
+      nativePeerConnection.close();
+    } catch (e) {}
+    nativePeerConnection = null;
+  }
+
+  remoteWebcamStream = null;
+
+  const roles = ["pat", "vhw", "doc"];
+  roles.forEach(r => {
+    const localCont = document.getElementById(`${r}-local-video-container`);
+    const remoteCont = document.getElementById(`${r}-remote-video-container`);
+    if (localCont) {
+      localCont.innerHTML = "";
+      localCont.style.display = "none";
+    }
+    if (remoteCont) {
+      remoteCont.innerHTML = "";
+      remoteCont.style.display = "none";
+    }
+    const localCanvas = document.getElementById(`${r}-local-canvas`);
+    const remoteCanvas = document.getElementById(`${r}-remote-canvas`);
+    if (localCanvas) localCanvas.style.display = "block";
+    if (remoteCanvas) remoteCanvas.style.display = "block";
+  });
+}
+
 function validateAgoraAppId(appid) {
   if (!appid || typeof appid !== "string") return false;
   const value = appid.trim();
@@ -2123,28 +2379,32 @@ function startCallLoop() {
 
   // Route call based on Agora configuration
   if (shouldUseAgora()) {
-    console.log("[CallLoop] Agora enabled, using real video");
-    // Hide simulated canvas feeds
+    console.log("[CallLoop] Agora enabled, using Agora RTC");
     mainCanvas.style.display = "none";
     pipCanvas.style.display = "none";
-    
-    // Show real video containers
     if (remoteContainer) remoteContainer.style.display = "block";
     if (localContainer) localContainer.style.display = "block";
-
     joinAgoraRoom(role);
   } else {
-    console.log("[CallLoop] Agora disabled or unavailable, using simulated canvas video");
-    // Show simulated canvas feeds
-    mainCanvas.style.display = "block";
-    pipCanvas.style.display = "block";
-    
-    // Hide real video containers
-    if (remoteContainer) remoteContainer.style.display = "none";
-    if (localContainer) localContainer.style.display = "none";
+    console.log("[CallLoop] Using native camera and WebRTC stream");
+    // Show standby remote canvas until remote WebRTC track arrives
+    if (!remoteWebcamStream) {
+      mainCanvas.style.display = "block";
+      if (remoteContainer) remoteContainer.style.display = "none";
+    } else {
+      mainCanvas.style.display = "none";
+      if (remoteContainer) remoteContainer.style.display = "block";
+    }
 
-    // Trigger rendering cycle for mock video after UI is visible
-    console.log("[CallLoop] Starting canvas video render loop");
+    // Capture local camera
+    initNativeWebcam(role);
+
+    // Initialize cross-tab WebRTC signaling
+    if (activeCall.token) {
+      initNativeWebRTC(activeCall.token, role);
+    }
+
+    // Start render loop for standby canvas and failovers
     requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
   }
 }
@@ -2246,18 +2506,12 @@ window.vhwUploadWoundImage = function(e) {
   showToast("Wound photo uploaded and shared with Doctor.", "success");
 };
 
-// Canvas camera simulations
-let blinkCounter = 0;
-let speakOffset = 0;
-
 function renderWebcams(remoteCanvas, localCanvas) {
   if (!activeCall) {
-    console.warn("[Video] renderWebcams called but activeCall is null");
     return;
   }
 
   if (!remoteCanvas || !localCanvas) {
-    console.error("[Video] Canvas elements not found:", { remoteCanvas, localCanvas });
     return;
   }
 
@@ -2265,7 +2519,6 @@ function renderWebcams(remoteCanvas, localCanvas) {
   const localCtx = localCanvas.getContext("2d");
 
   if (!remoteCtx || !localCtx) {
-    console.error("[Video] Failed to get 2D context from canvas");
     return;
   }
 
@@ -2273,122 +2526,128 @@ function renderWebcams(remoteCanvas, localCanvas) {
   resizeCanvasToDisplaySize(remoteCanvas);
   resizeCanvasToDisplaySize(localCanvas);
 
-  // Animation math loops
-  blinkCounter = (blinkCounter + 1) % 150;
-  speakOffset = Math.sin(Date.now() / 100) * 8;
-
-  // 1. Draw Local webcam feed (Picture-in-picture)
-  localCtx.fillStyle = "#334155";
+  // 1. Draw Local webcam feed (Picture-in-picture fallback/state)
+  localCtx.fillStyle = "#1e293b";
   localCtx.fillRect(0, 0, localCanvas.width, localCanvas.height);
   
   if (activeCall.camActive) {
-    // Draw simplified avatar representing local user
-    localCtx.fillStyle = "#4f46e5";
+    localCtx.fillStyle = "#3b82f6";
     localCtx.beginPath();
-    localCtx.arc(localCanvas.width / 2, localCanvas.height / 2 + 10, 24, 0, Math.PI * 2);
+    localCtx.arc(localCanvas.width / 2, localCanvas.height / 2 - 8, 16, 0, Math.PI * 2);
     localCtx.fill();
-    localCtx.fillStyle = "#fbcfe8";
-    localCtx.beginPath();
-    localCtx.arc(localCanvas.width / 2, localCanvas.height / 2 - 16, 12, 0, Math.PI * 2);
-    localCtx.fill();
-    localCtx.fillStyle = "white";
-    localCtx.font = "8px Inter";
+
+    localCtx.fillStyle = "#ffffff";
+    localCtx.font = "bold 11px Inter, system-ui, sans-serif";
     localCtx.textAlign = "center";
-    localCtx.fillText("You (Local Feed)", localCanvas.width / 2, localCanvas.height - 10);
+    localCtx.fillText("You", localCanvas.width / 2, localCanvas.height / 2 - 3);
+
+    localCtx.font = "9px Inter, system-ui, sans-serif";
+    localCtx.fillStyle = "#93c5fd";
+    localCtx.fillText("Camera Live", localCanvas.width / 2, localCanvas.height / 2 + 18);
   } else {
-    localCtx.fillStyle = "white";
-    localCtx.font = "10px Inter";
+    localCtx.fillStyle = "#ef4444";
+    localCtx.font = "bold 14px Inter, system-ui, sans-serif";
     localCtx.textAlign = "center";
-    localCtx.fillText("Cam Disabled", localCanvas.width / 2, localCanvas.height / 2);
+    localCtx.fillText("📵", localCanvas.width / 2, localCanvas.height / 2 - 6);
+
+    localCtx.fillStyle = "#cbd5e1";
+    localCtx.font = "10px Inter, system-ui, sans-serif";
+    localCtx.fillText("Camera Off", localCanvas.width / 2, localCanvas.height / 2 + 14);
   }
 
-  // 2. Draw Remote camera feed (Doctor/Patient depending on who is viewing)
+  // 2. Draw Remote camera feed (Shown when remote WebRTC stream hasn't connected yet)
   if (activeCall.networkQuality !== "critical") {
-    // Canvas background
-    remoteCtx.fillStyle = "#1e293b";
+    // Elegant deep slate gradient background
+    const grad = remoteCtx.createLinearGradient(0, 0, 0, remoteCanvas.height);
+    grad.addColorStop(0, "#0f172a");
+    grad.addColorStop(1, "#1e293b");
+    remoteCtx.fillStyle = grad;
     remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
 
     const centerX = remoteCanvas.width / 2;
     const centerY = remoteCanvas.height / 2;
 
-    // Outer circle / body
-    remoteCtx.fillStyle = activeCall.role === "doctor" ? "#06b6d4" : "#4f46e5"; // patient is cyan, doctor is indigo
-    remoteCtx.beginPath();
-    remoteCtx.arc(centerX, centerY + 80, 80, 0, Math.PI * 2);
-    remoteCtx.fill();
-
-    // Head
-    remoteCtx.fillStyle = "#fed7aa"; // Skin tone
-    remoteCtx.beginPath();
-    remoteCtx.arc(centerX, centerY - 20, 50, 0, Math.PI * 2);
-    remoteCtx.fill();
-
-    // Eyes
-    remoteCtx.fillStyle = "#0f172a";
-    const isBlinking = blinkCounter < 6;
-    if (isBlinking) {
-      remoteCtx.fillRect(centerX - 24, centerY - 24, 16, 3);
-      remoteCtx.fillRect(centerX + 8, centerY - 24, 16, 3);
-    } else {
-      remoteCtx.beginPath();
-      remoteCtx.arc(centerX - 16, centerY - 22, 6, 0, Math.PI * 2);
-      remoteCtx.arc(centerX + 16, centerY - 22, 6, 0, Math.PI * 2);
-      remoteCtx.fill();
-    }
-
-    // Hair / Clinician Stethoscope / Accessories
-    if (activeCall.role === "patient") {
-      // Doctor character details (stethoscope, specs)
-      remoteCtx.strokeStyle = "#cbd5e1";
-      remoteCtx.lineWidth = 4;
-      remoteCtx.beginPath();
-      remoteCtx.arc(centerX, centerY - 20, 54, 0.1 * Math.PI, 0.9 * Math.PI);
-      remoteCtx.stroke();
-    }
-
-    // Mouth (Speaking animation)
-    remoteCtx.fillStyle = "#ef4444";
-    remoteCtx.beginPath();
-    const speakingOpen = speakOffset > 0;
-    if (speakingOpen) {
-      remoteCtx.ellipse(centerX, centerY + 10, 8, 4 + speakOffset/2, 0, 0, Math.PI * 2);
-    } else {
-      remoteCtx.arc(centerX, centerY + 10, 6, 0, Math.PI);
-    }
-    remoteCtx.fill();
-
-    // Name text
-    remoteCtx.fillStyle = "white";
-    remoteCtx.font = "14px Inter";
     const remoteName = activeCall.role === "doctor"
       ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
-      : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Doctor");
-    remoteCtx.fillText(remoteName, centerX, remoteCanvas.height - 20);
+      : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Dr. Vikram");
+    const remoteRole = activeCall.role === "doctor" ? "Village Patient" : "Consulting Physician";
+    const remoteInitials = remoteName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
-    // Apply adaptive downsampling
+    // Subtle pulsating halo ring
+    const pulseRadius = 52 + Math.sin(Date.now() / 400) * 4;
+    remoteCtx.strokeStyle = "rgba(59, 130, 246, 0.35)";
+    remoteCtx.lineWidth = 3;
+    remoteCtx.beginPath();
+    remoteCtx.arc(centerX, centerY - 28, pulseRadius, 0, Math.PI * 2);
+    remoteCtx.stroke();
+
+    // Central avatar circle
+    remoteCtx.fillStyle = activeCall.role === "doctor" ? "#2563eb" : "#0d9488";
+    remoteCtx.beginPath();
+    remoteCtx.arc(centerX, centerY - 28, 44, 0, Math.PI * 2);
+    remoteCtx.fill();
+
+    // Initials text inside avatar
+    remoteCtx.fillStyle = "#ffffff";
+    remoteCtx.font = "bold 24px Inter, system-ui, sans-serif";
+    remoteCtx.textAlign = "center";
+    remoteCtx.textBaseline = "middle";
+    remoteCtx.fillText(remoteInitials, centerX, centerY - 28);
+
+    // Remote participant name
+    remoteCtx.textBaseline = "alphabetic";
+    remoteCtx.fillStyle = "#f8fafc";
+    remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
+    remoteCtx.fillText(remoteName, centerX, centerY + 42);
+
+    // Role subtext
+    remoteCtx.fillStyle = "#94a3b8";
+    remoteCtx.font = "12px Inter, system-ui, sans-serif";
+    remoteCtx.fillText(remoteRole, centerX, centerY + 62);
+
+    // Live status pill
+    const pillText = "🟢 Secure Encrypted Link • Waiting for remote camera...";
+    remoteCtx.font = "11px Inter, system-ui, sans-serif";
+    const pillWidth = remoteCtx.measureText(pillText).width + 24;
+    remoteCtx.fillStyle = "rgba(16, 185, 129, 0.15)";
+    remoteCtx.strokeStyle = "rgba(16, 185, 129, 0.4)";
+    remoteCtx.lineWidth = 1;
+    remoteCtx.beginPath();
+    if (typeof remoteCtx.roundRect === "function") {
+      remoteCtx.roundRect(centerX - pillWidth / 2, centerY + 80, pillWidth, 26, 13);
+    } else {
+      remoteCtx.rect(centerX - pillWidth / 2, centerY + 80, pillWidth, 26);
+    }
+    remoteCtx.fill();
+    remoteCtx.stroke();
+
+    remoteCtx.fillStyle = "#34d399";
+    remoteCtx.fillText(pillText, centerX, centerY + 97);
+
+    // Hint text at bottom
+    remoteCtx.fillStyle = "#64748b";
+    remoteCtx.font = "11px Inter, system-ui, sans-serif";
+    remoteCtx.fillText("Local camera is streaming in Picture-in-Picture feed (lower right)", centerX, remoteCanvas.height - 18);
+
+    // Apply adaptive downsampling if simulated
     const activeQuality = activeCall.networkQuality;
     const state = NETWORK_STATES[activeQuality];
     let pixelSize = state ? state.pixelSize : 1;
-    
-    // Force proactive downscale during AI predictions
-    if (activeCall.aiPredicting) {
-      pixelSize = 14; 
-    }
-    
+    if (activeCall.aiPredicting) pixelSize = 14;
     if (pixelSize > 1) {
       pixelateCanvas(remoteCanvas, remoteCtx, pixelSize);
     }
   } else {
     // In critical/audio-only mode, show audio fallback UI
-    remoteCtx.fillStyle = "#1e293b";
+    remoteCtx.fillStyle = "#0f172a";
     remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
     remoteCtx.fillStyle = "white";
-    remoteCtx.font = "16px Inter";
+    remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
     remoteCtx.textAlign = "center";
-    remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 20);
-    remoteCtx.font = "12px Inter";
+    remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 15);
+    remoteCtx.font = "12px Inter, system-ui, sans-serif";
     remoteCtx.fillStyle = "#94a3b8";
-    remoteCtx.fillText("Low-bandwidth connection active", remoteCanvas.width / 2, remoteCanvas.height / 2 + 20);
+    remoteCtx.fillText("Low-bandwidth connection active. Voice audio preserved.", remoteCanvas.width / 2, remoteCanvas.height / 2 + 15);
   }
 
   // Continue render loop
@@ -2617,56 +2876,89 @@ function syncChatBox() {
 window.toggleAudioState = function(role) {
   if (!activeCall) return;
   activeCall.micActive = !activeCall.micActive;
-  const btn = document.getElementById(`${role}-mic-toggle`);
+  const prefix = getAgoraRolePrefix(role);
+  const btn = document.getElementById(`${role}-mic-toggle`) || document.getElementById(`${prefix}-mic-toggle`);
 
   if (activeCall.micActive) {
-    btn.classList.add("active");
-    btn.innerText = "🎙️";
+    if (btn) {
+      btn.classList.add("active");
+      btn.innerText = "🎙️";
+    }
     if (localAudioTrack) {
       localAudioTrack.setEnabled(true);
       console.info("Agora local audio unmuted");
     }
+    if (localWebcamStream) {
+      localWebcamStream.getAudioTracks().forEach(t => t.enabled = true);
+    }
     showToast("Microphone unmuted", "info");
   } else {
-    btn.classList.remove("active");
-    btn.innerText = "🔇";
+    if (btn) {
+      btn.classList.remove("active");
+      btn.innerText = "🔇";
+    }
     if (localAudioTrack) {
       localAudioTrack.setEnabled(false);
       console.info("Agora local audio muted");
+    }
+    if (localWebcamStream) {
+      localWebcamStream.getAudioTracks().forEach(t => t.enabled = false);
     }
     showToast("Microphone muted", "warning");
   }
 };
 
-window.toggleVideoState = function(role) {
+window.toggleVideoState = async function(role) {
   if (!activeCall) return;
   activeCall.camActive = !activeCall.camActive;
-  const btn = document.getElementById(`${role}-cam-toggle`);
+  const prefix = getAgoraRolePrefix(role);
+  const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${prefix}-cam-toggle`);
+  const localContainer = document.getElementById(`${prefix}-local-video-container`);
+  const localCanvas = document.getElementById(`${prefix}-local-canvas`);
 
   if (activeCall.camActive) {
     activeCall.manualVideoDisabled = false;
-    btn.classList.add("active");
-    btn.innerText = "📷";
+    if (btn) {
+      btn.classList.add("active");
+      btn.innerText = "📷";
+    }
     if (localVideoTrack) {
       localVideoTrack.setEnabled(true);
       console.info("Agora local video enabled by manual toggle");
     }
-    showToast("Webcam enabled", "info");
+    if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+      localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
+      if (localContainer) localContainer.style.display = "block";
+      if (localCanvas) localCanvas.style.display = "none";
+    } else {
+      await initNativeWebcam(role);
+    }
+    showToast("Camera turned ON", "info");
   } else {
     activeCall.manualVideoDisabled = true;
     activeCall.autoVideoDisabled = false;
-    btn.classList.remove("active");
-    btn.innerText = "📵";
+    if (btn) {
+      btn.classList.remove("active");
+      btn.innerText = "📵";
+    }
     if (localVideoTrack) {
       localVideoTrack.setEnabled(false);
       console.info("Agora local video disabled by manual toggle");
     }
-    showToast("Webcam disabled", "warning");
+    if (localWebcamStream) {
+      localWebcamStream.getVideoTracks().forEach(t => t.enabled = false);
+      if (localContainer) localContainer.style.display = "none";
+      if (localCanvas) localCanvas.style.display = "block";
+    }
+    showToast("Camera turned OFF", "warning");
   }
 };
 
 window.leaveConsultation = function() {
   if (!activeCall) return;
+
+  // Stop native webcam and WebRTC cross-tab connection
+  stopNativeWebcamAndWebRTC();
 
   if (window.isRecordingActive) {
     window.stopCallRecording();
@@ -2919,6 +3211,9 @@ window.submitDigitalPrescription = async function(e) {
   if (activeCall.animationFrameId) {
     cancelAnimationFrame(activeCall.animationFrameId);
   }
+
+  // Stop real hardware webcam and WebRTC stream
+  stopNativeWebcamAndWebRTC();
 
   stopDocCallTimer();
   activeCall = null;
@@ -3815,10 +4110,23 @@ function updateNetworkUI() {
       if (remoteContainer) remoteContainer.style.display = "block";
       if (localContainer) localContainer.style.display = "block";
     } else {
-      if (mainCanvas) mainCanvas.style.display = "block";
-      if (pipCanvas) pipCanvas.style.display = "block";
-      if (remoteContainer) remoteContainer.style.display = "none";
-      if (localContainer) localContainer.style.display = "none";
+      const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.active && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+      if (hasRemoteStream) {
+        if (mainCanvas) mainCanvas.style.display = "none";
+        if (remoteContainer) remoteContainer.style.display = "block";
+      } else {
+        if (mainCanvas) mainCanvas.style.display = "block";
+        if (remoteContainer) remoteContainer.style.display = "none";
+      }
+
+      const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+      if (hasLocalStream) {
+        if (pipCanvas) pipCanvas.style.display = "none";
+        if (localContainer) localContainer.style.display = "block";
+      } else {
+        if (pipCanvas) pipCanvas.style.display = "block";
+        if (localContainer) localContainer.style.display = "none";
+      }
     }
   }
 
