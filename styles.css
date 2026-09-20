@@ -710,6 +710,13 @@ tr:hover td {
   min-height: 380px;
 }
 
+.call-viewport .main-feed-container,
+.call-viewport .local-pip-feed {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
 .main-feed-container {
   grid-column: 1;
   grid-row: 1;
@@ -719,7 +726,7 @@ tr:hover td {
   align-items: center;
   width: 100%;
   height: auto;
-  min-height: 0;
+  min-height: 240px;
   overflow: hidden;
 }
 
@@ -792,8 +799,8 @@ tr:hover td {
   grid-row: 1;
   position: relative;
   width: 100%;
-  height: auto;
-  min-height: 0;
+  height: 100%;
+  min-height: 240px;
   border-radius: var(--radius-md);
   border: 1px solid #475569;
   overflow: hidden;
@@ -2861,7 +2868,7 @@ body:has(#view-doctor.active),
   grid-row: 1;
   flex: none;
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
   position: relative;
   display: flex;
@@ -2916,7 +2923,7 @@ body:has(#view-doctor.active),
   bottom: auto;
   right: auto;
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 0;
   border-radius: 8px;
   border: 1px solid #475569;
