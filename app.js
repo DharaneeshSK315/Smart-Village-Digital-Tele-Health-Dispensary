@@ -480,6 +480,7 @@ function initNativeWebRTC(token, role) {
 
   try {
     nativePeerConnection = new RTCPeerConnection(pcConfig);
+    const pendingIceCandidates = [];
 
     if (localWebcamStream) {
       localWebcamStream.getTracks().forEach(track => {
@@ -495,9 +496,13 @@ function initNativeWebRTC(token, role) {
       console.info("[WebRTC] Remote track received:", event.track.kind);
       if (event.streams && event.streams[0]) {
         remoteWebcamStream = event.streams[0];
-        showToast("Remote participant connected! Live video active.", "success");
-        updateNetworkUI();
+      } else {
+        if (!remoteWebcamStream) remoteWebcamStream = new MediaStream();
+        const existingTrack = remoteWebcamStream.getTracks().find(track => track.id === event.track.id);
+        if (!existingTrack) remoteWebcamStream.addTrack(event.track);
       }
+      showToast("Remote participant connected! Live video active.", "success");
+      updateNetworkUI();
     };
 
     nativePeerConnection.onicecandidate = (event) => {
@@ -560,10 +565,19 @@ function initNativeWebRTC(token, role) {
           console.info("[WebRTC] Received answer from:", msg.role);
           if (nativePeerConnection && !nativePeerConnection.currentRemoteDescription) {
             await nativePeerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+            while (pendingIceCandidates.length) {
+              await nativePeerConnection.addIceCandidate(pendingIceCandidates.shift());
+            }
           }
         } else if (msg.type === "ice-candidate") {
           if (nativePeerConnection && msg.candidate) {
-            await nativePeerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            const candidate = new RTCIceCandidate(msg.candidate);
+            if (nativePeerConnection.remoteDescription) {
+              await nativePeerConnection.addIceCandidate(candidate);
+            } else {
+              pendingIceCandidates.push(candidate);
+              console.info("[WebRTC] Queued ICE candidate until remote description arrives");
+            }
           }
         } else if (msg.type === "peer-hangup") {
           console.info("[WebRTC] Remote peer hung up");
