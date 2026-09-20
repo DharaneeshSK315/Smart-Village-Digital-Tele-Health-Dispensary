@@ -4000,39 +4000,51 @@ async function joinAgoraRoom(role) {
     agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
     console.info("Agora client initialized");
 
+    const remoteUsers = new Map();
+
+    const renderRemoteVideo = async (user) => {
+      if (!user.videoTrack) return;
+      const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+      const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+      if (!remoteContainer || !remoteCanvas) return;
+
+      remoteCanvas.style.display = "none";
+      remoteContainer.style.display = "block";
+      remoteContainer.innerHTML = "";
+      await user.videoTrack.play(remoteContainer);
+      console.info("Agora remote video rendered", { uid: user.uid, role, container: remoteContainer.id });
+    };
+
+    const subscribeToRemoteUser = async (user, mediaType) => {
+      try {
+        await agoraClient.subscribe(user, mediaType);
+        remoteUsers.set(String(user.uid), user);
+        console.info("Agora subscribed to remote track", { uid: user.uid, mediaType });
+
+        if (mediaType === "video") {
+          await renderRemoteVideo(user);
+        } else if (mediaType === "audio" && user.audioTrack) {
+          user.audioTrack.play();
+          console.info("Agora remote audio rendered", { uid: user.uid });
+        }
+      } catch (subscribeErr) {
+        console.error("Agora remote subscription failed", {
+          uid: user.uid,
+          mediaType,
+          error: subscribeErr
+        });
+      }
+    };
+
     // Listen for incoming remote user publishing
     agoraClient.on("user-published", async (user, mediaType) => {
       console.info("Agora user-published event received", { uid: user.uid, mediaType });
-      try {
-        await agoraClient.subscribe(user, mediaType);
-        console.info("Agora subscribed to remote user", { uid: user.uid, mediaType });
-      } catch (subscribeErr) {
-        console.error("Agora subscribe failed:", subscribeErr);
-        return;
-      }
-      
-      if (mediaType === "video") {
-        const remoteVideoTrack = user.videoTrack;
-        const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-        const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
-        
-        if (remoteContainer && remoteCanvas) {
-          remoteCanvas.style.display = "none";
-          remoteContainer.style.display = "block";
-          remoteContainer.innerHTML = ""; // Clear previous elements
-          remoteVideoTrack.play(`${agoraPrefix}-remote-video-container`);
-          console.info("Agora remote video subscribed and playing", { uid: user.uid });
-        }
-      }
-      if (mediaType === "audio") {
-        try {
-          user.audioTrack.play();
-          console.info("Agora remote audio playing", { uid: user.uid });
-        } catch (audioErr) {
-          console.error("Agora remote audio play failed:", audioErr);
-        }
-      }
+      await subscribeToRemoteUser(user, mediaType);
       showToast("Remote user connected to Agora session.", "success");
+    });
+
+    agoraClient.on("user-joined", (user) => {
+      console.info("Agora remote user joined; waiting for published tracks", { uid: user.uid, role });
     });
 
     agoraClient.on("user-unpublished", (user, mediaType) => {
@@ -4049,6 +4061,7 @@ async function joinAgoraRoom(role) {
 
     agoraClient.on("user-left", (user) => {
       console.info("Agora user-left event", { uid: user.uid });
+      remoteUsers.delete(String(user.uid));
       const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
       const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
       if (remoteContainer && remoteCanvas) {
@@ -4075,15 +4088,29 @@ async function joinAgoraRoom(role) {
     // Join room
     // Use UID based on role (doctor=1, worker/assistant=2, patient=3)
     const appid = (agoraConfig.appid || "").trim();
-    const channel = (agoraConfig.channel || "telehealth-room").trim();
+    const configuredChannel = (agoraConfig.channel || "telehealth-room").trim();
+    const consultationId = String(activeCall?.token || "").trim();
     const token = (agoraConfig.token || "").trim() || null;
+    const channel = token
+      ? configuredChannel
+      : consultationId
+        ? `${configuredChannel}-${consultationId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64)
+        : configuredChannel;
 
-    console.info("Agora joining with config", { appid, channel, hasToken: !!token, uid: role });
+    const uid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
+    console.info("Agora joining with config", {
+      appid,
+      channel,
+      configuredChannel,
+      consultationId,
+      hasToken: !!token,
+      role,
+      uid
+    });
     if (!appid) {
       throw new Error("Agora App ID is not configured.");
     }
 
-    const uid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
     await agoraClient.join(appid, channel, token, uid);
     console.info("Agora channel joined successfully", { channel, uid });
 
