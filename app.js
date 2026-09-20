@@ -4445,14 +4445,15 @@ function updateNetworkUI() {
           if (localContainer) localContainer.style.display = "none";
         }
       } else if (hasLocalStream) {
-        // Solo mode: Local stream takes the full main screen!
-        if (mainCanvas) mainCanvas.style.display = "none";
-        if (remoteContainer) {
-          remoteContainer.style.display = "block";
-          attachStreamToContainer(localWebcamStream, `${role}-remote-video-container`, true);
+        // Keep both participant panels visible while waiting for the remote stream.
+        if (mainCanvas) mainCanvas.style.display = "block";
+        if (remoteContainer) remoteContainer.style.display = "none";
+        if (pipFeed) pipFeed.style.display = "block";
+        if (pipCanvas) pipCanvas.style.display = "none";
+        if (localContainer) {
+          localContainer.style.display = "block";
+          attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
         }
-        // Hide PIP to avoid redundant duplicate view
-        if (pipFeed) pipFeed.style.display = "none";
       } else {
         // Neither stream available: Show standby canvas
         if (mainCanvas) mainCanvas.style.display = "block";
