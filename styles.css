@@ -696,7 +696,7 @@ tr:hover td {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 20px;
-  height: 520px;
+  height: 380px;
 }
 
 .call-viewport {
@@ -707,6 +707,7 @@ tr:hover td {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr) auto;
+  height: 380px;
   min-height: 380px;
 }
 
