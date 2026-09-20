@@ -4436,3 +4436,118 @@ body:has(#view-doctor.active),
   }
 }
 
+/* Camera Permission Helper Strip & Modal */
+.cam-permission-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #f8fafc;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  animation: fadeInStrip 0.3s ease;
+}
+
+@keyframes fadeInStrip {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cam-permission-strip .strip-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.cam-permission-strip .strip-btn:hover {
+  background: #1d4ed8;
+}
+
+/* Cam Permission Modal */
+.cam-perm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeInModal 0.2s ease;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cam-perm-modal {
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 14px;
+  max-width: 480px;
+  width: 90%;
+  padding: 24px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.cam-perm-modal h3 {
+  margin: 0 0 10px 0;
+  font-size: 18px;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cam-perm-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.cam-perm-step-num {
+  background: #2563eb;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.cam-perm-step-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #334155;
+}
+
+.cam-perm-step-text strong {
+  color: #0f172a;
+}
+
+.cam-perm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  justify-content: flex-end;
+}
+
+

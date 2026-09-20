@@ -110,6 +110,11 @@ let virtualWebcamAnimId = null;
 function attachStreamToContainer(stream, containerId, isMuted = false) {
   const container = document.getElementById(containerId);
   if (!container) return null;
+  const existingVideo = container.querySelector("video");
+  if (existingVideo && existingVideo.srcObject === stream) {
+    if (existingVideo.paused) existingVideo.play().catch(() => {});
+    return existingVideo;
+  }
   container.innerHTML = "";
   const video = document.createElement("video");
   video.autoplay = true;
@@ -437,6 +442,8 @@ async function initNativeWebcam(role, forceReal = false) {
     showToast("Real webcam connected! Live video active.", "success");
   }
 
+  updateNetworkUI();
+
   return localWebcamStream;
 }
 
@@ -488,14 +495,8 @@ function initNativeWebRTC(token, role) {
       console.info("[WebRTC] Remote track received:", event.track.kind);
       if (event.streams && event.streams[0]) {
         remoteWebcamStream = event.streams[0];
-        const agoraPrefix = getAgoraRolePrefix(activeCall ? activeCall.role : role);
-        attachStreamToContainer(remoteWebcamStream, `${agoraPrefix}-remote-video-container`, false);
-
-        const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
-        const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-        if (remoteCanvas) remoteCanvas.style.display = "none";
-        if (remoteContainer) remoteContainer.style.display = "block";
         showToast("Remote participant connected! Live video active.", "success");
+        updateNetworkUI();
       }
     };
 
@@ -567,14 +568,7 @@ function initNativeWebRTC(token, role) {
         } else if (msg.type === "peer-hangup") {
           console.info("[WebRTC] Remote peer hung up");
           remoteWebcamStream = null;
-          const agoraPrefix = getAgoraRolePrefix(activeCall ? activeCall.role : role);
-          const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
-          const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-          if (remoteContainer) {
-            remoteContainer.innerHTML = "";
-            remoteContainer.style.display = "none";
-          }
-          if (remoteCanvas) remoteCanvas.style.display = "block";
+          updateNetworkUI();
         }
       } catch (sigErr) {
         console.warn("[WebRTC] Signaling error:", sigErr);
@@ -4405,6 +4399,13 @@ function updateNetworkUI() {
   const fallback = document.getElementById(`${role}-remote-audio-fallback`);
   const remoteContainer = document.getElementById(`${role}-remote-video-container`);
   const localContainer = document.getElementById(`${role}-local-video-container`);
+  const pipFeed = document.querySelector(`#${role}-viewport-container .local-pip-feed`) ||
+                  (localContainer ? localContainer.closest(".local-pip-feed") : null);
+
+  const permStrip = document.getElementById(`${role}-cam-perm-strip`);
+  if (permStrip) {
+    permStrip.style.display = (activeCall.isVirtualCam && activeCall.camActive) ? "flex" : "none";
+  }
 
   if (activeCall.callMode === CALL_MODES.AUDIO_ONLY) {
     if (fallback) fallback.style.display = "flex";
@@ -4412,6 +4413,7 @@ function updateNetworkUI() {
     if (pipCanvas) pipCanvas.style.display = "none";
     if (remoteContainer) remoteContainer.style.display = "none";
     if (localContainer) localContainer.style.display = "none";
+    if (pipFeed) pipFeed.style.display = "none";
   } else {
     if (fallback) fallback.style.display = "none";
     if (shouldUseAgora()) {
@@ -4419,21 +4421,43 @@ function updateNetworkUI() {
       if (pipCanvas) pipCanvas.style.display = "none";
       if (remoteContainer) remoteContainer.style.display = "block";
       if (localContainer) localContainer.style.display = "block";
+      if (pipFeed) pipFeed.style.display = "block";
     } else {
       const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.active && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+      const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+
       if (hasRemoteStream) {
+        // Connected mode: Remote peer on main screen, local stream in PIP box
         if (mainCanvas) mainCanvas.style.display = "none";
-        if (remoteContainer) remoteContainer.style.display = "block";
+        if (remoteContainer) {
+          remoteContainer.style.display = "block";
+          attachStreamToContainer(remoteWebcamStream, `${role}-remote-video-container`, false);
+        }
+        if (pipFeed) pipFeed.style.display = "block";
+        if (hasLocalStream) {
+          if (pipCanvas) pipCanvas.style.display = "none";
+          if (localContainer) {
+            localContainer.style.display = "block";
+            attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
+          }
+        } else {
+          if (pipCanvas) pipCanvas.style.display = "block";
+          if (localContainer) localContainer.style.display = "none";
+        }
+      } else if (hasLocalStream) {
+        // Solo mode: Local stream takes the full main screen!
+        if (mainCanvas) mainCanvas.style.display = "none";
+        if (remoteContainer) {
+          remoteContainer.style.display = "block";
+          attachStreamToContainer(localWebcamStream, `${role}-remote-video-container`, true);
+        }
+        // Hide PIP to avoid redundant duplicate view
+        if (pipFeed) pipFeed.style.display = "none";
       } else {
+        // Neither stream available: Show standby canvas
         if (mainCanvas) mainCanvas.style.display = "block";
         if (remoteContainer) remoteContainer.style.display = "none";
-      }
-
-      const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
-      if (hasLocalStream) {
-        if (pipCanvas) pipCanvas.style.display = "none";
-        if (localContainer) localContainer.style.display = "block";
-      } else {
+        if (pipFeed) pipFeed.style.display = "block";
         if (pipCanvas) pipCanvas.style.display = "block";
         if (localContainer) localContainer.style.display = "none";
       }
@@ -4445,6 +4469,62 @@ function updateNetworkUI() {
     docLabel.innerText = `${state.label} • ${statusText}`;
   }
 }
+
+window.showCameraPermissionModal = function() {
+  const existing = document.getElementById("cam-perm-modal-overlay");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "cam-perm-modal-overlay";
+  overlay.className = "cam-perm-modal-overlay";
+  overlay.innerHTML = `
+    <div class="cam-perm-modal">
+      <h3>🔒 Allow Camera Access</h3>
+      <p style="font-size: 13px; color: #64748b; margin-bottom: 16px;">
+        Your browser has blocked camera or microphone access for this website. Follow these 3 quick steps:
+      </p>
+      
+      <div class="cam-perm-step">
+        <div class="cam-perm-step-num">1</div>
+        <div class="cam-perm-step-text">
+          Look at the <strong>browser address bar</strong> at the top of your screen, next to the web URL.
+        </div>
+      </div>
+
+      <div class="cam-perm-step">
+        <div class="cam-perm-step-num">2</div>
+        <div class="cam-perm-step-text">
+          Click the <strong>🔒 Padlock / 🎛️ Site Settings / 🎥 Camera</strong> icon, and switch <strong>Camera</strong> from <em>Block</em> to <strong>Allow</strong>.
+        </div>
+      </div>
+
+      <div class="cam-perm-step">
+        <div class="cam-perm-step-num">3</div>
+        <div class="cam-perm-step-text">
+          Click <strong>Connect Real Webcam</strong> below to switch to your camera.
+        </div>
+      </div>
+
+      <div class="cam-perm-actions">
+        <button class="btn-action" onclick="document.getElementById('cam-perm-modal-overlay').remove()">Keep Simulated Feed</button>
+        <button class="btn-primary" style="font-weight: 600;" onclick="window.retryRealWebcamFromModal()">🔄 Connect Real Webcam</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+};
+
+window.retryRealWebcamFromModal = async function() {
+  const modal = document.getElementById("cam-perm-modal-overlay");
+  if (modal) modal.remove();
+  showToast("Requesting physical webcam access...", "info");
+  const role = activeCall ? activeCall.role : "doctor";
+  const stream = await initNativeWebcam(role, true);
+  if (stream && !stream._isVirtual) {
+    showToast("Real webcam connected successfully!", "success");
+    updateNetworkUI();
+  }
+};
 
 // --- FEATURE 2 & 3: LIVE TELEMETRY FLUCTUATIONS ---
 function startTelemetryFluctuations() {

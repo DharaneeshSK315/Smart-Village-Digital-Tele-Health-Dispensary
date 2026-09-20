@@ -278,6 +278,11 @@
           </div>
           
           <div class="telemedicine-suite">
+            <!-- Camera Permission Help Strip (shown when browser blocks webcam) -->
+            <div class="cam-permission-strip" id="pat-cam-perm-strip" style="display: none;">
+              <span>🔒 Browser blocked camera. Showing Simulated Medical Feed.</span>
+              <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
+            </div>
             <!-- Call Feed Viewport -->
             <div class="call-viewport" id="pat-viewport-container">
               <div class="main-feed-container">
@@ -801,6 +806,11 @@
         <div class="doc-consultation-grid">
           <!-- Column 1: Video Call Viewport & lower Network Telemetry Card -->
           <div class="doc-col-video">
+            <!-- Camera Permission Help Strip (shown when browser blocks webcam) -->
+            <div class="cam-permission-strip" id="doc-cam-perm-strip" style="display: none;">
+              <span>🔒 Browser blocked camera. Showing Simulated Medical Feed.</span>
+              <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
+            </div>
             <div class="call-viewport doc-call-viewport" id="doc-viewport-container">
               <div class="main-feed-container">
                 <!-- Floating Patient Tag -->
@@ -1817,7 +1827,7 @@
   </div>
 
   <!-- Core App Controller JS -->
-  <script type="module" src="app.js?v=1.2.2"></script>
+  <script type="module" src="app.js?v=1.2.3"></script>
 
 </body>
 </html>
