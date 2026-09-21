@@ -286,6 +286,12 @@
             <!-- Call Feed Viewport -->
             <div class="call-viewport" id="pat-viewport-container">
               <div class="main-feed-container">
+                <div class="patient-floating-badge" id="pat-doctor-tag">
+                  <span class="green-dot">●</span>
+                  <span id="pat-call-tag-name">Dr. Abinesh V</span>
+                  <span class="tag-role">Consulting Physician</span>
+                </div>
+
                 <!-- Simulated Remote doctor Webcam -->
                 <canvas id="pat-remote-canvas" class="main-canvas"></canvas>
                 <!-- Real Remote doctor Webcam (Agora) -->
@@ -299,7 +305,7 @@
                     <div class="hud-item"><span>Loss</span> <strong id="pat-hud-loss">0%</strong></div>
                     <div class="hud-item"><span>FPS</span> <strong id="pat-hud-fps">30</strong></div>
                     <div class="hud-item"><span>Upload</span> <strong id="pat-hud-upload">2.8 Mbps</strong></div>
-                    <div class="hud-item"><span>Download</span> <strong id="pat-hud-download">3.1 Mbps</strong></div>
+                    <div class="hud-item"><span>Download</span> <strong id="pat-hud-download">5.1 Mbps</strong></div>
                   </div>
                   <div class="hud-prediction-bar">
                     <div>AI: <span id="pat-hud-prediction" class="pred-good">GOOD</span></div>
@@ -327,47 +333,46 @@
                     <div class="wave-bar"></div>
                   </div>
                 </div>
-              </div>
 
-              <!-- Local Patient PIP webcam -->
-              <div class="local-pip-feed">
-                <canvas id="pat-local-canvas" class="local-pip-canvas"></canvas>
-                <div id="pat-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+                <!-- Local Patient PIP webcam -->
+                <div class="local-pip-feed pat-local-pip" id="pat-local-pip-box">
+                  <canvas id="pat-local-canvas" class="local-pip-canvas"></canvas>
+                  <div id="pat-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+                  <div class="pip-label" id="pat-pip-label">You (Patient)</div>
+                </div>
               </div>
 
               <!-- Controls -->
-              <div class="call-control-bar">
-                <div class="call-status-badge">
-                  <!-- AI Predictor Badge -->
-                  <div class="ai-predict-badge" id="pat-ai-badge" style="display: none;">
-                    <span class="ai-pulse"></span> 🧠 AI Predictor: Drop in 5s
+              <div class="doc-call-controls-bar">
+                <div class="doc-left-status">
+                  <span class="quality-label" id="pat-conn-text">📶 720p HD • Full Video</span>
+                  <div class="signal-bar-group" id="pat-sig-bars" style="display: none;">
+                    <div class="sig-bar active"></div>
+                    <div class="sig-bar active"></div>
+                    <div class="sig-bar active"></div>
+                    <div class="sig-bar"></div>
                   </div>
-                  <span id="pat-conn-text">1080p Full HD</span>
-                  <div class="signal-bar-group" id="pat-sig-bars">
-                    <div class="sig-bar sig-1 active"></div>
-                    <div class="sig-bar sig-2 active"></div>
-                    <div class="sig-bar sig-3 active"></div>
-                    <div class="sig-bar sig-4 active"></div>
-                  </div>
-                </div>
-                
-                <div class="call-btns">
-                  <button class="btn-circle active" id="pat-mic-toggle" onclick="toggleAudioState('pat')">🎙️</button>
-                  <button class="btn-circle active" id="pat-cam-toggle" onclick="toggleVideoState('pat')">📷</button>
-                  <button class="btn-circle hangup" onclick="leaveConsultation()">❌</button>
                 </div>
 
-                <div class="simulator-controls">
-                  <label for="pat-net-sim">Network Simulator:</label>
-                  <select id="pat-net-sim" onchange="simulateNetworkChange(this.value)">
-                    <option value="excellent">Excellent Signal (1080p HD)</option>
-                    <option value="good">Good Signal (720p HD)</option>
-                    <option value="fair">Fair Signal (480p SD)</option>
-                    <option value="poor">Poor Signal (360p Low-Res)</option>
-                    <option value="verypoor">Very Poor (240p Compressed)</option>
-                    <option value="critical">Critical Signal (Audio-only)</option>
-                  </select>
+                <div class="doc-center-btns">
+                  <button class="btn-circle active" id="pat-mic-toggle" onclick="toggleAudioState('pat')" title="Toggle Mic">🎙️</button>
+                  <button class="btn-circle active" id="pat-cam-toggle" onclick="toggleVideoState('pat')" title="Toggle Camera">📷</button>
+                  <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Call">📵</button>
                 </div>
+
+                <div class="doc-right-tools">
+                  <div class="simulator-controls">
+                    <select id="pat-net-sim" onchange="simulateNetworkChange(this.value)">
+                      <option value="good" selected>720p HD</option>
+                      <option value="excellent">1080p HD</option>
+                      <option value="fair">480p SD</option>
+                      <option value="poor">360p Low-Res</option>
+                      <option value="critical">Audio-only</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>         </div>
               </div>
             </div>
 

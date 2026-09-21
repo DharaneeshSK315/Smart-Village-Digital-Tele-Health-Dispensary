@@ -3576,25 +3576,28 @@ window.toggleVideoState = async function(role) {
   const localContainer = document.getElementById(`${prefix}-local-video-container`);
   const localCanvas = document.getElementById(`${prefix}-local-canvas`);
 
+  console.info(`[VideoToggle] Toggling camera for role='${role}', prefix='${prefix}', camActive=${activeCall.camActive}`);
+
   if (activeCall.camActive) {
     activeCall.manualVideoDisabled = false;
     if (btn) {
       btn.classList.add("active");
       btn.innerText = "📷";
     }
-    if (localVideoTrack) {
-      localVideoTrack.setEnabled(true);
-      console.info("Agora local video enabled by manual toggle");
-    }
-    if (activeCall.isVirtualCam) {
-      // User is on virtual camera: prompt user to switch to real webcam
-      showToast("Requesting physical webcam...", "info");
-      const realStream = await initNativeWebcam(role, true);
-      if (!realStream && localWebcamStream) {
-        // Keep virtual stream active if real camera failed
-        localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
-        if (localContainer) localContainer.style.display = "block";
+
+    if (shouldUseAgora() && localVideoTrack) {
+      try {
+        await localVideoTrack.setEnabled(true);
+        console.info("Agora local video enabled by manual toggle");
+        if (localContainer) {
+          localContainer.style.display = "block";
+          localContainer.innerHTML = "";
+          await localVideoTrack.play(`${prefix}-local-video-container`);
+        }
         if (localCanvas) localCanvas.style.display = "none";
+        showToast("Camera turned ON", "info");
+      } catch (err) {
+        console.error("Failed to enable Agora local video track:", err);
       }
     } else if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
       localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
@@ -3611,17 +3614,26 @@ window.toggleVideoState = async function(role) {
       btn.classList.remove("active");
       btn.innerText = "📵";
     }
-    if (localVideoTrack) {
-      localVideoTrack.setEnabled(false);
-      console.info("Agora local video disabled by manual toggle");
+
+    if (shouldUseAgora() && localVideoTrack) {
+      try {
+        await localVideoTrack.setEnabled(false);
+        console.info("Agora local video disabled by manual toggle");
+      } catch (err) {
+        console.error("Failed to disable Agora local video track:", err);
+      }
     }
+
     if (localWebcamStream) {
       localWebcamStream.getVideoTracks().forEach(t => t.enabled = false);
-      if (localContainer) localContainer.style.display = "none";
-      if (localCanvas) localCanvas.style.display = "block";
     }
+
+    if (localContainer) localContainer.style.display = "none";
+    if (localCanvas) localCanvas.style.display = "block";
     showToast("Camera turned OFF", "warning");
   }
+
+  updateNetworkUI();
 };
 
 window.leaveConsultation = function() {
@@ -4799,10 +4811,15 @@ function updateNetworkUI() {
     if (fallback) fallback.style.display = "none";
     if (shouldUseAgora()) {
       if (mainCanvas) mainCanvas.style.display = "none";
-      if (pipCanvas) pipCanvas.style.display = "none";
       if (remoteContainer) remoteContainer.style.display = "block";
-      if (localContainer) localContainer.style.display = "block";
       if (pipFeed) pipFeed.style.display = "block";
+      if (activeCall.camActive) {
+        if (localContainer) localContainer.style.display = "block";
+        if (pipCanvas) pipCanvas.style.display = "none";
+      } else {
+        if (localContainer) localContainer.style.display = "none";
+        if (pipCanvas) pipCanvas.style.display = "block";
+      }
     } else {
       const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.active && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
       const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
