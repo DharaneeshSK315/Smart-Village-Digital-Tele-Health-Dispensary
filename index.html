@@ -748,6 +748,53 @@
       <!-- Critical Vitals Alerts Strip -->
       <div id="doc-critical-alerts-strip"></div>
 
+      <!-- Doctor Operations: appointments, patients, reports and history -->
+      <div class="doc-operations-grid" id="doc-operations-section">
+        <div class="card doc-card doc-operations-card doc-appointments-card">
+          <div class="card-title-bar doc-card-header">
+            <div>
+              <h3>Today's Appointments</h3>
+              <span class="doc-section-subtitle" id="doc-appointments-date"></span>
+            </div>
+            <span class="badge-pill-count" id="doc-appointments-count">0</span>
+          </div>
+          <div class="table-wrapper">
+            <table class="doc-table">
+              <thead><tr><th>Patient</th><th>Time</th><th>Status</th></tr></thead>
+              <tbody id="doc-today-appointments-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card doc-card doc-operations-card">
+          <div class="card-title-bar doc-card-header">
+            <h3>Patient List</h3>
+            <span class="badge-pill-count" id="doc-patient-count">0</span>
+          </div>
+          <input type="search" id="doc-patient-list-search" class="doc-search-input doc-inline-search" placeholder="Search patients..." oninput="renderDoctorPatientList(this.value)">
+          <div class="doc-patient-list" id="doc-patient-list"></div>
+        </div>
+
+        <div class="card doc-card doc-operations-card">
+          <div class="card-title-bar doc-card-header">
+            <h3>Reports</h3>
+            <span class="doc-section-subtitle">Live summary</span>
+          </div>
+          <div class="doc-report-grid" id="doc-report-grid"></div>
+        </div>
+
+        <div class="card doc-card doc-operations-card">
+          <div class="card-title-bar doc-card-header">
+            <h3>Patient Medical History</h3>
+            <span class="doc-section-subtitle">Consultations and prescriptions</span>
+          </div>
+          <select id="doc-history-patient-select" class="form-input doc-history-select" onchange="renderDoctorMedicalHistory(this.value)">
+            <option value="">Select a patient</option>
+          </select>
+          <div id="doc-medical-history-content" class="doc-medical-history-empty">Select a patient to view previous consultations, prescriptions, diagnoses, allergies and existing conditions.</div>
+        </div>
+      </div>
+
       <!-- 2. Wide Patient Search Bar Row -->
       <div class="doc-search-bar-row" id="doc-overview-search-row">
         <input type="text" id="doc-search-patient" class="doc-search-input" placeholder="Search patient by name or token ID..." oninput="docSearchQueue(this.value)">

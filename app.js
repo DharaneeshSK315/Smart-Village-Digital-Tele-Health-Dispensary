@@ -2144,7 +2144,131 @@ async function loadDoctorDashboard() {
   renderDoctorQueue();
   renderDoctorCompletedLogs();
   renderDoctorAlertsStrip(queueList);
+  renderDoctorAppointments();
+  renderDoctorPatientList(document.getElementById("doc-patient-list-search")?.value || "");
+  renderDoctorReports();
+  populateDoctorHistoryPatients();
 }
+
+function getDoctorAppointmentStatus(appointment) {
+  if (appointment.status === "Waiting") return "Pending";
+  if (appointment.status === "Active") return "Pending";
+  return appointment.status || "Pending";
+}
+
+function renderDoctorAppointments() {
+  const tbody = document.getElementById("doc-today-appointments-tbody");
+  if (!tbody) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const dateLabel = document.getElementById("doc-appointments-date");
+  if (dateLabel) dateLabel.textContent = new Date().toLocaleDateString(undefined, { dateStyle: "medium" });
+
+  const appointments = (db.appointments || []).filter(appointment =>
+    !appointment.date || String(appointment.date).slice(0, 10) === today
+  );
+  const count = document.getElementById("doc-appointments-count");
+  if (count) count.textContent = `${appointments.length}`;
+
+  if (!appointments.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="doc-empty-cell">No appointments scheduled for today.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = appointments.map(appointment => {
+    const patient = db.patients.find(p => p.id === appointment.patientId);
+    const time = appointment.time || appointment.appointmentTime || "Time not set";
+    const status = getDoctorAppointmentStatus(appointment);
+    const statusClass = status.toLowerCase();
+    return `<tr>
+      <td><strong class="patient-cell-name">${patient?.name || appointment.patientName || "Unknown patient"}</strong><br><span class="doc-table-meta">${patient?.id || appointment.patientId || "—"}</span></td>
+      <td>${time}</td>
+      <td><span class="doc-status-pill ${statusClass}">${status}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+window.renderDoctorPatientList = function(searchTerm = "") {
+  const container = document.getElementById("doc-patient-list");
+  if (!container) return;
+  const query = String(searchTerm).trim().toLowerCase();
+  const patients = (db.patients || []).filter(patient =>
+    !query || [patient.name, patient.id, patient.phone, patient.gender].some(value =>
+      String(value || "").toLowerCase().includes(query)
+    )
+  );
+  const count = document.getElementById("doc-patient-count");
+  if (count) count.textContent = `${patients.length}`;
+  container.innerHTML = patients.length ? patients.map(patient => {
+    const historyCount = (patient.history || []).length +
+      (db.consultations || []).filter(c => c.patientId === patient.id).length;
+    return `<button type="button" class="doc-patient-list-row" onclick="selectDoctorHistoryPatient('${patient.id}')">
+      <span class="doc-patient-avatar">${(patient.name || "P").charAt(0).toUpperCase()}</span>
+      <span class="doc-patient-list-info"><strong>${patient.name}</strong><small>${patient.id} · ${patient.age || "—"} yrs / ${patient.gender || "—"}</small></span>
+      <span class="doc-history-count">${historyCount} record${historyCount === 1 ? "" : "s"}</span>
+    </button>`;
+  }).join("") : `<div class="doc-empty-cell">No patients match this search.</div>`;
+};
+
+function renderDoctorReports() {
+  const container = document.getElementById("doc-report-grid");
+  if (!container) return;
+  const appointments = db.appointments || [];
+  const consultations = db.consultations || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const todayConsultations = consultations.filter(c =>
+    !c.date || String(c.date).includes(today) || String(c.date).includes(new Date().toLocaleDateString())
+  ).length;
+  const completed = appointments.filter(a => a.status === "Completed").length +
+    consultations.filter(c => c.status === "completed" || !c.status).length;
+  const pending = appointments.filter(a => ["Waiting", "Active", "Pending"].includes(a.status)).length;
+  const stats = [
+    ["Today's consultations", todayConsultations, "consultations"],
+    ["Completed consultations", completed, "completed"],
+    ["Pending appointments", pending, "waiting"],
+    ["Patient statistics", (db.patients || []).length, "registered patients"]
+  ];
+  container.innerHTML = stats.map(([label, value, detail]) =>
+    `<div class="doc-report-tile"><strong>${value}</strong><span>${label}</span><small>${detail}</small></div>`
+  ).join("");
+}
+
+function populateDoctorHistoryPatients() {
+  const select = document.getElementById("doc-history-patient-select");
+  if (!select) return;
+  const selected = select.value;
+  select.innerHTML = `<option value="">Select a patient</option>` +
+    (db.patients || []).map(patient => `<option value="${patient.id}">${patient.name} (${patient.id})</option>`).join("");
+  if (selected && db.patients.some(p => p.id === selected)) select.value = selected;
+}
+
+window.selectDoctorHistoryPatient = function(patientId) {
+  const select = document.getElementById("doc-history-patient-select");
+  if (select) {
+    select.value = patientId;
+    renderDoctorMedicalHistory(patientId);
+  }
+};
+
+window.renderDoctorMedicalHistory = function(patientId) {
+  const container = document.getElementById("doc-medical-history-content");
+  if (!container) return;
+  const patient = db.patients.find(p => p.id === patientId);
+  if (!patient) {
+    container.className = "doc-medical-history-empty";
+    container.textContent = "Select a patient to view their medical history.";
+    return;
+  }
+  const consultationHistory = (db.consultations || []).filter(c => c.patientId === patient.id);
+  const history = [...(patient.history || []).map(item => ({ ...item, source: "Patient record" })), ...consultationHistory];
+  const allergies = patient.allergies || patient.medicalHistory?.allergies || "Not recorded";
+  const conditions = patient.existingConditions || patient.medicalHistory?.existingConditions || "Not recorded";
+  container.className = "doc-medical-history-content";
+  container.innerHTML = `
+    <div class="doc-history-patient-heading"><strong>${patient.name}</strong><span>${patient.id} · ${patient.age || "—"} yrs / ${patient.gender || "—"}</span></div>
+    <div class="doc-history-facts"><div><small>Allergies</small><strong>${allergies}</strong></div><div><small>Existing conditions</small><strong>${conditions}</strong></div></div>
+    <div class="doc-history-records">${history.length ? history.map(record => `
+      <div class="doc-history-record"><span>${record.date || "Date not recorded"}</span><strong>${record.diagnosis || "Consultation"}</strong><p>${record.medicines || record.prescription || "No prescription recorded"}${record.doctorName || record.doctor ? ` · ${record.doctorName || record.doctor}` : ""}</p>
+      </div>`).join("") : `<div class="doc-empty-cell">No previous consultations or prescriptions recorded.</div>`}</div>`;
+};
 
 function renderDoctorAlertsStrip(queue) {
   const container = document.getElementById("doc-critical-alerts-strip");
