@@ -2227,6 +2227,107 @@ body:has(#view-doctor.active),
   background-color: #eaf2fb;
 }
 
+.doc-dashboard-view {
+  position: relative;
+  padding-left: 224px;
+}
+
+.doc-dashboard-content {
+  max-width: 1560px;
+  margin: 0 auto;
+}
+
+.doc-dashboard-sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 196px;
+  padding: 18px 12px;
+  background: #fff;
+  border-right: 1px solid #dbe5ef;
+  display: flex;
+  flex-direction: column;
+  z-index: 3;
+}
+
+.doc-sidebar-brand {
+  color: #0f3d68;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 4px 10px 18px;
+}
+
+.doc-dashboard-sidebar nav,
+.doc-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.doc-dashboard-sidebar button {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.doc-dashboard-sidebar button:hover,
+.doc-dashboard-sidebar button.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.doc-sidebar-footer {
+  border-top: 1px solid #eef2f7;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.doc-page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.doc-breadcrumb {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.doc-page-heading h2 {
+  color: #0f172a;
+  font-size: 26px;
+  margin: 5px 0 3px;
+}
+
+.doc-page-heading p {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0;
+}
+
+.doc-heading-status {
+  background: #fff;
+  border: 1px solid #dbe5ef;
+  border-radius: 999px;
+  color: #166534;
+  font-size: 11px;
+  padding: 7px 11px;
+}
+
+.doc-mobile-nav-toggle {
+  display: none;
+}
+
 /* 1. Doctor Overview Top Row (3 Summary Cards across full width) */
 .doc-top-row {
   display: block;
@@ -2236,7 +2337,7 @@ body:has(#view-doctor.active),
 
 .doc-stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
 }
 
@@ -2865,11 +2966,56 @@ body:has(#view-doctor.active),
 }
 
 @media (max-width: 900px) {
+  .doc-dashboard-view {
+    padding-left: 0;
+  }
+  .doc-dashboard-sidebar {
+    display: none;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    box-shadow: 8px 0 24px rgba(15, 23, 42, .12);
+  }
+  .doc-dashboard-sidebar.open {
+    display: flex;
+  }
+  .doc-mobile-nav-toggle {
+    display: block;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 4;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #1d4ed8;
+    cursor: pointer;
+    padding: 8px 10px;
+  }
+  .doc-page-heading {
+    padding-left: 48px;
+  }
   .doc-operations-grid {
     grid-template-columns: 1fr;
   }
   .doc-schedule-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 1100px) {
+    .doc-stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 520px) {
+    .doc-stats-grid {
+      grid-template-columns: 1fr;
+    }
+    .doc-page-heading {
+      align-items: flex-start;
+      flex-direction: column;
+    }
   }
 }
 

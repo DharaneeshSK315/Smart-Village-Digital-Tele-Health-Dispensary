@@ -2150,6 +2150,8 @@ async function loadDoctorDashboard() {
 
   const statConsulted = document.getElementById("doc-stat-consulted");
   if (statConsulted) statConsulted.innerText = `${consultedList.length} Patients`;
+  const statPending = document.getElementById("doc-stat-pending");
+  if (statPending) statPending.innerText = `${db.appointments.filter(a => ["Waiting", "Pending", "Active"].includes(a.status)).length}`;
 
   const queueBadge = document.getElementById("doc-queue-count-badge");
   if (queueBadge) {
@@ -2615,6 +2617,19 @@ function renderDoctorQueue(searchQuery = "") {
 
 window.docSearchQueue = function(val) {
   renderDoctorQueue(val.trim());
+};
+
+window.toggleDoctorNav = function() {
+  const sidebar = document.getElementById("doc-dashboard-sidebar");
+  if (sidebar) sidebar.classList.toggle("open");
+};
+
+window.focusDoctorSection = function(sectionId, button) {
+  const section = document.getElementById(sectionId);
+  if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+  document.querySelectorAll(".doc-dashboard-sidebar nav button").forEach(item => item.classList.remove("active"));
+  if (button) button.classList.add("active");
+  document.getElementById("doc-dashboard-sidebar")?.classList.remove("open");
 };
 
 function renderDoctorCompletedLogs() {

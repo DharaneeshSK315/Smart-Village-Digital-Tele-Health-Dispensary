@@ -713,6 +713,33 @@
 
     <!-- 3. DOCTOR MODULE -->
     <section id="view-doctor" class="view-section doc-dashboard-view">
+      <button type="button" class="doc-mobile-nav-toggle" onclick="toggleDoctorNav()" aria-label="Toggle doctor navigation">☰</button>
+      <aside class="doc-dashboard-sidebar" id="doc-dashboard-sidebar">
+        <div class="doc-sidebar-brand">Doctor Portal</div>
+        <nav aria-label="Doctor dashboard navigation">
+          <button class="active" onclick="focusDoctorSection('doc-overview-top-row', this)">Overview</button>
+          <button onclick="focusDoctorSection('doc-queue-section', this)">Patient Queue</button>
+          <button onclick="focusDoctorSection('doc-operations-section', this)">Appointments</button>
+          <button onclick="focusDoctorSection('doc-patient-list', this)">Patients</button>
+          <button onclick="focusDoctorSection('doc-history-section', this)">Consultations</button>
+          <button onclick="focusDoctorSection('doc-medical-history-content', this)">Medical History</button>
+          <button onclick="focusDoctorSection('doc-prescription-form', this)">Prescriptions</button>
+          <button onclick="focusDoctorSection('doc-report-grid', this)">Reports</button>
+        </nav>
+        <div class="doc-sidebar-footer">
+          <button onclick="showToast('Help and support is available through the clinic administrator.', 'info')">Help &amp; Support</button>
+          <button onclick="logout()">Log Out</button>
+        </div>
+      </aside>
+      <div class="doc-dashboard-content">
+      <div class="doc-page-heading">
+        <div>
+          <span class="doc-breadcrumb">VillageMed / Clinical workspace</span>
+          <h2>Doctor Dashboard</h2>
+          <p>Overview of today's clinical activity</p>
+        </div>
+        <div class="doc-heading-status"><span class="status-dot-green">●</span> Online and ready</div>
+      </div>
       <!-- 1. Doctor Overview Header Stats Strip -->
       <div class="doc-top-row" id="doc-overview-top-row">
         <!-- 3 Pastel Summary Cards -->
@@ -745,6 +772,14 @@
               <span class="label">Consulted Today</span>
               <div class="value" id="doc-stat-consulted">0 Patients</div>
               <span class="subtext">Digital prescriptions saved</span>
+            </div>
+          </div>
+          <div class="metric-card metric-card-blue doc-metric-card">
+            <div class="metric-icon blue">▣</div>
+            <div class="metric-info">
+              <span class="label">Pending Appointments</span>
+              <div class="value" id="doc-stat-pending">0</div>
+              <span class="subtext">Awaiting doctor action</span>
             </div>
           </div>
         </div>
@@ -1288,6 +1323,7 @@
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </section>
 
