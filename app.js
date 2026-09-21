@@ -90,6 +90,8 @@ let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-r
 let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
+let agoraJoinPromise = null;
+let agoraChannelName = null;
 
 function getAgoraRolePrefix(role) {
   if (role === "doctor" || role === "doc") return "doc";
@@ -4026,6 +4028,20 @@ window.saveAgoraConfig = function() {
 };
 
 async function joinAgoraRoom(role) {
+  if (agoraJoinPromise) {
+    console.info("[Agora] Join already in progress; reusing existing promise.", { role });
+    return agoraJoinPromise;
+  }
+
+  agoraJoinPromise = joinAgoraRoomInternal(role);
+  try {
+    return await agoraJoinPromise;
+  } finally {
+    agoraJoinPromise = null;
+  }
+}
+
+async function joinAgoraRoomInternal(role) {
   if (typeof AgoraRTC === "undefined") {
     showToast("Agora Web SDK failed to load. Check internet or ad-blocker.", "danger");
     // Graceful fallback
@@ -4048,6 +4064,10 @@ async function joinAgoraRoom(role) {
   }
   
   try {
+    if (agoraClient) {
+      console.warn("[Agora] Existing client found; leaving it before creating a new client.");
+      await leaveAgoraRoom();
+    }
     agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
     console.info("Agora client initialized");
 
@@ -4063,20 +4083,25 @@ async function joinAgoraRoom(role) {
       remoteContainer.style.display = "block";
       remoteContainer.innerHTML = "";
       await user.videoTrack.play(remoteContainer);
-      console.info("Agora remote video rendered", { uid: user.uid, role, container: remoteContainer.id });
+      console.info("[Agora] Remote video rendered.", { uid: user.uid, role, container: remoteContainer.id });
     };
 
     const subscribeToRemoteUser = async (user, mediaType) => {
       try {
+        console.info("[Agora] Subscribing to remote track.", {
+          uid: user.uid,
+          mediaType,
+          role
+        });
         await agoraClient.subscribe(user, mediaType);
         remoteUsers.set(String(user.uid), user);
-        console.info("Agora subscribed to remote track", { uid: user.uid, mediaType });
+        console.info("[Agora] Successfully subscribed to remote track.", { uid: user.uid, mediaType });
 
         if (mediaType === "video") {
           await renderRemoteVideo(user);
         } else if (mediaType === "audio" && user.audioTrack) {
           user.audioTrack.play();
-          console.info("Agora remote audio rendered", { uid: user.uid });
+          console.info("[Agora] Remote audio rendered.", { uid: user.uid });
         }
       } catch (subscribeErr) {
         console.error("Agora remote subscription failed", {
@@ -4132,7 +4157,8 @@ async function joinAgoraRoom(role) {
       if (curState === "DISCONNECTED" || curState === "FAILED") {
         showToast("Agora connection lost. Attempting to keep the call alive.", "danger");
       } else if (curState === "CONNECTED") {
-        showToast("Agora connection restored.", "success");
+          console.info("[Agora] Connection restored.", { role });
+          showToast("Agora connection restored.", "success");
       }
     });
 
@@ -4140,30 +4166,32 @@ async function joinAgoraRoom(role) {
     // Use UID based on role (doctor=1, worker/assistant=2, patient=3)
     const appid = (agoraConfig.appid || "").trim();
     const configuredChannel = (agoraConfig.channel || "telehealth-room").trim();
-    const consultationId = String(activeCall?.token || "").trim();
     const token = (agoraConfig.token || "").trim() || null;
-    const channel = token
-      ? configuredChannel
-      : consultationId
-        ? `${configuredChannel}-${consultationId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64)
-        : configuredChannel;
+    // Both participants must use the exact channel configured in Agora. The
+    // appointment token is application data, not part of the RTC channel.
+    const channel = configuredChannel;
 
-    const uid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
+    const requestedUid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
+    // Agora Console temporary tokens are generated for UID 0. Passing UID 0
+    // lets Agora assign a unique UID while keeping that token valid.
+    const uid = token ? 0 : requestedUid;
     console.info("Agora joining with config", {
       appid,
       channel,
       configuredChannel,
-      consultationId,
       hasToken: !!token,
       role,
-      uid
+      uid,
+      requestedUid
     });
     if (!appid) {
       throw new Error("Agora App ID is not configured.");
     }
 
+    console.info("[Agora] Joining channel.", { appid, channel, hasToken: !!token, uid, role });
     await agoraClient.join(appid, channel, token, uid);
-    console.info("Agora channel joined successfully", { channel, uid });
+    agoraChannelName = channel;
+    console.info("[Agora] Successfully joined channel.", { channel, uid, role });
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error("Browser does not support camera/microphone capture.");
@@ -4195,10 +4223,14 @@ async function joinAgoraRoom(role) {
     }
     if (audioResult.status === "rejected") {
       console.warn("Agora microphone unavailable; continuing with video.", audioResult.reason);
+    } else {
+      console.info("[Agora] Microphone track created.", { trackId: localAudioTrack.getTrackId?.() });
     }
     if (videoResult.status === "rejected") {
       console.warn("Agora camera unavailable; continuing with audio.", videoResult.reason);
       showToast("Camera access is unavailable. Audio-only consultation is active.", "warning");
+    } else {
+      console.info("[Agora] Camera track created.", { trackId: localVideoTrack.getTrackId?.() });
     }
     if (activeCall) {
       activeCall.camActive = !!localVideoTrack;
@@ -4234,13 +4266,35 @@ async function joinAgoraRoom(role) {
     }
 
     // Publish every track that was acquired.
-    await agoraClient.publish([localAudioTrack, localVideoTrack].filter(Boolean));
-    console.info("Agora local tracks published successfully");
+    const tracksToPublish = [localAudioTrack, localVideoTrack].filter(Boolean);
+    if (tracksToPublish.length) {
+      await agoraClient.publish(tracksToPublish);
+    }
+    console.info("[Agora] Local tracks published.", {
+      role,
+      hasAudio: !!localAudioTrack,
+      hasVideo: !!localVideoTrack
+    });
       updateNetworkUI();
     showToast("Agora stream published! Real video calling active.", "success");
 
+    // A participant may have joined and published before this client finished
+    // joining, so subscribe to the users already known by the Agora client.
+    for (const remoteUser of agoraClient.remoteUsers || []) {
+      console.info("[Agora] Remote user already present after join.", { uid: remoteUser.uid });
+      if (remoteUser.hasAudio) await subscribeToRemoteUser(remoteUser, "audio");
+      if (remoteUser.hasVideo) await subscribeToRemoteUser(remoteUser, "video");
+    }
+
   } catch (err) {
     console.error("Agora WebRTC Error:", err);
+    console.error("[Agora] Join/publish failure details.", {
+      role,
+      channel: agoraChannelName,
+      code: err?.code,
+      message: err?.message,
+      name: err?.name
+    });
     if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
       console.warn("Agora permission issue detected", err);
     }
@@ -4249,6 +4303,7 @@ async function joinAgoraRoom(role) {
     if (tokenError) {
       agoraConfig.token = "";
       console.warn("Agora token error detected, clearing saved token.");
+      showToast("Agora token was rejected or expired. Generate a new token for this channel.", "danger");
     }
 
     const invalidKey = err.message && (err.message.includes("invalid vendor key") || err.message.includes("can not find appid") || err.message.includes("invalid App ID") || err.message.includes("invalid appid"));
@@ -4282,6 +4337,9 @@ async function leaveAgoraRoom() {
       await agoraClient.leave();
       agoraClient = null;
     }
+    agoraChannelName = null;
+    agoraJoinPromise = null;
+    console.info("[Agora] Left channel and cleaned up local tracks.");
     showToast("Agora WebRTC calling channel closed.", "info");
   } catch (err) {
     console.error("Error leaving Agora:", err);
