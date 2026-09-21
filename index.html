@@ -196,11 +196,6 @@
               Join Consultation Call
             </button>
           </div>
-          <div class="card pat-scheduled-appointment-card" id="pat-scheduled-appointment-card" style="display: none;">
-            <h4>📅 Scheduled Consultation</h4>
-            <div id="pat-scheduled-appointment-details"></div>
-            <button class="btn-primary" id="pat-join-scheduled-btn" style="width: 100%; margin-top: 12px;" onclick="joinPatientCall()">Join Consultation</button>
-          </div>
 
           <!-- Book Appointment Card -->
           <div class="card pat-book-card">
@@ -285,7 +280,7 @@
           <div class="telemedicine-suite">
             <!-- Camera Permission Help Strip (shown when browser blocks webcam) -->
             <div class="cam-permission-strip" id="pat-cam-perm-strip" style="display: none;">
-              <span>🔒 Camera access is unavailable. Allow camera permission to start live video.</span>
+              <span>🔒 Browser blocked camera. Showing Simulated Medical Feed.</span>
               <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
             </div>
             <!-- Call Feed Viewport -->
@@ -713,617 +708,806 @@
 
     <!-- 3. DOCTOR MODULE -->
     <section id="view-doctor" class="view-section doc-dashboard-view">
-      <button type="button" class="doc-mobile-nav-toggle" onclick="toggleDoctorNav()" aria-label="Toggle doctor navigation">☰</button>
-      <aside class="doc-dashboard-sidebar" id="doc-dashboard-sidebar">
-        <div class="doc-sidebar-brand">Doctor Portal</div>
-        <nav aria-label="Doctor dashboard navigation">
-          <button class="active" data-doctor-module="overview" onclick="switchDoctorModule('overview', this)">Overview</button>
-          <button data-doctor-module="queue" onclick="switchDoctorModule('queue', this)">Patient Queue</button>
-          <button data-doctor-module="appointments" onclick="switchDoctorModule('appointments', this)">Appointments</button>
-          <button data-doctor-module="patients" onclick="switchDoctorModule('patients', this)">Patients</button>
-          <button data-doctor-module="consultations" onclick="switchDoctorModule('consultations', this)">Consultations</button>
-          <button data-doctor-module="history" onclick="switchDoctorModule('history', this)">Medical History</button>
-          <button data-doctor-module="prescriptions" onclick="switchDoctorModule('prescriptions', this)">Prescriptions</button>
-          <button data-doctor-module="reports" onclick="switchDoctorModule('reports', this)">Reports</button>
-        </nav>
-        <div class="doc-sidebar-footer">
-          <button onclick="showToast('Help and support is available through the clinic administrator.', 'info')">Help &amp; Support</button>
-          <button onclick="logout()">Log Out</button>
-        </div>
-      </aside>
-      <div class="doc-dashboard-content">
-      <div class="doc-page-heading">
-        <div>
-          <span class="doc-breadcrumb">VillageMed / Clinical workspace</span>
-          <h2>Doctor Dashboard</h2>
-          <p>Overview of today's clinical activity</p>
-        </div>
-        <div class="doc-heading-status"><span class="status-dot-green">●</span> Online and ready</div>
-      </div>
-      <!-- 1. Doctor Overview Header Stats Strip -->
-      <div class="doc-top-row doctor-module doctor-module-overview" id="doc-overview-top-row">
-        <!-- 3 Pastel Summary Cards -->
-        <div class="doc-stats-grid">
-          <div class="metric-card metric-card-blue doc-metric-card">
-            <div class="metric-icon blue">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="6" height="18" rx="2"/><rect x="14" y="3" width="6" height="18" rx="2"/><line x1="7" y1="8" x2="7" y2="10"/><line x1="17" y1="8" x2="17" y2="10"/></svg>
-            </div>
-            <div class="metric-info">
-              <span class="label">Patient Queue</span>
-              <div class="value" id="doc-stat-queue">1 Waiting</div>
-              <span class="subtext">Ordered by vital urgency</span>
+      <div class="doc-portal-layout">
+        <!-- Persistent Left Sidebar -->
+        <aside class="doc-sidebar" id="doc-sidebar">
+          <div class="doc-sidebar-brand">
+            <div class="doc-sidebar-badge-icon">✚</div>
+            <div class="doc-sidebar-brand-text">
+              <span class="brand-title">Doctor Portal</span>
+              <span class="brand-sub">VillageMed Tele-Health</span>
             </div>
           </div>
-          <div class="metric-card metric-card-red doc-metric-card">
-            <div class="metric-icon red">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            </div>
-            <div class="metric-info">
-              <span class="label">Critical Priority</span>
-              <div class="value" id="doc-stat-critical">0 Cases</div>
-              <span class="subtext">Flagged SpO2 &amp; BP anomalies</span>
+
+          <div class="doc-sidebar-doctor-profile">
+            <div class="doc-profile-avatar" id="doc-sidebar-avatar">DV</div>
+            <div class="doc-profile-info">
+              <span class="doc-profile-name" id="doc-sidebar-name">Dr. Vikram</span>
+              <span class="doc-profile-spec" id="doc-sidebar-spec">General Medicine</span>
             </div>
           </div>
-          <div class="metric-card metric-card-green doc-metric-card">
-            <div class="metric-icon green">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+
+          <nav class="doc-sidebar-nav">
+            <button type="button" class="doc-nav-item active" data-module="overview" onclick="switchDoctorModule('overview')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              <span>Overview</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="queue" onclick="switchDoctorModule('queue')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>Patient Queue</span>
+              <span class="doc-nav-pill-badge" id="doc-nav-queue-count">0</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="appointments" onclick="switchDoctorModule('appointments')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span>Appointments</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="patients" onclick="switchDoctorModule('patients')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Patients</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="consultations" onclick="switchDoctorModule('consultations')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+              <span>Consultations</span>
+              <span class="doc-nav-live-dot" id="doc-nav-consult-live" style="display:none;" title="Active Consultation Live">● LIVE</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="history" onclick="switchDoctorModule('history')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <span>Medical History</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="prescriptions" onclick="switchDoctorModule('prescriptions')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="10" y1="8" x2="16" y2="8"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+              <span>Prescriptions</span>
+            </button>
+
+            <button type="button" class="doc-nav-item" data-module="reports" onclick="switchDoctorModule('reports')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <span>Reports</span>
+            </button>
+          </nav>
+        </aside>
+
+        <!-- Main Workspace Area -->
+        <div class="doc-workspace-main">
+          <!-- Workspace Header / Breadcrumb -->
+          <div class="doc-workspace-header">
+            <div class="doc-header-titles">
+              <h2 id="doc-module-title">Doctor Dashboard Overview</h2>
+              <p id="doc-module-subtitle">Daily clinical summary and quick status metrics</p>
             </div>
-            <div class="metric-info">
-              <span class="label">Consulted Today</span>
-              <div class="value" id="doc-stat-consulted">0 Patients</div>
-              <span class="subtext">Digital prescriptions saved</span>
+            <div class="doc-header-actions" id="doc-header-actions-container">
+              <!-- Actions dynamically injected -->
             </div>
           </div>
-          <div class="metric-card metric-card-blue doc-metric-card">
-            <div class="metric-icon blue">▣</div>
-            <div class="metric-info">
-              <span class="label">Pending Appointments</span>
-              <div class="value" id="doc-stat-pending">0</div>
-              <span class="subtext">Awaiting doctor action</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <!-- Critical Vitals Alerts Strip -->
-      <div id="doc-critical-alerts-strip" class="doctor-module doctor-module-overview"></div>
+          <!-- MODULE PANES: ONLY ONE VISIBLE AT A TIME -->
 
-      <!-- Doctor Operations: appointments, patients, reports and history -->
-      <div class="doc-operations-grid" id="doc-operations-section">
-        <div class="card doc-card doc-operations-card doc-appointments-card doctor-module doctor-module-appointments doctor-module-overview" id="doc-appointments-module">
-          <div class="card-title-bar doc-card-header">
-            <div>
-              <h3>Today's Appointments</h3>
-              <span class="doc-section-subtitle" id="doc-appointments-date"></span>
-            </div>
-            <div class="doc-appointment-toolbar">
-              <select id="doc-appointment-view" class="form-input doc-appointment-filter" onchange="renderDoctorAppointments()">
-                <option value="today">Today</option>
-                <option value="upcoming">Upcoming</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-              <span class="badge-pill-count" id="doc-appointments-count">0</span>
-            </div>
-          </div>
-          <div class="table-wrapper">
-            <table class="doc-table">
-              <thead><tr><th>Patient</th><th>Date / time</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
-              <tbody id="doc-today-appointments-tbody"></tbody>
-            </table>
-          </div>
-          <div class="doc-schedule-controls">
-            <strong>Available time slots</strong>
-            <label>Working hours <input type="time" id="doc-work-start" value="09:00"> – <input type="time" id="doc-work-end" value="17:00"></label>
-            <button type="button" class="btn-secondary" onclick="saveDoctorSchedule()">Save hours</button>
-            <button type="button" class="btn-secondary" onclick="addDoctorSlot()">Add slot</button>
-            <span id="doc-slot-list" class="doc-slot-list"></span>
-          </div>
-          <form class="doc-schedule-form" onsubmit="scheduleDoctorConsultation(event)">
-            <strong>Schedule video consultation</strong>
-            <select id="doc-schedule-patient" class="form-input" required onchange="renderDoctorMedicalHistory(this.value)">
-              <option value="">Select patient</option>
-            </select>
-            <input type="date" id="doc-schedule-date" class="form-input" required>
-            <input type="time" id="doc-schedule-time" class="form-input" required>
-            <select id="doc-schedule-duration" class="form-input">
-              <option value="15">15 minutes</option>
-              <option value="20" selected>20 minutes</option>
-              <option value="30">30 minutes</option>
-            </select>
-            <select id="doc-schedule-type" class="form-input">
-              <option value="Video">🎥 Video Consultation</option>
-              <option value="Audio">🎙️ Audio Consultation</option>
-            </select>
-            <input type="text" id="doc-schedule-reason" class="form-input" placeholder="Reason for consultation" required>
-            <button type="submit" class="btn-primary">Send Appointment</button>
-          </form>
-        </div>
-
-        <div class="card doc-card doc-operations-card doctor-module doctor-module-patients" id="doc-patients-module">
-          <div class="card-title-bar doc-card-header">
-            <h3>Patient List</h3>
-            <span class="badge-pill-count" id="doc-patient-count">0</span>
-          </div>
-          <input type="search" id="doc-patient-list-search" class="doc-search-input doc-inline-search" placeholder="Search patients..." oninput="renderDoctorPatientList(this.value)">
-          <div class="doc-patient-list" id="doc-patient-list"></div>
-        </div>
-
-        <div class="card doc-card doc-operations-card doctor-module doctor-module-reports doctor-module-overview" id="doc-reports-module">
-          <div class="card-title-bar doc-card-header">
-            <h3>Reports</h3>
-            <span class="doc-section-subtitle">Live summary</span>
-          </div>
-          <div class="doc-report-grid" id="doc-report-grid"></div>
-        </div>
-
-        <div class="card doc-card doc-operations-card doctor-module doctor-module-history doctor-module-overview" id="doc-history-module">
-          <div class="card-title-bar doc-card-header">
-            <h3>Patient Medical History</h3>
-            <span class="doc-section-subtitle">Consultations and prescriptions</span>
-          </div>
-          <select id="doc-history-patient-select" class="form-input doc-history-select" onchange="renderDoctorMedicalHistory(this.value)">
-            <option value="">Select a patient</option>
-          </select>
-          <div id="doc-medical-history-content" class="doc-medical-history-empty">Select a patient to view previous consultations, prescriptions, diagnoses, allergies and existing conditions.</div>
-        </div>
-      </div>
-
-      <!-- 2. Wide Patient Search Bar Row -->
-      <div class="doc-search-bar-row doctor-module doctor-module-queue" id="doc-overview-search-row">
-        <input type="text" id="doc-search-patient" class="doc-search-input" placeholder="Search patient by name or token ID..." oninput="docSearchQueue(this.value)">
-        <button type="button" class="doc-search-btn" onclick="docSearchQueue(document.getElementById('doc-search-patient').value)">Search</button>
-      </div>
-
-      <!-- 3. Patient Waiting Queue Card -->
-      <div class="card col-12 doc-card doctor-module doctor-module-queue" id="doc-queue-section">
-        <div class="card-title-bar doc-card-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-            <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Active Consultation Queue</h3>
-          </div>
-          <div class="doc-queue-summary">
-            <span class="doc-queue-state">Waiting <b id="doc-queue-waiting">0</b></span>
-            <span class="doc-queue-state">In Consultation <b id="doc-queue-active">0</b></span>
-            <span class="doc-queue-state">Completed <b id="doc-queue-completed">0</b></span>
-            <span class="doc-queue-state">No-show <b id="doc-queue-noshow">0</b></span>
-            <span class="badge-pill-count" id="doc-queue-count-badge">0 patients</span>
-          </div>
-        </div>
-        <div class="table-wrapper">
-          <table class="doc-table">
-            <thead>
-              <tr>
-                <th>Token</th>
-                <th>Patient</th>
-                <th>Symptoms</th>
-                <th>Vitals (BP / Sugar / Temp / SpO2)</th>
-                <th>Triage Priority</th>
-                <th>Doctor</th>
-                <th style="text-align: right; padding-right: 20px;">Action</th>
-              </tr>
-            </thead>
-            <tbody id="doc-queue-tbody">
-              <!-- Injected dynamically by JS -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- 4. Active Consultation Room (3-Column Tele-Health Suite) -->
-      <div class="card col-12 doc-card doc-live-suite-card doctor-module doctor-module-consultations doctor-module-prescriptions" id="doc-consultation-section" style="display: none;">
-        <!-- Consultation Suite Header -->
-        <div class="card-title-bar doc-consult-header">
-          <div class="doc-consult-brand">
-            <h3>🎥 Consultation: <span id="doc-call-pat-name">Patient</span></h3>
-            <span class="doc-consult-doctor-badge">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.5 8.5 0 0 1 13 0"/></svg>
-              <span id="doc-session-doctor-name">Dr. Abinesh V</span> | <small>MD, General Medicine</small>
-            </span>
-          </div>
-          <div class="doc-consult-header-actions">
-            <span class="live-session-pill"><span class="pulse-dot"></span> Live Session</span>
-            <span class="call-duration-timer" id="doc-call-timer">⏱ 00:00:00</span>
-            <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
-            <button class="btn-action" onclick="retryDoctorCall()">Retry Call</button>
-            <button class="btn-action" onclick="switchDoctorToAudio()">Audio Call</button>
-            <button class="btn-action" onclick="rescheduleActiveDoctorCall()">Reschedule</button>
-            <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
-          </div>
-        </div>
-
-        <!-- 3-Column Consultation Grid -->
-        <div class="doc-consultation-grid">
-          <!-- Column 1: Video Call Viewport & lower Network Telemetry Card -->
-          <div class="doc-col-video">
-            <!-- Camera Permission Help Strip (shown when browser blocks webcam) -->
-            <div class="cam-permission-strip" id="doc-cam-perm-strip" style="display: none;">
-              <span>🔒 Camera access is unavailable. Allow camera permission to start live video.</span>
-              <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
-            </div>
-            <div class="call-viewport doc-call-viewport" id="doc-viewport-container">
-              <div class="main-feed-container">
-                <!-- Floating Patient Tag -->
-                <div class="patient-floating-badge" id="doc-patient-tag">
-                  <span class="green-dot">●</span>
-                  <span id="doc-call-tag-name">Patient</span>
-                  <span class="tag-role">Patient</span>
-                </div>
-
-                <!-- WebRTC Remote Feed & Fallback Canvas -->
-                <canvas id="doc-remote-canvas" class="main-canvas"></canvas>
-                <div id="doc-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
-                
-                <!-- Recording Status Overlay -->
-                <div class="recording-status-overlay" id="doc-recording-status" style="display: none;">
-                  <span class="ai-pulse"></span>
-                  <span>REC SECURE: <span id="doc-rec-timer">00:00</span></span>
-                </div>
-
-                <!-- Voice Translation Transcript Overlay -->
-                <div class="translation-transcript-box" id="doc-translation-overlay" style="display: none;">
-                  <span class="translation-original" id="doc-trans-orig">Patient: ...</span>
-                  <span class="translation-arrow">➔</span>
-                  <span class="translation-result" id="doc-trans-res">...</span>
-                </div>
-
-                <!-- Audio-only Avatar Fallback -->
-                <div class="remote-avatar-fallback" id="doc-remote-audio-fallback">
-                  <div class="remote-avatar-circle" id="doc-patient-initials">JD</div>
-                  <h4 id="doc-call-pat-audio-name">Patient (Audio-Only Mode)</h4>
-                  <p>Vitals shared below. Video closed to sustain low-bandwidth link.</p>
-                  <div class="audio-waves-container">
-                    <div class="wave-bar"></div>
-                    <div class="wave-bar"></div>
-                    <div class="wave-bar"></div>
-                    <div class="wave-bar"></div>
-                    <div class="wave-bar"></div>
+          <!-- 1. OVERVIEW MODULE -->
+          <div class="doc-module-pane active" id="doc-pane-overview">
+            <!-- Header Stats Strip -->
+            <div class="doc-top-row" id="doc-overview-top-row">
+              <div class="doc-stats-grid">
+                <div class="metric-card metric-card-blue doc-metric-card" onclick="switchDoctorModule('queue')" style="cursor: pointer;">
+                  <div class="metric-icon blue">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="6" height="18" rx="2"/><rect x="14" y="3" width="6" height="18" rx="2"/><line x1="7" y1="8" x2="7" y2="10"/><line x1="17" y1="8" x2="17" y2="10"/></svg>
+                  </div>
+                  <div class="metric-info">
+                    <span class="label">Patient Queue</span>
+                    <div class="value" id="doc-stat-queue">1 Waiting</div>
+                    <span class="subtext">Ordered by vital urgency</span>
                   </div>
                 </div>
-
-              </div>
-
-              <!-- Doctor video feed -->
-              <div class="local-pip-feed doc-local-pip">
-                <canvas id="doc-local-canvas" class="local-pip-canvas"></canvas>
-                <div id="doc-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
-                <div class="pip-label" id="doc-pip-label">Dr. Abinesh V</div>
-              </div>
-
-              <!-- Floating Call Controls Bar -->
-              <div class="call-control-bar doc-call-controls-bar">
-                <div class="call-quality-indicator">
-                  <span class="quality-label" id="doc-conn-text">📶 720p HD • Full Video</span>
-                  <div class="signal-bar-group" id="doc-sig-bars" style="display: none;">
-                    <div class="sig-bar sig-1 active"></div>
-                    <div class="sig-bar sig-2 active"></div>
-                    <div class="sig-bar sig-3 active"></div>
-                    <div class="sig-bar sig-4 active"></div>
+                <div class="metric-card metric-card-red doc-metric-card" onclick="switchDoctorModule('queue')" style="cursor: pointer;">
+                  <div class="metric-icon red">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </div>
+                  <div class="metric-info">
+                    <span class="label">Critical Priority</span>
+                    <div class="value" id="doc-stat-critical">0 Cases</div>
+                    <span class="subtext">Flagged SpO2 &amp; BP anomalies</span>
                   </div>
                 </div>
-                
-                <div class="call-btns doc-center-btns">
-                  <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')" title="Toggle Mic">🎙️</button>
-                  <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')" title="Toggle Camera">📷</button>
-                  <button class="btn-circle active" id="doc-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
-                  <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Consultation">📞</button>
+                <div class="metric-card metric-card-green doc-metric-card" onclick="switchDoctorModule('reports')" style="cursor: pointer;">
+                  <div class="metric-icon green">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  </div>
+                  <div class="metric-info">
+                    <span class="label">Consulted Today</span>
+                    <div class="value" id="doc-stat-consulted">0 Patients</div>
+                    <span class="subtext">Digital prescriptions saved</span>
+                  </div>
                 </div>
+              </div>
+            </div>
 
-                <div class="doc-audio-translate-pill">
-                  <span>🌐</span>
-                  <select id="doc-patient-lang" onchange="window.updateTranslatorSettings()" class="translate-select">
-                    <option value="ta-IN">Tamil (தமிழ்)</option>
-                    <option value="hi-IN">Hindi (हिन्दी)</option>
-                    <option value="en-IN">English</option>
-                  </select>
-                  <select id="doc-target-lang" onchange="window.updateTranslatorSettings()" class="translate-select" style="display: none;">
-                    <option value="ta-IN">Tamil (தமிழ்)</option>
-                    <option value="hi-IN">Hindi (हिन्दी)</option>
-                    <option value="en-IN">English</option>
+            <!-- Critical Vitals Alerts Strip -->
+            <div id="doc-critical-alerts-strip"></div>
+
+            <!-- Overview Dashboard Summary Grid -->
+            <div class="doc-overview-summary-grid">
+              <!-- Active Queue Quick Glance -->
+              <div class="card doc-card">
+                <div class="card-title-bar doc-card-header">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <h3 style="color: #2563eb; font-size: 15px; font-weight: 700; margin: 0;">Active Queue Glance</h3>
+                  </div>
+                  <button type="button" class="btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="switchDoctorModule('queue')">View Full Queue ➔</button>
+                </div>
+                <div class="table-wrapper">
+                  <table class="doc-table">
+                    <thead>
+                      <tr>
+                        <th>Token</th>
+                        <th>Patient</th>
+                        <th>Symptoms</th>
+                        <th>Triage</th>
+                        <th style="text-align: right;">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="doc-overview-queue-summary">
+                      <!-- Populated via JS -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Today's Appointments Summary Card -->
+              <div class="card doc-card">
+                <div class="card-title-bar doc-card-header">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <h3 style="color: #059669; font-size: 15px; font-weight: 700; margin: 0;">Today's Appointments</h3>
+                  </div>
+                  <button type="button" class="btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="switchDoctorModule('appointments')">Manage All ➔</button>
+                </div>
+                <div class="table-wrapper">
+                  <table class="doc-table">
+                    <thead>
+                      <tr>
+                        <th>Token / Time</th>
+                        <th>Patient Name</th>
+                        <th>Status</th>
+                        <th style="text-align: right;">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="doc-overview-app-summary">
+                      <!-- Populated via JS -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Completed Consultations Summary -->
+            <div class="card doc-card" style="margin-top: 16px;">
+              <div class="card-title-bar doc-card-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <h3 style="color: #4f46e5; font-size: 15px; font-weight: 700; margin: 0;">Recent Consultations Summary</h3>
+                </div>
+                <button type="button" class="btn-secondary" style="font-size: 12px; padding: 4px 10px;" onclick="switchDoctorModule('reports')">View All Reports ➔</button>
+              </div>
+              <div class="table-wrapper">
+                <table class="doc-table">
+                  <thead>
+                    <tr>
+                      <th>Token / Date</th>
+                      <th>Patient</th>
+                      <th>Diagnosis Findings</th>
+                      <th>Medicines Dispensed</th>
+                      <th>Referral</th>
+                    </tr>
+                  </thead>
+                  <tbody id="doc-overview-completed-summary">
+                    <!-- Populated via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. PATIENT QUEUE MODULE -->
+          <div class="doc-module-pane" id="doc-pane-queue">
+            <!-- Patient Search Bar Row -->
+            <div class="doc-search-bar-row" id="doc-overview-search-row">
+              <input type="text" id="doc-search-patient" class="doc-search-input" placeholder="Search waiting queue by patient name, symptoms, or token ID..." oninput="docSearchQueue(this.value)">
+              <button type="button" class="doc-search-btn" onclick="docSearchQueue(document.getElementById('doc-search-patient').value)">Search Queue</button>
+            </div>
+
+            <!-- Patient Waiting Queue Card -->
+            <div class="card col-12 doc-card" id="doc-queue-section">
+              <div class="card-title-bar doc-card-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Active Consultation Queue</h3>
+                </div>
+                <span class="badge-pill-count" id="doc-queue-count-badge" style="display: none;">0 patients</span>
+              </div>
+              <div class="table-wrapper">
+                <table class="doc-table">
+                  <thead>
+                    <tr>
+                      <th>Token</th>
+                      <th>Patient</th>
+                      <th>Symptoms</th>
+                      <th>Vitals (BP / Sugar / Temp / SpO2)</th>
+                      <th>Triage Priority</th>
+                      <th>Doctor</th>
+                      <th style="text-align: right; padding-right: 20px;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="doc-queue-tbody">
+                    <!-- Injected dynamically by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. APPOINTMENTS MODULE -->
+          <div class="doc-module-pane" id="doc-pane-appointments">
+            <div class="card doc-card">
+              <div class="card-title-bar doc-card-header" style="flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <h3 style="color: #059669; font-size: 16px; font-weight: 700; margin: 0;">Appointment Management</h3>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="text" id="doc-app-search" class="form-input" style="width: 220px; font-size: 13px; margin: 0;" placeholder="Search appointments..." oninput="renderDoctorAppointments(this.value)">
+                  <select id="doc-app-filter" class="form-input" style="width: 140px; font-size: 13px; margin: 0;" onchange="renderDoctorAppointments()">
+                    <option value="all">All Statuses</option>
+                    <option value="Waiting" selected>Waiting / Active</option>
+                    <option value="Completed">Completed</option>
                   </select>
                 </div>
               </div>
-
-              <!-- Network Bandwidth Simulator Select (Hidden / Compact) -->
-              <div class="simulator-controls" style="display: none;">
-                <select id="doc-net-sim" onchange="simulateNetworkChange(this.value)">
-                  <option value="excellent">Excellent Signal (1080p HD)</option>
-                  <option value="good" selected>Good Signal (720p HD)</option>
-                  <option value="poor">Poor Signal (360p Low-Res)</option>
-                  <option value="critical">Critical Signal (Audio-only)</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Lower Network Telemetry Card -->
-            <div class="doc-telemetry-panel" id="doc-telemetry-hud">
-              <div class="telemetry-card-header">
-                <span class="telemetry-card-title">● Network Telemetry</span>
-                <span class="telemetry-badge-good" id="doc-hud-prediction">● GOOD</span>
-              </div>
-              <div class="telemetry-stats-grid">
-                <div class="tel-stat-item"><span>Latency</span><strong id="doc-hud-latency">43 ms</strong></div>
-                <div class="tel-stat-item"><span>Packet Loss</span><strong id="doc-hud-loss">0.8%</strong></div>
-                <div class="tel-stat-item"><span>FPS</span><strong id="doc-hud-fps">30</strong></div>
-                <div class="tel-stat-item"><span>Upload</span><strong id="doc-hud-upload">2.4 Mbps</strong></div>
-                <div class="tel-stat-item"><span>Download</span><strong id="doc-hud-download">5.1 Mbps</strong></div>
-                <div class="tel-stat-item"><span>Video Quality</span><strong id="doc-hud-rec">720p HD</strong></div>
-              </div>
-              <div class="telemetry-failover-track">
-                <span class="failover-title">Auto Failover:</span>
-                <div class="progression-steps">
-                  <div class="prog-step active"><span>GOOD</span><small>720p HD</small></div>
-                  <span class="prog-arrow">&gt;</span>
-                  <div class="prog-step"><span>POOR</span><small>360p</small></div>
-                  <span class="prog-arrow">&gt;</span>
-                  <div class="prog-step"><span>CRITICAL</span><small>Audio Only</small></div>
-                </div>
-              </div>
-              <div class="telemetry-status-banner">
-                Full Video Active — All systems nominal. Video + Audio streaming.
+              <div class="table-wrapper">
+                <table class="doc-table">
+                  <thead>
+                    <tr>
+                      <th>Token / Date</th>
+                      <th>Patient Name</th>
+                      <th>Age / Gender</th>
+                      <th>Symptoms</th>
+                      <th>Specialty / Doctor</th>
+                      <th>Status</th>
+                      <th style="text-align: right; padding-right: 20px;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="doc-appointments-tbody">
+                    <!-- Populated dynamically via JS -->
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
 
-          <!-- Column 2: Consultation Chat & Shared Files Tabs -->
-          <div class="doc-col-chat">
-            <div class="doc-chat-card">
-              <div class="doc-chat-tabs-header">
-                <button class="doc-tab-switcher-btn active" id="doc-tab-chat" onclick="switchCallTab('doc', 'chat')">💬 Chat</button>
-                <button class="doc-tab-switcher-btn" id="doc-tab-files" onclick="switchCallTab('doc', 'files')">🩺 Vitals</button>
-              </div>
-
-              <!-- Chat Pane -->
-              <div class="tab-pane active doc-chat-pane" id="doc-pane-chat">
-                <div class="doc-chat-title-bar">
-                  <span>💬 Consultation Chat</span>
-                  <span class="doc-e2e-badge">🔒 E2E Encrypted</span>
+          <!-- 4. PATIENTS MODULE -->
+          <div class="doc-module-pane" id="doc-pane-patients">
+            <div class="card doc-card">
+              <div class="card-title-bar doc-card-header" style="flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                  <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Registered Patient Directory</h3>
                 </div>
-                <div class="chat-history doc-chat-history" id="doc-chat-box">
-                  <!-- Dynamic chat bubbles -->
-                </div>
-                <div class="doc-chat-input-row">
-                  <input type="text" id="doc-chat-input" class="doc-chat-input" placeholder="Type a message..." onkeydown="if(event.key === 'Enter') sendChatMessage('doc')">
-                  <button class="doc-chat-send-btn" onclick="sendChatMessage('doc')" title="Send Message">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  </button>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="text" id="doc-pat-search" class="form-input" style="width: 240px; font-size: 13px; margin: 0;" placeholder="Search patient by ID, name or village..." oninput="renderDoctorPatients(this.value)">
                 </div>
               </div>
+              <div class="table-wrapper">
+                <table class="doc-table">
+                  <thead>
+                    <tr>
+                      <th>Patient ID</th>
+                      <th>Name</th>
+                      <th>Age / Gender</th>
+                      <th>Phone</th>
+                      <th>Village Clinic</th>
+                      <th>Past History</th>
+                      <th style="text-align: right; padding-right: 20px;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="doc-patients-tbody">
+                    <!-- Populated dynamically via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-              <!-- Vitals & Files Tab Pane -->
-              <div class="tab-pane doc-files-pane" id="doc-pane-files">
-                <div class="shared-files-section">
-                  <h4>Consultation Vitals Summary</h4>
-                  <div class="vitals-grid" id="doc-call-vitals-box"></div>
+            <!-- Patient Detail Drawer / Card Container -->
+            <div id="doc-patient-detail-drawer" style="display: none; margin-top: 16px;">
+              <!-- Dynamic details populated by JS -->
+            </div>
+          </div>
+
+          <!-- 5. CONSULTATIONS MODULE -->
+          <div class="doc-module-pane" id="doc-pane-consultations">
+            <!-- Active Consultation Room Placeholder (Shown when no call active) -->
+            <div class="card doc-card" id="doc-no-active-call-card">
+              <div style="text-align: center; padding: 40px 20px;">
+                <div style="font-size: 44px; margin-bottom: 12px;">🩺</div>
+                <h3 style="color: var(--text-color); font-size: 18px; margin-bottom: 6px;">No Active Consultation Session</h3>
+                <p style="color: var(--text-muted); font-size: 13px; max-width: 480px; margin: 0 auto 20px;">Select a waiting patient from the queue or appointments to begin a live tele-health consultation video session.</p>
+                <button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">Open Patient Queue ➔</button>
+              </div>
+            </div>
+
+            <!-- Active Consultation Room (3-Column Tele-Health Suite) -->
+            <div class="card col-12 doc-card doc-live-suite-card" id="doc-consultation-section" style="display: none;">
+              <!-- Consultation Suite Header -->
+              <div class="card-title-bar doc-consult-header">
+                <div class="doc-consult-brand">
+                  <h3>🎥 Consultation: <span id="doc-call-pat-name">Patient</span></h3>
+                  <span class="doc-consult-doctor-badge">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.5 8.5 0 0 1 13 0"/></svg>
+                    <span id="doc-session-doctor-name">Dr. Abinesh V</span> | <small>MD, General Medicine</small>
+                  </span>
                 </div>
-                <div class="shared-files-section" style="margin-top: 14px;">
-                  <h4>Shared Images / Wound Photos</h4>
-                  <div class="file-sharing-grid" id="doc-call-files-box"></div>
+                <div class="doc-consult-header-actions">
+                  <span class="live-session-pill"><span class="pulse-dot"></span> Live Session</span>
+                  <span class="call-duration-timer" id="doc-call-timer">⏱ 00:00:00</span>
+                  <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
+                  <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
+                </div>
+              </div>
+
+              <!-- 3-Column Consultation Grid -->
+              <div class="doc-consultation-grid">
+                <!-- Column 1: Video Call Viewport & Network Telemetry -->
+                <div class="doc-col-video">
+                  <!-- Camera Permission Strip -->
+                  <div class="cam-permission-strip" id="doc-cam-perm-strip" style="display: none;">
+                    <span>🔒 Browser blocked camera. Showing Simulated Medical Feed.</span>
+                    <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
+                  </div>
+                  <div class="call-viewport doc-call-viewport" id="doc-viewport-container">
+                    <div class="main-feed-container">
+                      <div class="patient-floating-badge" id="doc-patient-tag">
+                        <span class="green-dot">●</span>
+                        <span id="doc-call-tag-name">Patient</span>
+                        <span class="tag-role">Patient</span>
+                      </div>
+
+                      <canvas id="doc-remote-canvas" class="main-canvas"></canvas>
+                      <div id="doc-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
+                      
+                      <div class="recording-status-overlay" id="doc-recording-status" style="display: none;">
+                        <span class="ai-pulse"></span>
+                        <span>REC SECURE: <span id="doc-rec-timer">00:00</span></span>
+                      </div>
+
+                      <div class="translation-transcript-box" id="doc-translation-overlay" style="display: none;">
+                        <span class="translation-original" id="doc-trans-orig">Patient: ...</span>
+                        <span class="translation-arrow">➔</span>
+                        <span class="translation-result" id="doc-trans-res">...</span>
+                      </div>
+
+                      <div class="remote-avatar-fallback" id="doc-remote-audio-fallback">
+                        <div class="remote-avatar-circle" id="doc-patient-initials">JD</div>
+                        <h4 id="doc-call-pat-audio-name">Patient (Audio-Only Mode)</h4>
+                        <p>Vitals shared below. Video closed to sustain low-bandwidth link.</p>
+                        <div class="audio-waves-container">
+                          <div class="wave-bar"></div>
+                          <div class="wave-bar"></div>
+                          <div class="wave-bar"></div>
+                          <div class="wave-bar"></div>
+                          <div class="wave-bar"></div>
+                        </div>
+                      </div>
+
+                      <!-- Local Doctor PIP -->
+                      <div class="local-pip-feed doc-local-pip" id="doc-local-pip-box">
+                        <canvas id="doc-local-canvas" class="local-pip-canvas"></canvas>
+                        <div id="doc-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
+                        <div class="pip-label" id="doc-pip-label">Dr. Abinesh V</div>
+                      </div>
+                    </div>
+
+                    <!-- Floating Bar Bottom -->
+                    <div class="doc-call-controls-bar">
+                      <div class="doc-left-status">
+                        <span class="quality-label" id="doc-conn-text">📶 720p HD • Full Video</span>
+                        <div class="signal-bar-group" id="doc-sig-bars" style="display: none;">
+                          <div class="sig-bar active"></div>
+                          <div class="sig-bar active"></div>
+                          <div class="sig-bar active"></div>
+                          <div class="sig-bar"></div>
+                        </div>
+                      </div>
+                      <div class="doc-center-btns">
+                        <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')" title="Toggle Mic">🎙️</button>
+                        <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')" title="Toggle Camera">📷</button>
+                        <button class="btn-circle active" id="doc-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
+                      </div>
+                      <div class="doc-right-tools">
+                        <div class="translator-selector-strip" style="margin-right: 8px;">
+                          <span>🗣️ AI Translate:</span>
+                          <select id="doc-patient-lang" onchange="window.updateTranslatorSettings()" class="translate-select">
+                            <option value="ta" selected>Tamil (Patient)</option>
+                            <option value="hi">Hindi (Patient)</option>
+                            <option value="te">Telugu (Patient)</option>
+                            <option value="en">English (Patient)</option>
+                          </select>
+                          <select id="doc-target-lang" onchange="window.updateTranslatorSettings()" class="translate-select" style="display: none;">
+                            <option value="en" selected>to English</option>
+                          </select>
+                        </div>
+                        <div class="simulator-controls">
+                          <label for="doc-net-sim">Signal:</label>
+                          <select id="doc-net-sim" onchange="simulateNetworkChange(this.value)">
+                            <option value="excellent">Excellent (1080p HD)</option>
+                            <option value="good" selected>Good (720p HD)</option>
+                            <option value="fair">Fair (480p SD)</option>
+                            <option value="poor">Poor (360p Low-Res)</option>
+                            <option value="verypoor">Very Poor (240p)</option>
+                            <option value="critical">Critical (Audio-only)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Network Telemetry Panel -->
+                  <div class="doc-telemetry-panel" id="doc-telemetry-hud">
+                    <div class="telemetry-panel-header">
+                      <span>⚡ Network Telemetry &amp; Adaptive Quality</span>
+                      <span class="telemetry-badge-good" id="doc-hud-prediction">● GOOD</span>
+                    </div>
+                    <div class="doc-network-telemetry-grid">
+                      <div class="tel-stat-item"><span>Latency</span><strong id="doc-hud-latency">43 ms</strong></div>
+                      <div class="tel-stat-item"><span>Packet Loss</span><strong id="doc-hud-loss">0.8%</strong></div>
+                      <div class="tel-stat-item"><span>FPS</span><strong id="doc-hud-fps">30</strong></div>
+                      <div class="tel-stat-item"><span>Upload</span><strong id="doc-hud-upload">2.4 Mbps</strong></div>
+                      <div class="tel-stat-item"><span>Download</span><strong id="doc-hud-download">5.1 Mbps</strong></div>
+                      <div class="tel-stat-item"><span>Video Quality</span><strong id="doc-hud-rec">720p HD</strong></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Column 2: Chat & Vitals Tabs -->
+                <div class="doc-col-chat">
+                  <div class="doc-sidebar-tab-box">
+                    <div class="doc-tab-switcher">
+                      <button class="doc-tab-switcher-btn active" id="doc-tab-chat" onclick="switchCallTab('doc', 'chat')">💬 Chat</button>
+                      <button class="doc-tab-switcher-btn" id="doc-tab-files" onclick="switchCallTab('doc', 'files')">🩺 Vitals</button>
+                    </div>
+
+                    <div class="doc-tab-body">
+                      <div class="tab-pane active doc-chat-pane" id="doc-pane-chat">
+                        <div class="doc-chat-encryption-bar">
+                          <span class="doc-e2e-badge">🔒 E2E Encrypted</span>
+                        </div>
+                        <div class="chat-history doc-chat-history" id="doc-chat-box">
+                          <!-- Dynamic chat bubbles -->
+                        </div>
+                        <div class="doc-chat-input-row">
+                          <input type="text" id="doc-chat-input" class="doc-chat-input" placeholder="Type a message..." onkeydown="if(event.key === 'Enter') sendChatMessage('doc')">
+                          <button class="doc-chat-send-btn" onclick="sendChatMessage('doc')" title="Send Message">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="tab-pane doc-files-pane" id="doc-pane-files">
+                        <div class="shared-files-section">
+                          <h4>Consultation Vitals Summary</h4>
+                          <div class="vitals-grid" id="doc-call-vitals-box"></div>
+                        </div>
+                        <div class="shared-files-section" style="margin-top: 14px;">
+                          <h4>Shared Images / Wound Photos</h4>
+                          <div class="file-sharing-grid" id="doc-call-files-box"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Column 3: Vitals & Reports Panel -->
+                <div class="doc-col-vitals">
+                  <div class="doc-vitals-card">
+                    <div class="doc-vitals-header">
+                      <h4>🩺 Vitals &amp; Reports</h4>
+                    </div>
+
+                    <div class="doc-vital-tiles-grid">
+                      <div class="doc-vital-tile tile-hr">
+                        <div class="tile-icon-circle">❤️</div>
+                        <div class="tile-meta">
+                          <span class="tile-label">Heart Rate</span>
+                          <div class="tile-value"><strong id="doc-call-hr">75</strong> <small>bpm</small></div>
+                        </div>
+                      </div>
+                      <div class="doc-vital-tile tile-temp">
+                        <div class="tile-icon-circle">🌡️</div>
+                        <div class="tile-meta">
+                          <span class="tile-label">Temperature</span>
+                          <div class="tile-value"><strong id="doc-call-temp">101.4</strong> <small>°F</small></div>
+                        </div>
+                      </div>
+                      <div class="doc-vital-tile tile-bp">
+                        <div class="tile-icon-circle">🩺</div>
+                        <div class="tile-meta">
+                          <span class="tile-label">Blood Pressure</span>
+                          <div class="tile-value"><strong id="doc-call-bp">120/80</strong> <small>mmHg</small></div>
+                        </div>
+                      </div>
+                      <div class="doc-vital-tile tile-spo2">
+                        <div class="tile-icon-circle">🫁</div>
+                        <div class="tile-meta">
+                          <span class="tile-label">SpO2</span>
+                          <div class="tile-value"><strong id="doc-call-spo2">98</strong> <small>%</small></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="doc-triage-alert-banner" id="doc-call-triage-banner">
+                      <div class="triage-text">
+                        <span>Triage Level:</span>
+                        <strong id="doc-call-triage-level">YELLOW — Non-Urgent</strong>
+                      </div>
+                      <span class="triage-warning-icon">⚠️</span>
+                    </div>
+
+                    <div class="doc-symptoms-section">
+                      <h5>Reported Symptoms</h5>
+                      <div class="doc-symptoms-tags-cloud" id="doc-call-symptoms-tags">
+                        <span class="symptom-tag">Fever (101.4°F)</span>
+                        <span class="symptom-tag">Sore Throat</span>
+                        <span class="symptom-tag">Body Aches</span>
+                      </div>
+                    </div>
+
+                    <div class="doc-patient-info-section">
+                      <h5>Patient Information</h5>
+                      <div class="patient-info-grid">
+                        <div class="pat-info-item"><span>Name</span><strong id="doc-call-info-name">Dharaneesh</strong></div>
+                        <div class="pat-info-item"><span>Age / Gender</span><strong id="doc-call-info-age-gender">30 / Male</strong></div>
+                        <div class="pat-info-item"><span>Token ID</span><strong id="doc-call-info-token">VIL-A-914</strong></div>
+                        <div class="pat-info-item"><span>Dispensary / Village</span><strong id="doc-call-info-village">Clinic A, Smart Network</strong></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Digital Prescription Workspace embedded inside Consultations -->
+              <div class="doc-prescription-workspace" style="margin-top: 24px;">
+                <div class="prescription-drawer-header">
+                  <span class="drawer-pill-tab">📄 Digital Prescription Workspace</span>
+                </div>
+
+                <div class="doc-prescription-split-grid">
+                  <!-- Left Form -->
+                  <div class="card doc-prescription-form-card">
+                    <div class="card-title-bar">
+                      <h3>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        Digital Prescription Form
+                      </h3>
+                    </div>
+                    <form id="doc-prescription-form" onsubmit="submitDigitalPrescription(event)">
+                      <div class="form-group">
+                        <label for="pres-diagnosis">Diagnosis / Findings</label>
+                        <textarea id="pres-diagnosis" class="form-input" placeholder="Write diagnosis notes here..." rows="3" required oninput="syncPrescriptionLabels()"></textarea>
+                      </div>
+                      
+                      <div class="form-group">
+                        <label>Add Medicines</label>
+                        <div class="pres-med-input-row">
+                          <select id="pres-med-name" class="form-input">
+                            <option value="Paracetamol 500mg">Paracetamol 500mg</option>
+                            <option value="Amoxicillin 250mg">Amoxicillin 250mg</option>
+                            <option value="Metoprolol 50mg">Metoprolol 50mg</option>
+                            <option value="Metformin 500mg">Metformin 500mg</option>
+                            <option value="Cough Syrup 100ml">Cough Syrup 100ml</option>
+                            <option value="ORSL Hydration Sachet">ORSL Hydration Sachet</option>
+                            <option value="Cetirizine 10mg">Cetirizine 10mg</option>
+                            <option value="Azithromycin 500mg">Azithromycin 500mg</option>
+                          </select>
+                          <input type="text" id="pres-med-freq" class="form-input" placeholder="Dosage (e.g. 1-0-1)">
+                          <input type="text" id="pres-med-duration" class="form-input" placeholder="Duration (e.g. 5 days)">
+                        </div>
+                        <button type="button" class="btn-dashed-add" onclick="addMedicineRow()">
+                          + Add Medicine to Prescription
+                        </button>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="pres-advice">Special Instructions / General Advice</label>
+                        <textarea id="pres-advice" class="form-input" placeholder="e.g. Drink plenty of water, avoid spicy food" rows="2" oninput="syncPrescriptionLabels()"></textarea>
+                      </div>
+
+                      <div class="doc-referral-alert-box">
+                        <label class="doc-checkbox-label">
+                          <input type="checkbox" id="pres-referral-check" onchange="syncPrescriptionLabels()">
+                          <span>Refer to District Specialist Hospital (Critical escalation)</span>
+                        </label>
+                      </div>
+
+                      <div class="doc-prescription-actions">
+                        <button type="submit" class="btn-primary doc-btn-generate">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+                          Generate Prescription
+                        </button>
+                        <button type="button" class="btn-secondary doc-btn-clear" onclick="resetPrescriptionForm()">Clear Form</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <!-- Right Preview Paper -->
+                  <div class="prescription-preview-panel doc-prescription-paper" id="prescription-print-zone">
+                    <div>
+                      <div class="prescription-header">
+                        <div class="dispensary-meta">
+                          <h4>VILLAGEMED SMART DISPENSARY</h4>
+                          <p id="pres-lbl-village">Village Clinic A • Smart Village Network • Tele-Health Suite</p>
+                        </div>
+                        <div class="doctor-stamp">
+                          <div class="doc-name" id="pres-lbl-doc">Dr. Abinesh V</div>
+                          <div class="doc-spec-sub">MD, General Medicine</div>
+                        </div>
+                      </div>
+
+                      <div class="prescription-meta-grid">
+                        <div class="meta-field"><span>Patient</span> <strong id="pres-lbl-pat-name">--</strong></div>
+                        <div class="meta-field"><span>Age / Gender</span> <strong id="pres-lbl-pat-age">--</strong></div>
+                        <div class="meta-field"><span>Date</span> <strong id="pres-lbl-date">--</strong></div>
+                        <div class="meta-field"><span>Token ID</span> <strong id="pres-lbl-token">--</strong></div>
+                        <div class="meta-field"><span>BP</span> <strong id="pres-lbl-bp">--</strong></div>
+                        <div class="meta-field"><span>SpO2 / HR</span> <strong id="pres-lbl-spo2">--</strong></div>
+                      </div>
+
+                      <div class="prescription-body">
+                        <div class="rx-header-title">Rx — <span>Prescribed Medications</span></div>
+                        <ul class="prescription-meds-list" id="pres-lbl-meds-list">
+                          <!-- Meds rows dynamically inserted -->
+                        </ul>
+
+                        <div class="pres-preview-section">
+                          <h6>Diagnosis Summary</h6>
+                          <div class="pres-preview-box" id="pres-lbl-diagnosis">—</div>
+                        </div>
+
+                        <div class="pres-preview-section">
+                          <h6>Advice &amp; Instructions</h6>
+                          <div class="pres-preview-box" id="pres-lbl-advice">—</div>
+                        </div>
+
+                        <div class="pres-preview-section">
+                          <h6>Referral Escalation</h6>
+                          <div class="pres-preview-box" id="pres-lbl-referral">⊘ No referral required</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="prescription-footer">
+                      <div>* Electronic Prescription generated via VillageMed Tele-Health Suite.</div>
+                      <div class="signature-line">Authorized Clinician</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Column 3: Vitals & Reports Panel -->
-          <div class="doc-col-vitals">
-            <div class="doc-vitals-card">
-              <div class="doc-vitals-header">
-                <h4>🩺 Vitals &amp; Reports</h4>
-              </div>
-
-              <!-- 2x2 Vital Tiles Grid -->
-              <div class="doc-vital-tiles-grid">
-                <div class="doc-vital-tile tile-hr">
-                  <div class="tile-icon-circle">❤️</div>
-                  <div class="tile-meta">
-                    <span class="tile-label">Heart Rate</span>
-                    <div class="tile-value"><strong id="doc-call-hr">75</strong> <small>bpm</small></div>
-                  </div>
+          <!-- 6. MEDICAL HISTORY MODULE -->
+          <div class="doc-module-pane" id="doc-pane-history">
+            <div class="card doc-card">
+              <div class="card-title-bar doc-card-header" style="flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Patient Medical Records &amp; History</h3>
                 </div>
-                <div class="doc-vital-tile tile-temp">
-                  <div class="tile-icon-circle">🌡️</div>
-                  <div class="tile-meta">
-                    <span class="tile-label">Temperature</span>
-                    <div class="tile-value"><strong id="doc-call-temp">101.4</strong> <small>°F</small></div>
-                  </div>
-                </div>
-                <div class="doc-vital-tile tile-bp">
-                  <div class="tile-icon-circle">🩺</div>
-                  <div class="tile-meta">
-                    <span class="tile-label">Blood Pressure</span>
-                    <div class="tile-value"><strong id="doc-call-bp">120/80</strong> <small>mmHg</small></div>
-                  </div>
-                </div>
-                <div class="doc-vital-tile tile-spo2">
-                  <div class="tile-icon-circle">🫁</div>
-                  <div class="tile-meta">
-                    <span class="tile-label">SpO2</span>
-                    <div class="tile-value"><strong id="doc-call-spo2">98</strong> <small>%</small></div>
-                  </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <select id="doc-history-pat-select" class="form-input" style="width: 260px; font-size: 13px; margin: 0;" onchange="renderDoctorMedicalHistory(this.value)">
+                    <option value="">Select Patient Record...</option>
+                  </select>
                 </div>
               </div>
 
-              <!-- Triage Level Alert -->
-              <div class="doc-triage-alert-banner" id="doc-call-triage-banner">
-                <div class="triage-text">
-                  <span>Triage Level:</span>
-                  <strong id="doc-call-triage-level">YELLOW — Non-Urgent</strong>
-                </div>
-                <span class="triage-warning-icon">⚠️</span>
-              </div>
-
-              <!-- Reported Symptoms Tags -->
-              <div class="doc-symptoms-section">
-                <h5>Reported Symptoms</h5>
-                <div class="doc-symptoms-tags-cloud" id="doc-call-symptoms-tags">
-                  <span class="symptom-tag">Fever (101.4°F)</span>
-                  <span class="symptom-tag">Sore Throat</span>
-                  <span class="symptom-tag">Body Aches</span>
-                  <span class="symptom-tag">Fatigue</span>
-                </div>
-              </div>
-
-              <!-- Patient Information Section -->
-              <div class="doc-patient-info-section">
-                <h5>Patient Information</h5>
-                <div class="patient-info-grid">
-                  <div class="pat-info-item"><span>Name</span><strong id="doc-call-info-name">Dharaneesh</strong></div>
-                  <div class="pat-info-item"><span>Age / Gender</span><strong id="doc-call-info-age-gender">30 / Male</strong></div>
-                  <div class="pat-info-item"><span>Token ID</span><strong id="doc-call-info-token">VIL-A-914</strong></div>
-                  <div class="pat-info-item"><span>Dispensary / Village</span><strong id="doc-call-info-village">Clinic A, Smart Network</strong></div>
-                </div>
+              <div id="doc-history-display-container">
+                <!-- Dynamically populated medical history view -->
               </div>
             </div>
           </div>
+
+          <!-- 7. PRESCRIPTIONS MODULE -->
+          <div class="doc-module-pane" id="doc-pane-prescriptions">
+            <div class="card doc-card" style="margin-bottom: 20px;">
+              <div class="card-title-bar doc-card-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Prescription History &amp; Generator</h3>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table class="doc-table">
+                  <thead>
+                    <tr>
+                      <th>Token / Date</th>
+                      <th>Patient Name</th>
+                      <th>Diagnosed Condition</th>
+                      <th>Prescribed Medicines</th>
+                      <th>Doctor</th>
+                      <th>Referral Status</th>
+                      <th style="text-align: right; padding-right: 20px;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="doc-prescriptions-history-tbody">
+                    <!-- Dynamic prescription records -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 8. REPORTS MODULE -->
+          <div class="doc-module-pane" id="doc-pane-reports">
+            <!-- Summary KPI Grid -->
+            <div class="doc-stats-grid" style="margin-bottom: 20px;">
+              <div class="metric-card metric-card-blue">
+                <div class="metric-icon blue">📊</div>
+                <div class="metric-info">
+                  <span class="label">Total Consultations</span>
+                  <div class="value" id="doc-rep-total">0</div>
+                  <span class="subtext">Recorded in dispensary system</span>
+                </div>
+              </div>
+              <div class="metric-card metric-card-green">
+                <div class="metric-icon green">✅</div>
+                <div class="metric-info">
+                  <span class="label">Completed Consultations</span>
+                  <div class="value" id="doc-rep-completed">0</div>
+                  <span class="subtext">Digital prescriptions issued</span>
+                </div>
+              </div>
+              <div class="metric-card metric-card-red">
+                <div class="metric-icon red">🚨</div>
+                <div class="metric-info">
+                  <span class="label">Critical Escalations</span>
+                  <div class="value" id="doc-rep-critical">0</div>
+                  <span class="subtext">Referred to District Hospital</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Historical Completed Consultations Table -->
+            <div class="card col-12 doc-card" id="doc-history-section">
+              <div class="card-title-bar doc-card-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Clinical Consultation Log &amp; Reports</h3>
+                </div>
+                <span class="badge-pill-count" id="doc-completed-count-badge" style="display: none;">Today</span>
+              </div>
+              <div class="table-wrapper">
+                <table class="doc-table">
+                  <thead>
+                    <tr>
+                      <th>Token / Date</th>
+                      <th>Patient</th>
+                      <th>Diagnosis</th>
+                      <th>Medicines Dispensed</th>
+                      <th>Referral / Status</th>
+                      <th>Doctor</th>
+                      <th style="text-align: right; padding-right: 20px;">Prescription</th>
+                    </tr>
+                  </thead>
+                  <tbody id="doc-completed-tbody">
+                    <!-- Injected dynamically by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
         </div>
-
-        <!-- 5. Digital Prescription Workspace (Split 2-Column Interface) -->
-        <div class="doc-prescription-workspace" style="margin-top: 24px;">
-          <div class="prescription-drawer-header">
-            <span class="drawer-pill-tab">📄 Digital Prescription</span>
-          </div>
-
-          <div class="doc-prescription-split-grid">
-            <!-- Left: Digital Prescription Form -->
-            <div class="card doc-prescription-form-card">
-              <div class="card-title-bar">
-                <h3>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                  Digital Prescription Form
-                </h3>
-              </div>
-              <form id="doc-prescription-form" onsubmit="submitDigitalPrescription(event)">
-                <div class="form-group">
-                  <label for="pres-diagnosis">Diagnosis / Findings</label>
-                  <textarea id="pres-diagnosis" class="form-input" placeholder="Write diagnosis notes here..." rows="3" required oninput="syncPrescriptionLabels()"></textarea>
-                </div>
-                
-                <div class="form-group">
-                  <label>Add Medicines</label>
-                  <div class="pres-med-input-row">
-                    <select id="pres-med-name" class="form-input">
-                      <option value="Paracetamol 500mg">Paracetamol 500mg</option>
-                      <option value="Amoxicillin 250mg">Amoxicillin 250mg</option>
-                      <option value="Metoprolol 50mg">Metoprolol 50mg</option>
-                      <option value="Metformin 500mg">Metformin 500mg</option>
-                      <option value="Cough Syrup 100ml">Cough Syrup 100ml</option>
-                      <option value="ORSL Hydration Sachet">ORSL Hydration Sachet</option>
-                      <option value="Cetirizine 10mg">Cetirizine 10mg</option>
-                      <option value="Azithromycin 500mg">Azithromycin 500mg</option>
-                    </select>
-                    <input type="text" id="pres-med-freq" class="form-input" placeholder="Dosage (e.g. 1-0-1)">
-                    <input type="text" id="pres-med-duration" class="form-input" placeholder="Duration (e.g. 5 days)">
-                  </div>
-                  <button type="button" class="btn-dashed-add" onclick="addMedicineRow()">
-                    + Add Medicine to Prescription
-                  </button>
-                </div>
-
-                <div class="form-group">
-                  <label for="pres-advice">Special Instructions / General Advice</label>
-                  <textarea id="pres-advice" class="form-input" placeholder="e.g. Drink plenty of water, avoid spicy food" rows="2" oninput="syncPrescriptionLabels()"></textarea>
-                </div>
-
-                <div class="doc-referral-alert-box">
-                  <label class="doc-checkbox-label">
-                    <input type="checkbox" id="pres-referral-check" onchange="syncPrescriptionLabels()">
-                    <span>Refer to District Specialist Hospital (Critical escalation)</span>
-                  </label>
-                </div>
-
-                <div class="doc-prescription-actions">
-                  <button type="submit" class="btn-primary doc-btn-generate">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                    Generate Prescription
-                  </button>
-                  <button type="button" class="btn-secondary doc-btn-clear" onclick="resetPrescriptionForm()">Clear Form</button>
-                </div>
-              </form>
-            </div>
-
-            <!-- Right: Live Prescription Preview Paper -->
-            <div class="prescription-preview-panel doc-prescription-paper" id="prescription-print-zone">
-              <div>
-                <div class="prescription-header">
-                  <div class="dispensary-meta">
-                    <h4>VILLAGEMED SMART DISPENSARY</h4>
-                    <p id="pres-lbl-village">Village Clinic A • Smart Village Network • Tele-Health Suite</p>
-                  </div>
-                  <div class="doctor-stamp">
-                    <div class="doc-name" id="pres-lbl-doc">Dr. Abinesh V</div>
-                    <div class="doc-spec-sub">MD, General Medicine</div>
-                  </div>
-                </div>
-
-                <div class="prescription-meta-grid">
-                  <div class="meta-field"><span>Patient</span> <strong id="pres-lbl-pat-name">--</strong></div>
-                  <div class="meta-field"><span>Age / Gender</span> <strong id="pres-lbl-pat-age">--</strong></div>
-                  <div class="meta-field"><span>Date</span> <strong id="pres-lbl-date">--</strong></div>
-                  <div class="meta-field"><span>Token ID</span> <strong id="pres-lbl-token">--</strong></div>
-                  <div class="meta-field"><span>BP</span> <strong id="pres-lbl-bp">--</strong></div>
-                  <div class="meta-field"><span>SpO2 / HR</span> <strong id="pres-lbl-spo2">--</strong></div>
-                </div>
-
-                <div class="prescription-body">
-                  <div class="rx-header-title">Rx — <span>Prescribed Medications</span></div>
-                  <ul class="prescription-meds-list" id="pres-lbl-meds-list">
-                    <!-- Meds rows dynamically inserted -->
-                  </ul>
-
-                  <div class="pres-preview-section">
-                    <h6>Diagnosis Summary</h6>
-                    <div class="pres-preview-box" id="pres-lbl-diagnosis">—</div>
-                  </div>
-
-                  <div class="pres-preview-section">
-                    <h6>Advice &amp; Instructions</h6>
-                    <div class="pres-preview-box" id="pres-lbl-advice">—</div>
-                  </div>
-
-                  <div class="pres-preview-section">
-                    <h6>Referral Escalation</h6>
-                    <div class="pres-preview-box" id="pres-lbl-referral">⊘ No referral required</div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="prescription-footer">
-                <div>* Electronic Prescription generated via VillageMed Tele-Health Suite.</div>
-                <div class="signature-line">Authorized Clinician</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 6. Historical Completed Consultations Log -->
-      <div class="card col-12 doc-card doctor-module doctor-module-consultations" id="doc-history-section">
-        <div class="card-title-bar doc-card-header">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Completed Consultations</h3>
-          </div>
-          <span class="badge-pill-count" id="doc-completed-count-badge" style="display: none;">Today</span>
-        </div>
-        <div class="table-wrapper">
-          <table class="doc-table">
-            <thead>
-              <tr>
-                <th>Token / Date</th>
-                <th>Patient</th>
-                <th>Diagnosis</th>
-                <th>Medicines Dispensed</th>
-                <th>Referral / Status</th>
-                <th>Doctor</th>
-                <th style="text-align: right; padding-right: 20px;">Prescription</th>
-              </tr>
-            </thead>
-            <tbody id="doc-completed-tbody">
-              <!-- Injected dynamically by JS -->
-            </tbody>
-          </table>
-        </div>
-      </div>
       </div>
     </section>
 
@@ -1510,11 +1694,11 @@
             <h3>📡 Agora Video SDK Credentials</h3>
             <span class="badge" style="background: var(--primary); color:white; font-size:10px;">RTC Engine Settings</span>
           </div>
-          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Enter the 32-character Agora App ID (not the App Certificate or RTC token), plus an optional temporary RTC token.</p>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Configure App ID, temporary security tokens, and WebRTC channels for live consultations.</p>
           <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
             <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
               <label for="agora-appid" style="font-size:11px; font-weight:600; color:var(--text-medium);">Agora App ID</label>
-              <input type="text" id="agora-appid" class="form-input" placeholder="32-character App ID from Agora Console" style="margin-bottom:0;">
+              <input type="text" id="agora-appid" class="form-input" placeholder="e.g. aab8b3f972274fcb87cc25048d089e94" style="margin-bottom:0;">
             </div>
             <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
               <label for="agora-token" style="font-size:11px; font-weight:600; color:var(--text-medium);">Temp RTC Token (Optional)</label>
