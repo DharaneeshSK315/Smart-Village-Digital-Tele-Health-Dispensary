@@ -728,6 +728,8 @@ tr:hover td {
   object-fit: cover;
   background-color: #1e293b;
   display: block;
+  position: relative;
+  overflow: hidden;
 }
 
 .remote-avatar-fallback {
@@ -804,6 +806,8 @@ tr:hover td {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: relative;
+  overflow: hidden;
 }
 
 .call-control-bar {
