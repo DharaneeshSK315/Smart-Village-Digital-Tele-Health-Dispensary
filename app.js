@@ -2177,6 +2177,7 @@ async function loadDoctorDashboard() {
   renderDoctorPatientList(document.getElementById("doc-patient-list-search")?.value || "");
   renderDoctorReports();
   populateDoctorHistoryPatients();
+  switchDoctorModule(activeDoctorModule, document.querySelector(`[data-doctor-module="${activeDoctorModule}"]`));
 }
 
 function getDoctorAppointmentStatus(appointment) {
@@ -2624,9 +2625,18 @@ window.toggleDoctorNav = function() {
   if (sidebar) sidebar.classList.toggle("open");
 };
 
-window.focusDoctorSection = function(sectionId, button) {
-  const section = document.getElementById(sectionId);
-  if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+let activeDoctorModule = "overview";
+
+window.switchDoctorModule = function(moduleName, button) {
+  activeDoctorModule = moduleName;
+  document.querySelectorAll(".doctor-module").forEach(element => {
+    element.style.display = element.classList.contains(`doctor-module-${moduleName}`) ? "" : "none";
+  });
+  // The consultation card controls its own visibility while a call is active.
+  if (moduleName === "consultations" || moduleName === "prescriptions") {
+    const consultation = document.getElementById("doc-consultation-section");
+    if (consultation && activeCall) consultation.style.display = "block";
+  }
   document.querySelectorAll(".doc-dashboard-sidebar nav button").forEach(item => item.classList.remove("active"));
   if (button) button.classList.add("active");
   document.getElementById("doc-dashboard-sidebar")?.classList.remove("open");

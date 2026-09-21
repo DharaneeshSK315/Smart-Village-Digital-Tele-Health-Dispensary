@@ -717,14 +717,14 @@
       <aside class="doc-dashboard-sidebar" id="doc-dashboard-sidebar">
         <div class="doc-sidebar-brand">Doctor Portal</div>
         <nav aria-label="Doctor dashboard navigation">
-          <button class="active" onclick="focusDoctorSection('doc-overview-top-row', this)">Overview</button>
-          <button onclick="focusDoctorSection('doc-queue-section', this)">Patient Queue</button>
-          <button onclick="focusDoctorSection('doc-operations-section', this)">Appointments</button>
-          <button onclick="focusDoctorSection('doc-patient-list', this)">Patients</button>
-          <button onclick="focusDoctorSection('doc-history-section', this)">Consultations</button>
-          <button onclick="focusDoctorSection('doc-medical-history-content', this)">Medical History</button>
-          <button onclick="focusDoctorSection('doc-prescription-form', this)">Prescriptions</button>
-          <button onclick="focusDoctorSection('doc-report-grid', this)">Reports</button>
+          <button class="active" data-doctor-module="overview" onclick="switchDoctorModule('overview', this)">Overview</button>
+          <button data-doctor-module="queue" onclick="switchDoctorModule('queue', this)">Patient Queue</button>
+          <button data-doctor-module="appointments" onclick="switchDoctorModule('appointments', this)">Appointments</button>
+          <button data-doctor-module="patients" onclick="switchDoctorModule('patients', this)">Patients</button>
+          <button data-doctor-module="consultations" onclick="switchDoctorModule('consultations', this)">Consultations</button>
+          <button data-doctor-module="history" onclick="switchDoctorModule('history', this)">Medical History</button>
+          <button data-doctor-module="prescriptions" onclick="switchDoctorModule('prescriptions', this)">Prescriptions</button>
+          <button data-doctor-module="reports" onclick="switchDoctorModule('reports', this)">Reports</button>
         </nav>
         <div class="doc-sidebar-footer">
           <button onclick="showToast('Help and support is available through the clinic administrator.', 'info')">Help &amp; Support</button>
@@ -741,7 +741,7 @@
         <div class="doc-heading-status"><span class="status-dot-green">●</span> Online and ready</div>
       </div>
       <!-- 1. Doctor Overview Header Stats Strip -->
-      <div class="doc-top-row" id="doc-overview-top-row">
+      <div class="doc-top-row doctor-module doctor-module-overview" id="doc-overview-top-row">
         <!-- 3 Pastel Summary Cards -->
         <div class="doc-stats-grid">
           <div class="metric-card metric-card-blue doc-metric-card">
@@ -786,11 +786,11 @@
       </div>
 
       <!-- Critical Vitals Alerts Strip -->
-      <div id="doc-critical-alerts-strip"></div>
+      <div id="doc-critical-alerts-strip" class="doctor-module doctor-module-overview"></div>
 
       <!-- Doctor Operations: appointments, patients, reports and history -->
       <div class="doc-operations-grid" id="doc-operations-section">
-        <div class="card doc-card doc-operations-card doc-appointments-card">
+        <div class="card doc-card doc-operations-card doc-appointments-card doctor-module doctor-module-appointments doctor-module-overview" id="doc-appointments-module">
           <div class="card-title-bar doc-card-header">
             <div>
               <h3>Today's Appointments</h3>
@@ -840,7 +840,7 @@
           </form>
         </div>
 
-        <div class="card doc-card doc-operations-card">
+        <div class="card doc-card doc-operations-card doctor-module doctor-module-patients" id="doc-patients-module">
           <div class="card-title-bar doc-card-header">
             <h3>Patient List</h3>
             <span class="badge-pill-count" id="doc-patient-count">0</span>
@@ -849,7 +849,7 @@
           <div class="doc-patient-list" id="doc-patient-list"></div>
         </div>
 
-        <div class="card doc-card doc-operations-card">
+        <div class="card doc-card doc-operations-card doctor-module doctor-module-reports doctor-module-overview" id="doc-reports-module">
           <div class="card-title-bar doc-card-header">
             <h3>Reports</h3>
             <span class="doc-section-subtitle">Live summary</span>
@@ -857,7 +857,7 @@
           <div class="doc-report-grid" id="doc-report-grid"></div>
         </div>
 
-        <div class="card doc-card doc-operations-card">
+        <div class="card doc-card doc-operations-card doctor-module doctor-module-history doctor-module-overview" id="doc-history-module">
           <div class="card-title-bar doc-card-header">
             <h3>Patient Medical History</h3>
             <span class="doc-section-subtitle">Consultations and prescriptions</span>
@@ -870,13 +870,13 @@
       </div>
 
       <!-- 2. Wide Patient Search Bar Row -->
-      <div class="doc-search-bar-row" id="doc-overview-search-row">
+      <div class="doc-search-bar-row doctor-module doctor-module-queue" id="doc-overview-search-row">
         <input type="text" id="doc-search-patient" class="doc-search-input" placeholder="Search patient by name or token ID..." oninput="docSearchQueue(this.value)">
         <button type="button" class="doc-search-btn" onclick="docSearchQueue(document.getElementById('doc-search-patient').value)">Search</button>
       </div>
 
       <!-- 3. Patient Waiting Queue Card -->
-      <div class="card col-12 doc-card" id="doc-queue-section">
+      <div class="card col-12 doc-card doctor-module doctor-module-queue" id="doc-queue-section">
         <div class="card-title-bar doc-card-header">
           <div style="display: flex; align-items: center; gap: 8px;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -911,7 +911,7 @@
       </div>
 
       <!-- 4. Active Consultation Room (3-Column Tele-Health Suite) -->
-      <div class="card col-12 doc-card doc-live-suite-card" id="doc-consultation-section" style="display: none;">
+      <div class="card col-12 doc-card doc-live-suite-card doctor-module doctor-module-consultations doctor-module-prescriptions" id="doc-consultation-section" style="display: none;">
         <!-- Consultation Suite Header -->
         <div class="card-title-bar doc-consult-header">
           <div class="doc-consult-brand">
@@ -1297,7 +1297,7 @@
       </div>
 
       <!-- 6. Historical Completed Consultations Log -->
-      <div class="card col-12 doc-card" id="doc-history-section">
+      <div class="card col-12 doc-card doctor-module doctor-module-consultations" id="doc-history-section">
         <div class="card-title-bar doc-card-header">
           <div style="display: flex; align-items: center; gap: 8px;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
