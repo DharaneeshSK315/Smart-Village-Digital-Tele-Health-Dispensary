@@ -3120,11 +3120,11 @@ body:has(#view-doctor.active),
   gap: 4px;
 }
 
-/* 3-Column Layout */
+/* Redesigned 2-Column Consultation Suite Layout */
 .doc-consultation-grid {
   display: grid;
-  grid-template-columns: 1.8fr 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1.8fr 1.1fr;
+  gap: 18px;
   align-items: start;
 }
 

@@ -1195,81 +1195,71 @@
                       </div>
 
                       <div class="tab-pane doc-files-pane" id="doc-pane-files">
-                        <div class="shared-files-section">
-                          <h4>Consultation Vitals Summary</h4>
-                          <div class="vitals-grid" id="doc-call-vitals-box"></div>
+                        <!-- Integrated Patient Info & Vitals Card -->
+                        <div class="doc-vitals-card" style="border:none; padding:0; box-shadow:none; background:transparent;">
+                          <div class="doc-vital-tiles-grid">
+                            <div class="doc-vital-tile tile-hr">
+                              <div class="tile-icon-circle">❤️</div>
+                              <div class="tile-meta">
+                                <span class="tile-label">Heart Rate</span>
+                                <div class="tile-value"><strong id="doc-call-hr">75</strong> <small>bpm</small></div>
+                              </div>
+                            </div>
+                            <div class="doc-vital-tile tile-temp">
+                              <div class="tile-icon-circle">🌡️</div>
+                              <div class="tile-meta">
+                                <span class="tile-label">Temperature</span>
+                                <div class="tile-value"><strong id="doc-call-temp">101.4</strong> <small>°F</small></div>
+                              </div>
+                            </div>
+                            <div class="doc-vital-tile tile-bp">
+                              <div class="tile-icon-circle">🩺</div>
+                              <div class="tile-meta">
+                                <span class="tile-label">Blood Pressure</span>
+                                <div class="tile-value"><strong id="doc-call-bp">120/80</strong> <small>mmHg</small></div>
+                              </div>
+                            </div>
+                            <div class="doc-vital-tile tile-spo2">
+                              <div class="tile-icon-circle">🫁</div>
+                              <div class="tile-meta">
+                                <span class="tile-label">SpO2</span>
+                                <div class="tile-value"><strong id="doc-call-spo2">98</strong> <small>%</small></div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="doc-triage-alert-banner" id="doc-call-triage-banner" style="margin-top:12px;">
+                            <div class="triage-text">
+                              <span>Triage Level:</span>
+                              <strong id="doc-call-triage-level">YELLOW — Non-Urgent</strong>
+                            </div>
+                            <span class="triage-warning-icon">⚠️</span>
+                          </div>
+
+                          <div class="doc-symptoms-section" style="margin-top:12px;">
+                            <h5>Reported Symptoms</h5>
+                            <div class="doc-symptoms-tags-cloud" id="doc-call-symptoms-tags">
+                              <span class="symptom-tag">Fever (101.4°F)</span>
+                              <span class="symptom-tag">Sore Throat</span>
+                              <span class="symptom-tag">Body Aches</span>
+                            </div>
+                          </div>
+
+                          <div class="doc-patient-info-section" style="margin-top:12px;">
+                            <h5>Patient Information</h5>
+                            <div class="patient-info-grid">
+                              <div class="pat-info-item"><span>Name</span><strong id="doc-call-info-name">Dharaneesh</strong></div>
+                              <div class="pat-info-item"><span>Age / Gender</span><strong id="doc-call-info-age-gender">30 / Male</strong></div>
+                              <div class="pat-info-item"><span>Token ID</span><strong id="doc-call-info-token">VIL-A-914</strong></div>
+                              <div class="pat-info-item"><span>Dispensary / Village</span><strong id="doc-call-info-village">Clinic A, Smart Network</strong></div>
+                            </div>
+                          </div>
                         </div>
-                        <div class="shared-files-section" style="margin-top: 14px;">
+
+                        <div class="shared-files-section" style="margin-top: 16px;">
                           <h4>Shared Images / Wound Photos</h4>
                           <div class="file-sharing-grid" id="doc-call-files-box"></div>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Column 3: Vitals & Reports Panel -->
-                <div class="doc-col-vitals">
-                  <div class="doc-vitals-card">
-                    <div class="doc-vitals-header">
-                      <h4>🩺 Vitals &amp; Reports</h4>
-                    </div>
-
-                    <div class="doc-vital-tiles-grid">
-                      <div class="doc-vital-tile tile-hr">
-                        <div class="tile-icon-circle">❤️</div>
-                        <div class="tile-meta">
-                          <span class="tile-label">Heart Rate</span>
-                          <div class="tile-value"><strong id="doc-call-hr">75</strong> <small>bpm</small></div>
-                        </div>
-                      </div>
-                      <div class="doc-vital-tile tile-temp">
-                        <div class="tile-icon-circle">🌡️</div>
-                        <div class="tile-meta">
-                          <span class="tile-label">Temperature</span>
-                          <div class="tile-value"><strong id="doc-call-temp">101.4</strong> <small>°F</small></div>
-                        </div>
-                      </div>
-                      <div class="doc-vital-tile tile-bp">
-                        <div class="tile-icon-circle">🩺</div>
-                        <div class="tile-meta">
-                          <span class="tile-label">Blood Pressure</span>
-                          <div class="tile-value"><strong id="doc-call-bp">120/80</strong> <small>mmHg</small></div>
-                        </div>
-                      </div>
-                      <div class="doc-vital-tile tile-spo2">
-                        <div class="tile-icon-circle">🫁</div>
-                        <div class="tile-meta">
-                          <span class="tile-label">SpO2</span>
-                          <div class="tile-value"><strong id="doc-call-spo2">98</strong> <small>%</small></div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="doc-triage-alert-banner" id="doc-call-triage-banner">
-                      <div class="triage-text">
-                        <span>Triage Level:</span>
-                        <strong id="doc-call-triage-level">YELLOW — Non-Urgent</strong>
-                      </div>
-                      <span class="triage-warning-icon">⚠️</span>
-                    </div>
-
-                    <div class="doc-symptoms-section">
-                      <h5>Reported Symptoms</h5>
-                      <div class="doc-symptoms-tags-cloud" id="doc-call-symptoms-tags">
-                        <span class="symptom-tag">Fever (101.4°F)</span>
-                        <span class="symptom-tag">Sore Throat</span>
-                        <span class="symptom-tag">Body Aches</span>
-                      </div>
-                    </div>
-
-                    <div class="doc-patient-info-section">
-                      <h5>Patient Information</h5>
-                      <div class="patient-info-grid">
-                        <div class="pat-info-item"><span>Name</span><strong id="doc-call-info-name">Dharaneesh</strong></div>
-                        <div class="pat-info-item"><span>Age / Gender</span><strong id="doc-call-info-age-gender">30 / Male</strong></div>
-                        <div class="pat-info-item"><span>Token ID</span><strong id="doc-call-info-token">VIL-A-914</strong></div>
-                        <div class="pat-info-item"><span>Dispensary / Village</span><strong id="doc-call-info-village">Clinic A, Smart Network</strong></div>
                       </div>
                     </div>
                   </div>
