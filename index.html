@@ -1043,15 +1043,21 @@
               <!-- Consultation Suite Header -->
               <div class="card-title-bar doc-consult-header">
                 <div class="doc-consult-brand">
-                  <h3>🎥 Consultation: <span id="doc-call-pat-name">Patient</span></h3>
-                  <span class="doc-consult-doctor-badge">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a8.5 8.5 0 0 1 13 0"/></svg>
-                    <span id="doc-session-doctor-name">Dr. Abinesh V</span> | <small>MD, General Medicine</small>
-                  </span>
+                  <div class="doc-brand-title">
+                    <h3>🎥 VillageMed Tele-Health Consultation Suite</h3>
+                    <span class="doc-consult-sub">Village Clinic A • Smart Village Network • Tele-Health Suite</span>
+                  </div>
                 </div>
-                <div class="doc-consult-header-actions">
+                <div class="doc-consult-header-right">
+                  <div class="doc-profile-pill">
+                    <span class="doc-profile-avatar">👨‍⚕️</span>
+                    <div class="doc-profile-info">
+                      <span class="doc-name" id="doc-session-doctor-name">Dr. Abinesh V</span>
+                      <span class="doc-spec">MD, General Medicine</span>
+                    </div>
+                  </div>
                   <span class="live-session-pill"><span class="pulse-dot"></span> Live Session</span>
-                  <span class="call-duration-timer" id="doc-call-timer">⏱ 00:00:00</span>
+                  <span class="call-duration-timer" id="doc-call-timer">⏱ 00:24:37</span>
                   <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
                   <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
                 </div>
@@ -1070,7 +1076,7 @@
                     <div class="main-feed-container">
                       <div class="patient-floating-badge" id="doc-patient-tag">
                         <span class="green-dot">●</span>
-                        <span id="doc-call-tag-name">Patient</span>
+                        <span id="doc-call-tag-name">Dharaneesh</span>
                         <span class="tag-role">Patient</span>
                       </div>
 
@@ -1124,29 +1130,25 @@
                         <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')" title="Toggle Mic">🎙️</button>
                         <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')" title="Toggle Camera">📷</button>
                         <button class="btn-circle active" id="doc-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
+                        <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Call">📵</button>
                       </div>
                       <div class="doc-right-tools">
                         <div class="translator-selector-strip" style="margin-right: 8px;">
-                          <span>🗣️ AI Translate:</span>
+                          <span>🗣️ Language:</span>
                           <select id="doc-patient-lang" onchange="window.updateTranslatorSettings()" class="translate-select">
-                            <option value="ta" selected>Tamil (Patient)</option>
-                            <option value="hi">Hindi (Patient)</option>
-                            <option value="te">Telugu (Patient)</option>
-                            <option value="en">English (Patient)</option>
-                          </select>
-                          <select id="doc-target-lang" onchange="window.updateTranslatorSettings()" class="translate-select" style="display: none;">
-                            <option value="en" selected>to English</option>
+                            <option value="ta" selected>Tamil</option>
+                            <option value="hi">Hindi</option>
+                            <option value="te">Telugu</option>
+                            <option value="en">English</option>
                           </select>
                         </div>
                         <div class="simulator-controls">
-                          <label for="doc-net-sim">Signal:</label>
                           <select id="doc-net-sim" onchange="simulateNetworkChange(this.value)">
-                            <option value="excellent">Excellent (1080p HD)</option>
-                            <option value="good" selected>Good (720p HD)</option>
-                            <option value="fair">Fair (480p SD)</option>
-                            <option value="poor">Poor (360p Low-Res)</option>
-                            <option value="verypoor">Very Poor (240p)</option>
-                            <option value="critical">Critical (Audio-only)</option>
+                            <option value="good" selected>720p HD</option>
+                            <option value="excellent">1080p HD</option>
+                            <option value="fair">480p SD</option>
+                            <option value="poor">360p Low-Res</option>
+                            <option value="critical">Audio-only</option>
                           </select>
                         </div>
                       </div>
@@ -1156,9 +1158,13 @@
                   <!-- Network Telemetry Panel -->
                   <div class="doc-telemetry-panel" id="doc-telemetry-hud">
                     <div class="telemetry-panel-header">
-                      <span>⚡ Network Telemetry &amp; Adaptive Quality</span>
+                      <div class="telemetry-panel-title">
+                        <span class="green-dot">●</span>
+                        <strong>Network Telemetry</strong>
+                      </div>
                       <span class="telemetry-badge-good" id="doc-hud-prediction">● GOOD</span>
                     </div>
+
                     <div class="doc-network-telemetry-grid">
                       <div class="tel-stat-item"><span>Latency</span><strong id="doc-hud-latency">43 ms</strong></div>
                       <div class="tel-stat-item"><span>Packet Loss</span><strong id="doc-hud-loss">0.8%</strong></div>
@@ -1166,6 +1172,22 @@
                       <div class="tel-stat-item"><span>Upload</span><strong id="doc-hud-upload">2.4 Mbps</strong></div>
                       <div class="tel-stat-item"><span>Download</span><strong id="doc-hud-download">5.1 Mbps</strong></div>
                       <div class="tel-stat-item"><span>Video Quality</span><strong id="doc-hud-rec">720p HD</strong></div>
+                    </div>
+
+                    <!-- Auto Failover Pipeline Visualizer -->
+                    <div class="telemetry-failover-pipeline">
+                      <span class="failover-label">Auto Failover:</span>
+                      <div class="pipeline-steps">
+                        <span class="pipeline-step step-good active" id="failover-step-good">GOOD <small>720p HD</small></span>
+                        <span class="pipeline-arrow">➔</span>
+                        <span class="pipeline-step step-poor" id="failover-step-poor">POOR <small>360p</small></span>
+                        <span class="pipeline-arrow">➔</span>
+                        <span class="pipeline-step step-critical" id="failover-step-critical">CRITICAL <small>Audio Only</small></span>
+                      </div>
+                    </div>
+
+                    <div class="telemetry-status-banner" id="doc-telemetry-status-text">
+                      Full Video Active: All systems nominal. Video + Audio streaming.
                     </div>
                   </div>
                 </div>

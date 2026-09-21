@@ -665,9 +665,8 @@ function stopNativeWebcamAndWebRTC() {
 function validateAgoraAppId(appid) {
   if (!appid || typeof appid !== "string") return false;
   const value = appid.trim();
-  const placeholder = "aab8b3f972274fcb87cc25048d089e94";
   const appIdRegex = /^[A-Za-z0-9]{32}$/;
-  return appIdRegex.test(value) && value !== placeholder;
+  return appIdRegex.test(value);
 }
 
 // Initialize Database
@@ -4364,9 +4363,11 @@ async function joinAgoraRoom(role) {
       if (!user.videoTrack) return;
       const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
       const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+      const audioFallback = document.getElementById(`${agoraPrefix}-remote-audio-fallback`);
       if (!remoteContainer || !remoteCanvas) return;
 
       remoteCanvas.style.display = "none";
+      if (audioFallback) audioFallback.style.display = "none";
       remoteContainer.style.display = "block";
       remoteContainer.innerHTML = "";
       await user.videoTrack.play(remoteContainer);
@@ -4472,31 +4473,17 @@ async function joinAgoraRoom(role) {
     await agoraClient.join(appid, channel, token, uid);
     console.info("Agora channel joined successfully", { channel, uid });
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("Browser does not support camera/microphone capture.");
-    }
-
-    let permissionStream = null;
-    try {
-      permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      console.info("User granted camera/mic permissions via getUserMedia");
-    } catch (permErr) {
-      console.error("Camera/microphone permission denied or unavailable", permErr);
-      throw new Error("Camera or microphone access denied. Please allow permissions and refresh the page.");
-    } finally {
-      if (permissionStream) {
-        permissionStream.getTracks().forEach(track => track.stop());
+    // Catch up on any users already published in the channel
+    if (agoraClient.remoteUsers && agoraClient.remoteUsers.length > 0) {
+      console.info("Agora catchup: checking already published remote users", agoraClient.remoteUsers.length);
+      for (const remoteUser of agoraClient.remoteUsers) {
+        if (remoteUser.hasVideo) {
+          await subscribeToRemoteUser(remoteUser, "video");
+        }
+        if (remoteUser.hasAudio) {
+          await subscribeToRemoteUser(remoteUser, "audio");
+        }
       }
-    }
-
-    const permissions = await navigator.permissions.query({ name: 'camera' }).catch(() => null);
-    if (permissions) {
-      console.info("Camera permission state:", permissions.state);
-    }
-
-    const micPermissions = await navigator.permissions.query({ name: 'microphone' }).catch(() => null);
-    if (micPermissions) {
-      console.info("Microphone permission state:", micPermissions.state);
     }
 
     // Create local audio and video tracks
@@ -4510,16 +4497,16 @@ async function joinAgoraRoom(role) {
     const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
     
     if (localContainer && localCanvas) {
-        if (localCanvas) localCanvas.style.display = "none";
+      if (localCanvas) localCanvas.style.display = "none";
       localContainer.style.display = "block";
       localContainer.innerHTML = ""; // Clear
       try {
         await localVideoTrack.play(`${agoraPrefix}-local-video-container`);
-          if (activeCall) {
-            activeCall.camActive = true;
-            activeCall.manualVideoDisabled = false;
-          }
-          updateNetworkUI();
+        if (activeCall) {
+          activeCall.camActive = true;
+          activeCall.manualVideoDisabled = false;
+        }
+        updateNetworkUI();
         console.info("Agora local video track playing", { role, container: `${agoraPrefix}-local-video-container` });
       } catch (playErr) {
         console.error("Agora local video track play failed:", playErr);
@@ -4532,7 +4519,7 @@ async function joinAgoraRoom(role) {
     // Publish tracks
     await agoraClient.publish([localAudioTrack, localVideoTrack]);
     console.info("Agora local tracks published successfully");
-      updateNetworkUI();
+    updateNetworkUI();
     showToast("Agora stream published! Real video calling active.", "success");
 
   } catch (err) {

@@ -3060,23 +3060,57 @@ body:has(#view-doctor.active),
   gap: 12px;
 }
 
-.doc-consult-doctor-badge {
-  background-color: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.doc-brand-title h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
-.doc-consult-header-actions {
+.doc-consult-sub {
+  font-size: 11.5px;
+  color: #64748b;
+  display: block;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.doc-consult-header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.doc-profile-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.doc-profile-avatar {
+  font-size: 16px;
+}
+
+.doc-profile-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-profile-info .doc-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.doc-profile-info .doc-spec {
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.2;
 }
 
 .live-session-pill {
@@ -3171,25 +3205,14 @@ body:has(#view-doctor.active),
   display: block;
 }
 
-.doc-call-viewport .local-pip-feed {
-  position: absolute;
-  right: 14px;
-  bottom: 60px;
-  width: 150px;
-  height: 105px;
-  min-height: 0;
-  border: 2px solid #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
 .patient-floating-badge {
   position: absolute;
   top: 14px;
   left: 14px;
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(8px);
   color: white;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
@@ -3197,6 +3220,7 @@ body:has(#view-doctor.active),
   align-items: center;
   gap: 6px;
   z-index: 30;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .patient-floating-badge .green-dot {
@@ -3208,19 +3232,22 @@ body:has(#view-doctor.active),
   font-size: 10px;
   color: #94a3b8;
   font-weight: 400;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
 }
 
 .doc-local-pip {
-  position: relative;
   position: absolute;
   bottom: 60px;
   right: 14px;
   width: 150px;
   height: 105px;
   border-radius: 8px;
-  border: 1px solid #475569;
+  border: 2px solid #ffffff;
   overflow: hidden;
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   z-index: 25;
   background-color: #1e293b;
 }
@@ -3231,10 +3258,10 @@ body:has(#view-doctor.active),
   left: 0;
   right: 0;
   text-align: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   color: white;
   font-size: 9px;
-  padding: 1px 0;
+  padding: 2px 0;
 }
 
 .doc-call-controls-bar {
@@ -3252,43 +3279,17 @@ body:has(#view-doctor.active),
   z-index: 30;
 }
 
-.video-quality-tag {
-  color: #22c55e;
-  font-size: 11px;
-  font-weight: 600;
+.btn-circle.hangup {
+  background-color: #ef4444 !important;
+  color: white !important;
+  border-color: #dc2626 !important;
 }
 
-.doc-center-btns {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.btn-circle.hangup:hover {
+  background-color: #dc2626 !important;
 }
 
-.doc-audio-translate-pill {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  padding: 2px 8px;
-}
-
-.doc-audio-translate-pill select {
-  background: transparent;
-  color: #f8fafc;
-  border: none;
-  font-size: 11px;
-  outline: none;
-  cursor: pointer;
-}
-
-.doc-audio-translate-pill select option {
-  background: #1e293b;
-  color: white;
-}
-
-/* Lower Telemetry Panel */
+/* Network Telemetry Panel */
 .doc-telemetry-panel {
   background-color: #ffffff;
   border: 1px solid #dce7f3;
@@ -3297,17 +3298,25 @@ body:has(#view-doctor.active),
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
-.telemetry-card-header {
+.telemetry-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
-.telemetry-card-title {
+.telemetry-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 700;
   color: #16a34a;
+}
+
+.telemetry-panel-title .green-dot {
+  color: #22c55e;
+  font-size: 10px;
 }
 
 .telemetry-badge-good {
@@ -3320,15 +3329,15 @@ body:has(#view-doctor.active),
   border-radius: 6px;
 }
 
-.telemetry-stats-grid {
+.doc-network-telemetry-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 8px;
   background-color: #f8fafc;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid #eef2f6;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .tel-stat-item {
@@ -3339,6 +3348,7 @@ body:has(#view-doctor.active),
 .tel-stat-item span {
   font-size: 10px;
   color: #64748b;
+  font-weight: 500;
 }
 
 .tel-stat-item strong {
@@ -3347,17 +3357,66 @@ body:has(#view-doctor.active),
   font-weight: 700;
 }
 
-.telemetry-failover-track {
+/* Telemetry Failover Pipeline */
+.telemetry-failover-pipeline {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 10px;
 }
 
-.failover-title {
+.failover-label {
   font-size: 11px;
   color: #64748b;
   font-weight: 600;
+}
+
+.pipeline-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.pipeline-step {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  background-color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pipeline-step small {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.pipeline-step.step-good.active {
+  background-color: #dcfce7;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.pipeline-step.step-poor.active {
+  background-color: #fef9c3;
+  border-color: #fde047;
+  color: #a16207;
+}
+
+.pipeline-step.step-critical.active {
+  background-color: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.pipeline-arrow {
+  color: #94a3b8;
+  font-size: 11px;
 }
 
 .telemetry-status-banner {
@@ -3366,7 +3425,7 @@ body:has(#view-doctor.active),
   color: #15803d;
   font-size: 11px;
   font-weight: 500;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-radius: 6px;
 }
 
