@@ -892,6 +892,7 @@ async function initDB() {
   }
 
   db.recordings = db.recordings || [];
+  db.doctorSchedule = db.doctorSchedule || { start: "09:00", end: "17:00", slots: [] };
 
   // Load Agora Config
   agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
@@ -2136,6 +2137,14 @@ async function loadDoctorDashboard() {
   if (queueBadge) {
     queueBadge.innerText = `${queueList.length} patient${queueList.length === 1 ? '' : 's'}`;
   }
+  const setQueueCount = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) element.innerText = value;
+  };
+  setQueueCount("doc-queue-waiting", db.appointments.filter(a => ["Waiting", "Pending"].includes(a.status)).length);
+  setQueueCount("doc-queue-active", db.appointments.filter(a => a.status === "Active").length);
+  setQueueCount("doc-queue-completed", db.appointments.filter(a => a.status === "Completed").length);
+  setQueueCount("doc-queue-noshow", db.appointments.filter(a => a.status === "No-show").length);
 
   // Ensure network overview card indicator
   const netLbl = document.getElementById("doc-network-lbl");
@@ -2163,14 +2172,20 @@ function renderDoctorAppointments() {
   const dateLabel = document.getElementById("doc-appointments-date");
   if (dateLabel) dateLabel.textContent = new Date().toLocaleDateString(undefined, { dateStyle: "medium" });
 
-  const appointments = (db.appointments || []).filter(appointment =>
-    !appointment.date || String(appointment.date).slice(0, 10) === today
-  );
+  const view = document.getElementById("doc-appointment-view")?.value || "today";
+  const appointments = (db.appointments || []).filter(appointment => {
+    const date = String(appointment.date || today).slice(0, 10);
+    const status = getDoctorAppointmentStatus(appointment).toLowerCase();
+    if (view === "completed") return status === "completed";
+    if (view === "cancelled") return status === "cancelled";
+    if (view === "upcoming") return date > today && !["completed", "cancelled"].includes(status);
+    return date === today && !["completed", "cancelled"].includes(status);
+  });
   const count = document.getElementById("doc-appointments-count");
   if (count) count.textContent = `${appointments.length}`;
 
   if (!appointments.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="doc-empty-cell">No appointments scheduled for today.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="doc-empty-cell">No appointments found for this view.</td></tr>`;
     return;
   }
   tbody.innerHTML = appointments.map(appointment => {
@@ -2180,11 +2195,134 @@ function renderDoctorAppointments() {
     const statusClass = status.toLowerCase();
     return `<tr>
       <td><strong class="patient-cell-name">${patient?.name || appointment.patientName || "Unknown patient"}</strong><br><span class="doc-table-meta">${patient?.id || appointment.patientId || "—"}</span></td>
-      <td>${time}</td>
+      <td>${appointment.date || "Today"}<br><span class="doc-table-meta">${time}</span></td>
+      <td>${appointment.type || appointment.mode || "Video"}</td>
       <td><span class="doc-status-pill ${statusClass}">${status}</span></td>
+      <td><div class="doc-appointment-actions">
+        <button type="button" onclick="showDoctorAppointmentDetails('${appointment.token}')">Details</button>
+        ${["Pending", "Waiting"].includes(status) ? `<button type="button" onclick="acceptDoctorAppointment('${appointment.token}')">Accept</button><button type="button" onclick="rejectDoctorAppointment('${appointment.token}')">Reject</button>` : ""}
+        ${status === "Pending" ? `<button type="button" onclick="rescheduleDoctorAppointment('${appointment.token}')">Reschedule</button>` : ""}
+        ${["Pending", "Active"].includes(status) ? `<button type="button" class="primary" onclick="startDoctorAppointment('${appointment.token}')">Start</button>` : ""}
+      </div></td>
     </tr>`;
   }).join("");
+  renderDoctorSlots();
 }
+
+function persistAppointmentChange(message, type = "success") {
+  saveDB();
+  loadDoctorDashboard();
+  if (message) showToast(message, type);
+}
+
+window.showDoctorAppointmentDetails = function(token) {
+  const appointment = db.appointments.find(a => a.token === token);
+  if (!appointment) return;
+  const patient = db.patients.find(p => p.id === appointment.patientId);
+  showToast(`${patient?.name || "Patient"} (${appointment.patientId || "—"}) · ${appointment.date || "Today"} ${appointment.time || "Time not set"} · ${appointment.reason || appointment.symptoms || "Consultation"} · ${appointment.type || "Video"}`, "info");
+};
+
+window.acceptDoctorAppointment = function(token) {
+  const appointment = db.appointments.find(a => a.token === token);
+  if (!appointment) return;
+  appointment.status = "Waiting";
+  appointment.acceptedAt = new Date().toISOString();
+  appointment.notification = "Appointment accepted";
+  persistAppointmentChange("Appointment accepted. Patient notification recorded.");
+};
+
+window.rejectDoctorAppointment = function(token) {
+  const appointment = db.appointments.find(a => a.token === token);
+  if (!appointment) return;
+  const reason = window.prompt("Provide a rejection reason:");
+  if (!reason || !reason.trim()) return;
+  appointment.status = "Cancelled";
+  appointment.rejectionReason = reason.trim();
+  appointment.notification = "Appointment cancelled";
+  persistAppointmentChange("Appointment rejected and cancellation notification recorded.", "warning");
+};
+
+window.rescheduleDoctorAppointment = function(token) {
+  const appointment = db.appointments.find(a => a.token === token);
+  if (!appointment) return;
+  const date = window.prompt("New date (YYYY-MM-DD):", appointment.date || new Date().toISOString().slice(0, 10));
+  if (!date) return;
+  const time = window.prompt("New time (HH:MM):", appointment.time || "09:00");
+  if (!time) return;
+  appointment.date = date.trim();
+  appointment.time = time.trim();
+  appointment.status = "Pending";
+  appointment.notification = "Appointment rescheduled";
+  persistAppointmentChange("Appointment rescheduled. Patient notification recorded.", "info");
+};
+
+window.startDoctorAppointment = function(token) {
+  const appointment = db.appointments.find(a => a.token === token);
+  if (!appointment) return;
+  const appointmentDate = appointment.date ? new Date(`${appointment.date}T${appointment.time || "00:00"}`) : new Date(0);
+  if (appointment.date && appointmentDate > new Date()) {
+    showToast("Start Consultation will be available at the appointment time.", "info");
+    return;
+  }
+  startDoctorConsultation(token);
+  const patient = db.patients.find(p => p.id === appointment.patientId);
+  if (patient) renderDoctorMedicalHistory(patient.id);
+};
+
+window.saveDoctorSchedule = function() {
+  db.doctorSchedule = db.doctorSchedule || { slots: [] };
+  db.doctorSchedule.start = document.getElementById("doc-work-start")?.value || "09:00";
+  db.doctorSchedule.end = document.getElementById("doc-work-end")?.value || "17:00";
+  persistAppointmentChange("Working hours saved.");
+};
+
+window.addDoctorSlot = function() {
+  const slot = window.prompt("Add an available consultation slot (HH:MM):", "09:00");
+  if (!slot || !/^\d{2}:\d{2}$/.test(slot)) {
+    showToast("Enter a valid slot such as 09:00.", "warning");
+    return;
+  }
+  db.doctorSchedule = db.doctorSchedule || { start: "09:00", end: "17:00", slots: [] };
+  db.doctorSchedule.slots = [...new Set([...(db.doctorSchedule.slots || []), slot])].sort();
+  persistAppointmentChange("Available slot added.");
+};
+
+function renderDoctorSlots() {
+  const list = document.getElementById("doc-slot-list");
+  if (!list) return;
+  const schedule = db.doctorSchedule || {};
+  const slots = schedule.slots || [];
+  list.innerHTML = slots.length ? `Slots: ${slots.map(slot => `<button type="button" onclick="blockDoctorSlot('${slot}')">${slot} ×</button>`).join("")}` : "No extra slots added.";
+}
+
+window.blockDoctorSlot = function(slot) {
+  if (!db.doctorSchedule?.slots) return;
+  db.doctorSchedule.slots = db.doctorSchedule.slots.filter(item => item !== slot);
+  persistAppointmentChange(`${slot} blocked.`);
+};
+
+window.retryDoctorCall = function() {
+  if (!activeCall) return;
+  activeCall.agoraUnavailable = false;
+  showToast("Retrying the live video connection...", "info");
+  leaveAgoraRoom();
+  startCallLoop();
+};
+
+window.switchDoctorToAudio = function() {
+  if (!activeCall) return;
+  activeCall.callMode = CALL_MODES.AUDIO_ONLY;
+  activeCall.manualVideoDisabled = true;
+  if (localVideoTrack) localVideoTrack.setEnabled(false);
+  showToast("Switched to audio call while video reconnects.", "warning");
+};
+
+window.rescheduleActiveDoctorCall = function() {
+  if (!activeCall) return;
+  const token = activeCall.token;
+  leaveConsultation();
+  rescheduleDoctorAppointment(token);
+};
 
 window.renderDoctorPatientList = function(searchTerm = "") {
   const container = document.getElementById("doc-patient-list");

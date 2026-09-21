@@ -756,13 +756,28 @@
               <h3>Today's Appointments</h3>
               <span class="doc-section-subtitle" id="doc-appointments-date"></span>
             </div>
-            <span class="badge-pill-count" id="doc-appointments-count">0</span>
+            <div class="doc-appointment-toolbar">
+              <select id="doc-appointment-view" class="form-input doc-appointment-filter" onchange="renderDoctorAppointments()">
+                <option value="today">Today</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <span class="badge-pill-count" id="doc-appointments-count">0</span>
+            </div>
           </div>
           <div class="table-wrapper">
             <table class="doc-table">
-              <thead><tr><th>Patient</th><th>Time</th><th>Status</th></tr></thead>
+              <thead><tr><th>Patient</th><th>Date / time</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody id="doc-today-appointments-tbody"></tbody>
             </table>
+          </div>
+          <div class="doc-schedule-controls">
+            <strong>Available time slots</strong>
+            <label>Working hours <input type="time" id="doc-work-start" value="09:00"> – <input type="time" id="doc-work-end" value="17:00"></label>
+            <button type="button" class="btn-secondary" onclick="saveDoctorSchedule()">Save hours</button>
+            <button type="button" class="btn-secondary" onclick="addDoctorSlot()">Add slot</button>
+            <span id="doc-slot-list" class="doc-slot-list"></span>
           </div>
         </div>
 
@@ -808,7 +823,13 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             <h3 style="color: #2563eb; font-size: 16px; font-weight: 700; margin: 0;">Active Consultation Queue</h3>
           </div>
-          <span class="badge-pill-count" id="doc-queue-count-badge" style="display: none;">0 patients</span>
+          <div class="doc-queue-summary">
+            <span class="doc-queue-state">Waiting <b id="doc-queue-waiting">0</b></span>
+            <span class="doc-queue-state">In Consultation <b id="doc-queue-active">0</b></span>
+            <span class="doc-queue-state">Completed <b id="doc-queue-completed">0</b></span>
+            <span class="doc-queue-state">No-show <b id="doc-queue-noshow">0</b></span>
+            <span class="badge-pill-count" id="doc-queue-count-badge">0 patients</span>
+          </div>
         </div>
         <div class="table-wrapper">
           <table class="doc-table">
@@ -845,6 +866,9 @@
             <span class="live-session-pill"><span class="pulse-dot"></span> Live Session</span>
             <span class="call-duration-timer" id="doc-call-timer">⏱ 00:00:00</span>
             <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="doc-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
+            <button class="btn-action" onclick="retryDoctorCall()">Retry Call</button>
+            <button class="btn-action" onclick="switchDoctorToAudio()">Audio Call</button>
+            <button class="btn-action" onclick="rescheduleActiveDoctorCall()">Reschedule</button>
             <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
           </div>
         </div>
