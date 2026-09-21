@@ -3240,12 +3240,12 @@ body:has(#view-doctor.active),
 
 .doc-local-pip {
   position: absolute;
-  bottom: 60px;
+  bottom: 64px;
   right: 14px;
-  width: 150px;
-  height: 105px;
+  width: 140px;
+  height: 98px;
   border-radius: 8px;
-  border: 2px solid #ffffff;
+  border: 2px solid #3b82f6;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   z-index: 25;
@@ -3254,14 +3254,15 @@ body:has(#view-doctor.active),
 
 .pip-label {
   position: absolute;
-  bottom: 2px;
+  bottom: 0;
   left: 0;
   right: 0;
   text-align: center;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(15, 23, 42, 0.85);
   color: white;
-  font-size: 9px;
-  padding: 2px 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 0;
 }
 
 .doc-call-controls-bar {
@@ -3269,14 +3270,56 @@ body:has(#view-doctor.active),
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(15, 23, 42, 0.9);
-  backdrop-filter: blur(10px);
-  padding: 8px 16px;
+  height: 52px;
+  background: #1e293b;
+  padding: 0 16px;
   display: flex;
+  flex-direction: row;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: nowrap;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 30;
+  box-sizing: border-box;
+}
+
+.doc-left-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+}
+
+.doc-center-btns {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  flex-wrap: nowrap !important;
+}
+
+.doc-center-btns .btn-circle,
+.call-btns .btn-circle {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 15px !important;
+  background-color: #334155;
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.doc-center-btns .btn-circle:hover,
+.call-btns .btn-circle:hover {
+  background-color: #475569;
 }
 
 .btn-circle.hangup {
@@ -3287,6 +3330,14 @@ body:has(#view-doctor.active),
 
 .btn-circle.hangup:hover {
   background-color: #dc2626 !important;
+}
+
+.doc-right-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  justify-content: flex-end;
 }
 
 /* Network Telemetry Panel */

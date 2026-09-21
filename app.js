@@ -3183,108 +3183,111 @@ function renderWebcams(remoteCanvas, localCanvas) {
   resizeCanvasToDisplaySize(remoteCanvas);
   resizeCanvasToDisplaySize(localCanvas);
 
+  // Helper for caching portrait images
+  if (!window._portraitCache) window._portraitCache = {};
+  const getPortraitImg = (src) => {
+    if (!src) return null;
+    if (!window._portraitCache[src]) {
+      const img = new Image();
+      img.src = src;
+      window._portraitCache[src] = img;
+    }
+    return window._portraitCache[src];
+  };
+
+  const drawCoverImage = (ctx, img, width, height) => {
+    if (!img || !img.complete || img.naturalWidth === 0) return false;
+    const imgRatio = img.naturalWidth / img.naturalHeight;
+    const canvasRatio = width / height;
+    let renderW, renderH, offsetX, offsetY;
+
+    if (canvasRatio > imgRatio) {
+      renderW = width;
+      renderH = width / imgRatio;
+      offsetX = 0;
+      offsetY = (height - renderH) / 2;
+    } else {
+      renderH = height;
+      renderW = height * imgRatio;
+      offsetX = (width - renderW) / 2;
+      offsetY = 0;
+    }
+
+    ctx.drawImage(img, offsetX, offsetY, renderW, renderH);
+    return true;
+  };
+
   // 1. Draw Local webcam feed (Picture-in-picture fallback/state)
-  localCtx.fillStyle = "#1e293b";
-  localCtx.fillRect(0, 0, localCanvas.width, localCanvas.height);
-  
-  if (activeCall.camActive) {
-    localCtx.fillStyle = "#3b82f6";
-    localCtx.beginPath();
-    localCtx.arc(localCanvas.width / 2, localCanvas.height / 2 - 8, 16, 0, Math.PI * 2);
-    localCtx.fill();
+  const localImgSrc = (activeCall.role === "patient")
+    ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
+    : (currentUser?.photo || "doctor_portrait.jpg");
+  const localImg = getPortraitImg(localImgSrc);
+  const drewLocalImg = activeCall.camActive ? drawCoverImage(localCtx, localImg, localCanvas.width, localCanvas.height) : false;
 
-    localCtx.fillStyle = "#ffffff";
-    localCtx.font = "bold 11px Inter, system-ui, sans-serif";
-    localCtx.textAlign = "center";
-    localCtx.fillText("You", localCanvas.width / 2, localCanvas.height / 2 - 3);
+  if (!drewLocalImg) {
+    localCtx.fillStyle = "#1e293b";
+    localCtx.fillRect(0, 0, localCanvas.width, localCanvas.height);
+    
+    if (activeCall.camActive) {
+      localCtx.fillStyle = "#3b82f6";
+      localCtx.beginPath();
+      localCtx.arc(localCanvas.width / 2, localCanvas.height / 2 - 8, 16, 0, Math.PI * 2);
+      localCtx.fill();
 
-    localCtx.font = "9px Inter, system-ui, sans-serif";
-    localCtx.fillStyle = "#93c5fd";
-    localCtx.fillText("Camera Live", localCanvas.width / 2, localCanvas.height / 2 + 18);
-  } else {
-    localCtx.fillStyle = "#ef4444";
-    localCtx.font = "bold 14px Inter, system-ui, sans-serif";
-    localCtx.textAlign = "center";
-    localCtx.fillText("📵", localCanvas.width / 2, localCanvas.height / 2 - 6);
+      localCtx.fillStyle = "#ffffff";
+      localCtx.font = "bold 11px Inter, system-ui, sans-serif";
+      localCtx.textAlign = "center";
+      localCtx.fillText("You", localCanvas.width / 2, localCanvas.height / 2 - 3);
 
-    localCtx.fillStyle = "#cbd5e1";
-    localCtx.font = "10px Inter, system-ui, sans-serif";
-    localCtx.fillText("Camera Off", localCanvas.width / 2, localCanvas.height / 2 + 14);
+      localCtx.font = "9px Inter, system-ui, sans-serif";
+      localCtx.fillStyle = "#93c5fd";
+      localCtx.fillText("Camera Live", localCanvas.width / 2, localCanvas.height / 2 + 18);
+    } else {
+      localCtx.fillStyle = "#ef4444";
+      localCtx.font = "bold 14px Inter, system-ui, sans-serif";
+      localCtx.textAlign = "center";
+      localCtx.fillText("📵", localCanvas.width / 2, localCanvas.height / 2 - 6);
+
+      localCtx.fillStyle = "#cbd5e1";
+      localCtx.font = "10px Inter, system-ui, sans-serif";
+      localCtx.fillText("Camera Off", localCanvas.width / 2, localCanvas.height / 2 + 14);
+    }
   }
 
   // 2. Draw Remote camera feed (Shown when remote WebRTC stream hasn't connected yet)
   if (activeCall.networkQuality !== "critical") {
-    // Elegant deep slate gradient background
-    const grad = remoteCtx.createLinearGradient(0, 0, 0, remoteCanvas.height);
-    grad.addColorStop(0, "#0f172a");
-    grad.addColorStop(1, "#1e293b");
-    remoteCtx.fillStyle = grad;
-    remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+    const remoteImgSrc = activeCall.role === "doctor"
+      ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
+      : (activeCall.doctor?.photo || "doctor_portrait.jpg");
+    const remoteImg = getPortraitImg(remoteImgSrc);
+    const drewRemoteImg = drawCoverImage(remoteCtx, remoteImg, remoteCanvas.width, remoteCanvas.height);
 
-    const centerX = remoteCanvas.width / 2;
-    const centerY = remoteCanvas.height / 2;
+    if (!drewRemoteImg) {
+      // Elegant deep slate gradient background
+      const grad = remoteCtx.createLinearGradient(0, 0, 0, remoteCanvas.height);
+      grad.addColorStop(0, "#0f172a");
+      grad.addColorStop(1, "#1e293b");
+      remoteCtx.fillStyle = grad;
+      remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
 
-    const remoteName = activeCall.role === "doctor"
-      ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
-      : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Dr. Vikram");
-    const remoteRole = activeCall.role === "doctor" ? "Village Patient" : "Consulting Physician";
-    const remoteInitials = remoteName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+      const centerX = remoteCanvas.width / 2;
+      const centerY = remoteCanvas.height / 2;
+      const remoteName = activeCall.role === "doctor"
+        ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
+        : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Dr. Vikram");
+      const remoteInitials = remoteName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
-    // Subtle pulsating halo ring
-    const pulseRadius = 52 + Math.sin(Date.now() / 400) * 4;
-    remoteCtx.strokeStyle = "rgba(59, 130, 246, 0.35)";
-    remoteCtx.lineWidth = 3;
-    remoteCtx.beginPath();
-    remoteCtx.arc(centerX, centerY - 28, pulseRadius, 0, Math.PI * 2);
-    remoteCtx.stroke();
+      remoteCtx.fillStyle = activeCall.role === "doctor" ? "#2563eb" : "#0d9488";
+      remoteCtx.beginPath();
+      remoteCtx.arc(centerX, centerY - 28, 44, 0, Math.PI * 2);
+      remoteCtx.fill();
 
-    // Central avatar circle
-    remoteCtx.fillStyle = activeCall.role === "doctor" ? "#2563eb" : "#0d9488";
-    remoteCtx.beginPath();
-    remoteCtx.arc(centerX, centerY - 28, 44, 0, Math.PI * 2);
-    remoteCtx.fill();
-
-    // Initials text inside avatar
-    remoteCtx.fillStyle = "#ffffff";
-    remoteCtx.font = "bold 24px Inter, system-ui, sans-serif";
-    remoteCtx.textAlign = "center";
-    remoteCtx.textBaseline = "middle";
-    remoteCtx.fillText(remoteInitials, centerX, centerY - 28);
-
-    // Remote participant name
-    remoteCtx.textBaseline = "alphabetic";
-    remoteCtx.fillStyle = "#f8fafc";
-    remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
-    remoteCtx.fillText(remoteName, centerX, centerY + 42);
-
-    // Role subtext
-    remoteCtx.fillStyle = "#94a3b8";
-    remoteCtx.font = "12px Inter, system-ui, sans-serif";
-    remoteCtx.fillText(remoteRole, centerX, centerY + 62);
-
-    // Live status pill
-    const pillText = "🟢 Secure Encrypted Link • Waiting for remote camera...";
-    remoteCtx.font = "11px Inter, system-ui, sans-serif";
-    const pillWidth = remoteCtx.measureText(pillText).width + 24;
-    remoteCtx.fillStyle = "rgba(16, 185, 129, 0.15)";
-    remoteCtx.strokeStyle = "rgba(16, 185, 129, 0.4)";
-    remoteCtx.lineWidth = 1;
-    remoteCtx.beginPath();
-    if (typeof remoteCtx.roundRect === "function") {
-      remoteCtx.roundRect(centerX - pillWidth / 2, centerY + 80, pillWidth, 26, 13);
-    } else {
-      remoteCtx.rect(centerX - pillWidth / 2, centerY + 80, pillWidth, 26);
+      remoteCtx.fillStyle = "#ffffff";
+      remoteCtx.font = "bold 24px Inter, system-ui, sans-serif";
+      remoteCtx.textAlign = "center";
+      remoteCtx.textBaseline = "middle";
+      remoteCtx.fillText(remoteInitials, centerX, centerY - 28);
     }
-    remoteCtx.fill();
-    remoteCtx.stroke();
-
-    remoteCtx.fillStyle = "#34d399";
-    remoteCtx.fillText(pillText, centerX, centerY + 97);
-
-    // Hint text at bottom
-    remoteCtx.fillStyle = "#64748b";
-    remoteCtx.font = "11px Inter, system-ui, sans-serif";
-    remoteCtx.fillText("Local camera is streaming in Picture-in-Picture feed (lower right)", centerX, remoteCanvas.height - 18);
 
     // Apply adaptive downsampling if simulated
     const activeQuality = activeCall.networkQuality;
