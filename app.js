@@ -1349,6 +1349,14 @@ async function loadPatientDashboard() {
   const callCard = document.getElementById("pat-active-call-card");
   const cancelBtn = document.getElementById("pat-cancel-appointment-btn");
 
+  // Dashboard refreshes can run while the login view is being restored.
+  // Avoid aborting the patient call flow when its dashboard nodes are not
+  // mounted yet.
+  if (!tokenVal || !tokenSub || !waitVal || !docVal || !callCard || !cancelBtn) {
+    console.info("[Patient] Dashboard is not mounted; skipping refresh.");
+    return;
+  }
+
   if (activeApp) {
     tokenVal.innerText = activeApp.token;
     tokenSub.innerText = `Symptom: ${activeApp.symptoms}`;
