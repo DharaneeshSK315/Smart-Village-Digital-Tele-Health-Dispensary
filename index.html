@@ -196,6 +196,11 @@
               Join Consultation Call
             </button>
           </div>
+          <div class="card pat-scheduled-appointment-card" id="pat-scheduled-appointment-card" style="display: none;">
+            <h4>📅 Scheduled Consultation</h4>
+            <div id="pat-scheduled-appointment-details"></div>
+            <button class="btn-primary" id="pat-join-scheduled-btn" style="width: 100%; margin-top: 12px;" onclick="joinPatientCall()">Join Consultation</button>
+          </div>
 
           <!-- Book Appointment Card -->
           <div class="card pat-book-card">
@@ -779,6 +784,25 @@
             <button type="button" class="btn-secondary" onclick="addDoctorSlot()">Add slot</button>
             <span id="doc-slot-list" class="doc-slot-list"></span>
           </div>
+          <form class="doc-schedule-form" onsubmit="scheduleDoctorConsultation(event)">
+            <strong>Schedule video consultation</strong>
+            <select id="doc-schedule-patient" class="form-input" required onchange="renderDoctorMedicalHistory(this.value)">
+              <option value="">Select patient</option>
+            </select>
+            <input type="date" id="doc-schedule-date" class="form-input" required>
+            <input type="time" id="doc-schedule-time" class="form-input" required>
+            <select id="doc-schedule-duration" class="form-input">
+              <option value="15">15 minutes</option>
+              <option value="20" selected>20 minutes</option>
+              <option value="30">30 minutes</option>
+            </select>
+            <select id="doc-schedule-type" class="form-input">
+              <option value="Video">🎥 Video Consultation</option>
+              <option value="Audio">🎙️ Audio Consultation</option>
+            </select>
+            <input type="text" id="doc-schedule-reason" class="form-input" placeholder="Reason for consultation" required>
+            <button type="submit" class="btn-primary">Send Appointment</button>
+          </form>
         </div>
 
         <div class="card doc-card doc-operations-card">

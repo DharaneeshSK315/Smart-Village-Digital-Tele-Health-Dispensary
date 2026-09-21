@@ -2554,6 +2554,44 @@ body:has(#view-doctor.active),
   flex-wrap: wrap;
 }
 
+.doc-schedule-form {
+  border-top: 1px solid #f1f5f9;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1.5fr repeat(2, 1fr) .8fr 1fr 1.5fr auto;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.doc-schedule-form strong {
+  align-self: center;
+  color: #334155;
+  font-size: 11px;
+  grid-column: 1 / -1;
+}
+
+.doc-schedule-form .form-input {
+  min-width: 0;
+  padding: 7px 8px;
+  font-size: 11px;
+}
+
+.pat-scheduled-appointment-card h4 {
+  color: #2563eb;
+  margin: 0 0 8px;
+}
+
+.pat-scheduled-appointment-card p {
+  color: #475569;
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.pat-scheduled-appointment-card button:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
 .doc-appointment-filter {
   width: auto;
   min-width: 92px;
@@ -2829,6 +2867,9 @@ body:has(#view-doctor.active),
 @media (max-width: 900px) {
   .doc-operations-grid {
     grid-template-columns: 1fr;
+  }
+  .doc-schedule-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

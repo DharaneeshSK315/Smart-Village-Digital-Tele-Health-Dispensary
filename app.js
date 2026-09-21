@@ -1371,12 +1371,30 @@ async function loadPatientDashboard() {
     docVal.innerText = doc ? doc.name : "Dr. Vikram";
     const docSub = document.getElementById("pat-doc-sub");
     if (docSub) docSub.innerText = doc ? `${doc.specialty} Clinic` : "General Medicine Clinic";
+    const scheduledCard = document.getElementById("pat-scheduled-appointment-card");
+    const scheduledDetails = document.getElementById("pat-scheduled-appointment-details");
+    const scheduledJoin = document.getElementById("pat-join-scheduled-btn");
+    const hasSchedule = activeApp.date && activeApp.time && activeApp.status !== "Active";
+    if (scheduledCard && scheduledDetails) {
+      scheduledCard.style.display = hasSchedule ? "block" : "none";
+      if (hasSchedule) {
+        const scheduledAt = new Date(`${activeApp.date}T${activeApp.time}`);
+        const canJoin = scheduledAt <= new Date();
+        scheduledDetails.innerHTML = `<p><strong>${doc ? doc.name : "Doctor"}</strong></p><p>${activeApp.date} · ${formatAppointmentTime(activeApp.time)} · ${activeApp.duration || 20} minutes</p><p>${activeApp.type === "Audio" ? "🎙️ Audio Consultation" : "🎥 Video Consultation"}</p><p>${activeApp.reason || activeApp.symptoms || "Consultation"}</p>`;
+        if (scheduledJoin) {
+          scheduledJoin.disabled = !canJoin;
+          scheduledJoin.textContent = canJoin ? "Join Consultation" : "Join at scheduled time";
+        }
+      }
+    }
 
     if (activeApp.status === "Active") {
       callCard.style.display = "block";
       document.getElementById("pat-active-doc-name").innerText = doc ? doc.name : "Consultant";
     } else {
       callCard.style.display = "none";
+      const scheduledCard = document.getElementById("pat-scheduled-appointment-card");
+      if (scheduledCard) scheduledCard.style.display = "none";
     }
   } else {
     tokenVal.innerText = "No Token";
@@ -2165,6 +2183,13 @@ function getDoctorAppointmentStatus(appointment) {
   return appointment.status || "Pending";
 }
 
+function formatAppointmentTime(value) {
+  if (!value) return "Time not set";
+  const [hours, minutes] = String(value).split(":").map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return value;
+  return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function renderDoctorAppointments() {
   const tbody = document.getElementById("doc-today-appointments-tbody");
   if (!tbody) return;
@@ -2376,7 +2401,58 @@ function populateDoctorHistoryPatients() {
   select.innerHTML = `<option value="">Select a patient</option>` +
     (db.patients || []).map(patient => `<option value="${patient.id}">${patient.name} (${patient.id})</option>`).join("");
   if (selected && db.patients.some(p => p.id === selected)) select.value = selected;
+  const scheduleSelect = document.getElementById("doc-schedule-patient");
+  if (scheduleSelect) {
+    const scheduleSelected = scheduleSelect.value;
+    scheduleSelect.innerHTML = `<option value="">Select patient</option>` +
+      (db.patients || []).map(patient => `<option value="${patient.id}">${patient.name} (${patient.id})</option>`).join("");
+    if (scheduleSelected && db.patients.some(p => p.id === scheduleSelected)) scheduleSelect.value = scheduleSelected;
+  }
 }
+
+window.scheduleDoctorConsultation = function(event) {
+  event.preventDefault();
+  const patientId = document.getElementById("doc-schedule-patient")?.value;
+  const date = document.getElementById("doc-schedule-date")?.value;
+  const time = document.getElementById("doc-schedule-time")?.value;
+  const duration = Number(document.getElementById("doc-schedule-duration")?.value || 20);
+  const type = document.getElementById("doc-schedule-type")?.value || "Video";
+  const reason = document.getElementById("doc-schedule-reason")?.value.trim();
+  const patient = db.patients.find(p => p.id === patientId);
+  if (!patient || !date || !time || !reason) {
+    showToast("Select a patient, date, time, and consultation reason.", "warning");
+    return;
+  }
+  const doctor = db.doctors.find(d => d.id === currentUser.id) || currentUser;
+  const prefix = (patient.village || "").includes("A") ? "VIL-A" : (patient.village || "").includes("B") ? "VIL-B" : "VIL-C";
+  const token = `${prefix}-${Math.floor(100 + Math.random() * 900)}`;
+  const appointment = {
+    token,
+    patientId,
+    patientName: patient.name,
+    patientAge: patient.age,
+    patientGender: patient.gender,
+    patientVillage: patient.village,
+    symptoms: reason,
+    reason,
+    urgency: "Normal",
+    specialty: doctor.specialty || "General Medicine",
+    assignedDoctorId: doctor.id,
+    date,
+    time,
+    duration,
+    type,
+    status: "Pending",
+    notification: "New scheduled appointment",
+    vitals: null
+  };
+  db.appointments = (db.appointments || []).filter(a =>
+    !(a.patientId === patientId && !["Completed", "Cancelled"].includes(a.status))
+  );
+  db.appointments.push(appointment);
+  persistAppointmentChange(`Appointment sent to ${patient.name} for ${date} at ${formatAppointmentTime(time)}.`);
+  event.target.reset();
+};
 
 window.selectDoctorHistoryPatient = function(patientId) {
   const select = document.getElementById("doc-history-patient-select");
@@ -2527,7 +2603,7 @@ function renderDoctorQueue(searchQuery = "") {
       <td>${priorityBadge}</td>
       <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
       <td style="text-align: right; padding-right: 20px;">
-        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
+        <button class="btn-doc-start-call" onclick="startDoctorAppointment('${a.token}')">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
           Start Call
         </button>
@@ -2889,6 +2965,10 @@ window.joinPatientCall = async function() {
   if (!activeApp) {
     showToast("No active video session found yet. Please wait for the doctor to start the consultation.", "warning");
     console.log("[Patient] No active appointment found for patient:", currentUser.id);
+    return;
+  }
+  if (activeApp.date && activeApp.time && new Date(`${activeApp.date}T${activeApp.time}`) > new Date()) {
+    showToast(`Join Consultation opens at ${activeApp.date} ${formatAppointmentTime(activeApp.time)}.`, "info");
     return;
   }
 
