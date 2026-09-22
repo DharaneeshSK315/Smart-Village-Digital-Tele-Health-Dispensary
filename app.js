@@ -109,25 +109,45 @@ let virtualWebcamAnimId = null;
 
 function attachStreamToContainer(stream, containerId, isMuted = false) {
   const container = document.getElementById(containerId);
-  if (!container) return null;
-  const existingVideo = container.querySelector("video");
-  if (existingVideo && existingVideo.srcObject === stream) {
-    if (existingVideo.paused) existingVideo.play().catch(() => {});
-    return existingVideo;
+  if (!container || !stream) return null;
+
+  let video = container.querySelector("video");
+  if (!video) {
+    container.innerHTML = "";
+    video = document.createElement("video");
+    video.autoplay = true;
+    video.playsInline = true;
+    video.style.width = "100%";
+    video.style.height = "100%";
+    video.style.objectFit = "cover";
+    video.style.borderRadius = "inherit";
+    video.style.display = "block";
+    container.appendChild(video);
   }
-  container.innerHTML = "";
-  const video = document.createElement("video");
-  video.autoplay = true;
-  video.playsInline = true;
+
+  if (video.srcObject !== stream) {
+    video.srcObject = stream;
+  }
   video.muted = isMuted;
-  video.srcObject = stream;
-  video.style.width = "100%";
-  video.style.height = "100%";
-  video.style.objectFit = "cover";
-  video.style.borderRadius = "inherit";
-  video.style.display = "block";
-  container.appendChild(video);
-  video.play().catch(err => console.warn("[Video] Auto-play error:", err));
+
+  const playPromise = video.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(err => {
+      console.warn(`[Video] Auto-play warning for container '${containerId}':`, err);
+      // If unmuted autoplay was blocked by browser policy, play muted initially and listen for user interaction to unmute
+      if (!isMuted) {
+        video.muted = true;
+        video.play().catch(e => console.warn("[Video] Muted fallback autoplay failed:", e));
+
+        const unmuteHandler = () => {
+          video.muted = false;
+          video.play().catch(() => {});
+        };
+        document.addEventListener("click", unmuteHandler, { once: true });
+        document.addEventListener("touchstart", unmuteHandler, { once: true });
+      }
+    });
+  }
   return video;
 }
 
@@ -492,6 +512,12 @@ function initNativeWebRTC(token, role) {
       });
     }
 
+    nativePeerConnection.onnegotiationneeded = async () => {
+      if (isInitiator && nativePeerConnection.signalingState === "stable") {
+        await sendOffer();
+      }
+    };
+
     nativePeerConnection.ontrack = (event) => {
       console.info("[WebRTC] Remote track received:", event.track.kind);
       if (event.streams && event.streams[0]) {
@@ -501,6 +527,12 @@ function initNativeWebRTC(token, role) {
         const existingTrack = remoteWebcamStream.getTracks().find(track => track.id === event.track.id);
         if (!existingTrack) remoteWebcamStream.addTrack(event.track);
       }
+
+      event.track.onunmute = () => updateNetworkUI();
+      event.track.onmute = () => updateNetworkUI();
+      event.track.onended = () => updateNetworkUI();
+
+      if (activeCall) activeCall.hasRemoteVideo = true;
       showToast("Remote participant connected! Live video active.", "success");
       updateNetworkUI();
     };
@@ -560,20 +592,38 @@ function initNativeWebRTC(token, role) {
               sdp: nativePeerConnection.localDescription
             });
             console.info("[WebRTC] Sent answer from:", role);
+
+            while (pendingIceCandidates.length) {
+              const candidate = pendingIceCandidates.shift();
+              try {
+                await nativePeerConnection.addIceCandidate(candidate);
+              } catch (e) {
+                console.warn("[WebRTC] Error adding pending ICE candidate on offer handler:", e);
+              }
+            }
           }
         } else if (msg.type === "answer") {
           console.info("[WebRTC] Received answer from:", msg.role);
-          if (nativePeerConnection && !nativePeerConnection.currentRemoteDescription) {
+          if (nativePeerConnection && (!nativePeerConnection.currentRemoteDescription || nativePeerConnection.signalingState === "have-local-offer")) {
             await nativePeerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
             while (pendingIceCandidates.length) {
-              await nativePeerConnection.addIceCandidate(pendingIceCandidates.shift());
+              const candidate = pendingIceCandidates.shift();
+              try {
+                await nativePeerConnection.addIceCandidate(candidate);
+              } catch (e) {
+                console.warn("[WebRTC] Error adding pending ICE candidate on answer handler:", e);
+              }
             }
           }
         } else if (msg.type === "ice-candidate") {
           if (nativePeerConnection && msg.candidate) {
             const candidate = new RTCIceCandidate(msg.candidate);
-            if (nativePeerConnection.remoteDescription) {
-              await nativePeerConnection.addIceCandidate(candidate);
+            if (nativePeerConnection.remoteDescription && nativePeerConnection.remoteDescription.type) {
+              try {
+                await nativePeerConnection.addIceCandidate(candidate);
+              } catch (e) {
+                console.warn("[WebRTC] addIceCandidate error:", e);
+              }
             } else {
               pendingIceCandidates.push(candidate);
               console.info("[WebRTC] Queued ICE candidate until remote description arrives");
@@ -582,6 +632,7 @@ function initNativeWebRTC(token, role) {
         } else if (msg.type === "peer-hangup") {
           console.info("[WebRTC] Remote peer hung up");
           remoteWebcamStream = null;
+          if (activeCall) activeCall.hasRemoteVideo = false;
           updateNetworkUI();
         }
       } catch (sigErr) {
