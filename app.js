@@ -3936,10 +3936,9 @@ window.submitDigitalPrescription = async function(e) {
   const consultationSaved = await saveDB("consultations");
   if (!consultationSaved && window.isNetworkOnline) {
     const databaseMessage = window.lastDatabaseError && window.lastDatabaseError.message
-      ? ` ${window.lastDatabaseError.message}`
-      : " Please apply supabase-consultations-migration.sql in Supabase.";
-    showToast(`Consultation could not be saved to the database.${databaseMessage}`, "danger");
-    return;
+      ? ` (${window.lastDatabaseError.message})`
+      : "";
+    showToast(`Prescription saved locally! Cloud sync pending Supabase migration.${databaseMessage} Run supabase-consultations-migration.sql in Supabase SQL editor.`, "warning");
   }
   await saveDB("patients");
   await saveDB("appointments");
