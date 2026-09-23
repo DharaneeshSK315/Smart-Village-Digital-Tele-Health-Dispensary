@@ -4454,8 +4454,8 @@ async function joinAgoraRoomInternal(role) {
   const sys = AgoraRTC.checkSystemRequirements ? AgoraRTC.checkSystemRequirements() : null;
   if (sys) {
     console.info("Agora system requirements:", sys);
-    if (sys.webRTC !== true || sys.video !== true || sys.audio !== true) {
-      showToast("Browser does not support Agora WebRTC or local camera/mic access.", "danger");
+    if (sys.webRTC !== true || sys.webAudio !== true) {
+      showToast("Browser does not support the WebRTC or Web Audio APIs required by Agora.", "danger");
       console.error("Agora unsupported system requirements", sys);
     }
   }
