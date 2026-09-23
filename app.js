@@ -1003,16 +1003,22 @@ async function initDB() {
   
   // Populate UI inputs on load
   setTimeout(() => {
-    const appidInput = document.getElementById("agora-appid");
-    const tokenInput = document.getElementById("agora-token");
-    const chanInput = document.getElementById("agora-channel");
-    const enableCheck = document.getElementById("agora-enabled");
-    
+    populateAgoraInputs();
+  }, 300);
+}
+
+function populateAgoraInputs() {
+  const appidInput = document.getElementById("agora-appid");
+  const tokenInput = document.getElementById("agora-token");
+  const chanInput = document.getElementById("agora-channel");
+  const enableCheck = document.getElementById("agora-enabled");
+  
+  if (agoraConfig) {
     if (appidInput) appidInput.value = agoraConfig.appid || "";
     if (tokenInput) tokenInput.value = agoraConfig.token || "";
     if (chanInput) chanInput.value = agoraConfig.channel || "telehealth-room";
     if (enableCheck) enableCheck.checked = agoraConfig.enabled || false;
-  }, 500);
+  }
 }
 
 async function saveDB(tableName = null) {
@@ -4076,6 +4082,7 @@ function loadAdminDashboard() {
   renderAdminLogs();
   renderAdminRecordings();
   renderAdminRbac();
+  populateAgoraInputs();
 
   // Populate appointment patient & doctor dropdowns
   const patSelect = document.getElementById("adm-book-patient");
@@ -4413,7 +4420,13 @@ window.saveAgoraConfig = function() {
   if (enabled) {
     agoraConfig.lastFail = false;
   }
-  console.info("Agora config saved", { appid, hasToken: !!token, channel, enabled });
+
+  // Persist to localStorage and local DB cache
+  localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  db.agoraConfig = agoraConfig;
+  saveDB();
+
+  console.info("Agora config saved successfully", { appid, hasToken: !!token, channel, enabled });
   showToast("Agora WebRTC configurations saved successfully!", "success");
 };
 
@@ -4635,7 +4648,7 @@ async function joinAgoraRoomInternal(role) {
       console.warn("Agora permission issue detected", err);
     }
 
-    const tokenError = err.message && (err.message.includes("dynamic key") || err.message.includes("token timeout") || err.message.includes("INVALID_TOKEN") || err.message.includes("token"));
+    const tokenError = err.message && (err.message.includes("dynamic key expired") || err.message.includes("token timeout") || err.message.includes("ERR_TOKEN_EXPIRED") || err.message.includes("INVALID_TOKEN"));
     if (tokenError) {
       agoraConfig.token = "";
       console.warn("Agora token error detected, clearing saved token.");
