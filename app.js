@@ -3061,7 +3061,9 @@ window.joinVhwCall = function(token) {
 };
 
 function shouldUseAgora() {
-  return agoraConfig && agoraConfig.enabled && agoraConfig.appid && !agoraConfig.lastFail;
+  if (!agoraConfig || !agoraConfig.appid) return false;
+  if (activeCall && (activeCall.role === "patient" || activeCall.role === "doctor")) return true;
+  return agoraConfig.enabled && !agoraConfig.lastFail;
 }
 
 function startCallLoop() {
