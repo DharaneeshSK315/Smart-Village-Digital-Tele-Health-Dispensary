@@ -4512,7 +4512,25 @@ async function joinAgoraRoomInternal(role) {
           console.log(`[AGORA] Remote video subscribed: ${user.uid}`);
           await renderRemoteVideo(user);
         } else if (mediaType === "audio" && user.audioTrack) {
-          user.audioTrack.play();
+          try {
+            user.audioTrack.setVolume(100);
+            await user.audioTrack.play();
+            console.log(`[AGORA] Remote audio playing for UID: ${user.uid}`);
+          } catch (audioPlayErr) {
+            console.warn(`[AGORA] Remote audio play blocked by browser autoplay policy for ${user.uid}:`, audioPlayErr);
+            showToast("Click anywhere on screen to enable remote audio.", "info");
+            const resumeAudioOnGesture = () => {
+              if (user.audioTrack) {
+                user.audioTrack.play().catch(e => console.error("Gesture audio play error:", e));
+              }
+              window.removeEventListener("click", resumeAudioOnGesture);
+              window.removeEventListener("keydown", resumeAudioOnGesture);
+              window.removeEventListener("touchstart", resumeAudioOnGesture);
+            };
+            window.addEventListener("click", resumeAudioOnGesture);
+            window.addEventListener("keydown", resumeAudioOnGesture);
+            window.addEventListener("touchstart", resumeAudioOnGesture);
+          }
         }
       } catch (subscribeErr) {
         console.error(`[AGORA] Remote subscription failed for ${user.uid}:`, subscribeErr);
@@ -4522,11 +4540,19 @@ async function joinAgoraRoomInternal(role) {
       }
     };
 
+    // Global Autoplay Failed handler
+    if (typeof AgoraRTC !== "undefined" && AgoraRTC.onAutoplayFailed) {
+      AgoraRTC.onAutoplayFailed(() => {
+        console.warn("[AGORA] Global audio autoplay failed due to browser restriction");
+        showToast("Audio autoplay blocked by browser. Click screen to enable audio.", "warning");
+      });
+    }
+
     // Listen for incoming remote user publishing
     agoraClient.on("user-published", async (user, mediaType) => {
-      console.log(`[AGORA] Remote video published: ${user.uid}`);
+      console.log(`[AGORA] Remote ${mediaType} published: ${user.uid}`);
       await subscribeToRemoteUser(user, mediaType);
-      showToast("Remote user connected to Agora session.", "success");
+      showToast(`Remote ${mediaType} stream active in Agora session.`, "success");
     });
 
     agoraClient.on("user-joined", (user) => {
@@ -4581,11 +4607,9 @@ async function joinAgoraRoomInternal(role) {
     if (!consultationId) {
       throw new Error("No consultation token is available for the Agora channel.");
     }
-    const channel = token
-      ? configuredChannel
-      : consultationId
-        ? `${configuredChannel}-${consultationId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64)
-        : configuredChannel;
+    
+    // Ensure both participants join the exact same Agora channel
+    const channel = configuredChannel;
 
     const uid = getAgoraUid(role, consultationId);
     if (!appid) {
@@ -4595,17 +4619,33 @@ async function joinAgoraRoomInternal(role) {
     await agoraClient.join(appid, channel, token, uid);
     console.log(`[AGORA] Joined channel: ${channel} UID: ${uid}`);
 
-    // Create local audio and video tracks
-    const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
+    // Create local audio and video tracks independently
+    let audioTrack = null;
+    let videoTrack = null;
+
+    try {
+      audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      console.log("[AGORA] Local microphone audio track created successfully");
+    } catch (audioErr) {
+      console.error("[AGORA] Microphone creation failed:", audioErr);
+      showToast("Unable to access microphone. Check browser permissions.", "warning");
+    }
+
+    try {
+      videoTrack = await AgoraRTC.createCameraVideoTrack();
+      console.log("[AGORA] Local camera video track created successfully");
+    } catch (videoErr) {
+      console.error("[AGORA] Camera creation failed:", videoErr);
+    }
+
     localAudioTrack = audioTrack;
     localVideoTrack = videoTrack;
-    console.log(`[AGORA] Local video track created`);
 
-    // Play local track in PIP container
+    // Play local video in PIP container if available
     const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
     const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
     
-    if (localContainer) {
+    if (localVideoTrack && localContainer) {
       if (localCanvas) localCanvas.style.display = "none";
       localContainer.style.display = "block";
       localContainer.innerHTML = "";
@@ -4618,13 +4658,30 @@ async function joinAgoraRoomInternal(role) {
         updateNetworkUI();
       } catch (playErr) {
         console.error("Agora local video track play failed:", playErr);
-        showToast("Unable to display local camera. Please allow camera access.", "danger");
       }
     }
 
-    // Publish tracks
-    await agoraClient.publish([localAudioTrack, localVideoTrack]);
-    console.log(`[AGORA] Local video published`);
+    // Prepare tracks to publish
+    const tracksToPublish = [];
+    if (localAudioTrack) {
+      if (activeCall && typeof activeCall.micActive === "boolean") {
+        localAudioTrack.setEnabled(activeCall.micActive);
+      }
+      tracksToPublish.push(localAudioTrack);
+    }
+    if (localVideoTrack) {
+      if (activeCall && typeof activeCall.camActive === "boolean") {
+        localVideoTrack.setEnabled(activeCall.camActive);
+      }
+      tracksToPublish.push(localVideoTrack);
+    }
+
+    if (tracksToPublish.length > 0) {
+      await agoraClient.publish(tracksToPublish);
+      console.log(`[AGORA] Published ${tracksToPublish.length} local track(s)`);
+      updateNetworkUI();
+      showToast("Realtime audio & video published to session!", "success");
+    }
     updateNetworkUI();
     showToast("Agora stream published! Real video calling active.", "success");
 
