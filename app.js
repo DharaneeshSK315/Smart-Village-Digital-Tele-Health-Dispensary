@@ -90,12 +90,23 @@ let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-r
 let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
+let agoraJoinPromise = null;
 
 function getAgoraRolePrefix(role) {
   if (role === "doctor" || role === "doc") return "doc";
   if (role === "patient" || role === "pat") return "pat";
   if (role === "vhw") return "vhw";
   return role;
+}
+
+function getAgoraUid(role, consultationId) {
+  const identity = `${consultationId}:${getAgoraRolePrefix(role)}:${currentUser?.id || currentUser?.email || "anonymous"}`;
+  let hash = 2166136261;
+  for (let index = 0; index < identity.length; index += 1) {
+    hash ^= identity.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 2147483646 + 1;
 }
 
 // Native Browser Webcam & WebRTC Peer State
@@ -4405,6 +4416,17 @@ window.saveAgoraConfig = function() {
 };
 
 async function joinAgoraRoom(role) {
+  if (agoraJoinPromise) return agoraJoinPromise;
+
+  agoraJoinPromise = joinAgoraRoomInternal(role);
+  try {
+    await agoraJoinPromise;
+  } finally {
+    agoraJoinPromise = null;
+  }
+}
+
+async function joinAgoraRoomInternal(role) {
   if (typeof AgoraRTC === "undefined") {
     showToast("Agora Web SDK failed to load. Check internet or ad-blocker.", "danger");
     agoraConfig.enabled = false;
@@ -4459,7 +4481,7 @@ async function joinAgoraRoom(role) {
       remoteContainer.innerHTML = "";
       
       try {
-        await user.videoTrack.play(remoteContainer);
+        await user.videoTrack.play(remoteContainer, { fit: "cover" });
         if (activeCall) activeCall.hasRemoteVideo = true;
         console.log(`[AGORA] Remote video rendered`);
       } catch (playErr) {
@@ -4542,13 +4564,16 @@ async function joinAgoraRoom(role) {
     const configuredChannel = (agoraConfig.channel || "telehealth-room").trim();
     const consultationId = String(activeCall?.token || "").trim();
     const token = (agoraConfig.token || "").trim() || null;
+    if (!consultationId) {
+      throw new Error("No consultation token is available for the Agora channel.");
+    }
     const channel = token
       ? configuredChannel
       : consultationId
         ? `${configuredChannel}-${consultationId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64)
         : configuredChannel;
 
-    const uid = role === "doctor" ? 1 : role === "vhw" ? 2 : 3;
+    const uid = getAgoraUid(role, consultationId);
     if (!appid) {
       throw new Error("Agora App ID is not configured.");
     }
