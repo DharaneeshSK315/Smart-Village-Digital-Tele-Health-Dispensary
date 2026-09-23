@@ -964,8 +964,8 @@ async function initDB() {
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
   }
 
-  // Recover the bundled Agora configuration after an earlier client-side failure.
-  if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.enabled && agoraConfig.lastFail) {
+  // Retry the bundled Agora configuration after an earlier client-side failure.
+  if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.enabled) {
     agoraConfig.enabled = true;
     delete agoraConfig.lastFail;
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
@@ -4429,8 +4429,6 @@ async function joinAgoraRoom(role) {
 async function joinAgoraRoomInternal(role) {
   if (typeof AgoraRTC === "undefined") {
     showToast("Agora Web SDK failed to load. Check internet or ad-blocker.", "danger");
-    agoraConfig.enabled = false;
-    startCallLoop();
     return;
   }
 
@@ -4646,15 +4644,20 @@ async function joinAgoraRoomInternal(role) {
       console.error("Agora invalid vendor key error detected", err);
     }
 
-    agoraConfig.enabled = false;
-    agoraConfig.lastFail = true;
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-    const enableCheck = document.getElementById("agora-enabled");
-    if (enableCheck) enableCheck.checked = false;
 
-    console.warn("Agora connection failed; falling back to simulated feed.", err);
-    showToast(`Agora Connection Error: ${err.message}. Using simulated feed instead.`, "info");
-    startCallLoop();
+    const agoraPrefix = getAgoraRolePrefix(role);
+    const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+    if (remoteContainer) {
+      remoteContainer.style.display = "flex";
+      remoteContainer.style.alignItems = "center";
+      remoteContainer.style.justifyContent = "center";
+      remoteContainer.style.color = "#cbd5e1";
+      remoteContainer.innerHTML = "Agora video connection failed. Check the App ID, channel, token, and camera permissions.";
+    }
+
+    console.warn("Agora connection failed; simulated video was not shown.", err);
+    showToast(`Agora Connection Error: ${err.message}.`, "danger");
   }
 }
 
