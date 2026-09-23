@@ -3274,9 +3274,11 @@ body:has(#view-doctor.active),
   bottom: 0;
   left: 0;
   right: 0;
-  height: 52px;
-  background: #1e293b;
-  padding: 0 16px;
+  height: 54px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 0 12px;
   display: flex;
   flex-direction: row;
   justify-content: space-between;
@@ -3285,13 +3287,26 @@ body:has(#view-doctor.active),
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 30;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .doc-left-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 140px;
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.doc-left-status .quality-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .doc-center-btns {
@@ -3299,8 +3314,10 @@ body:has(#view-doctor.active),
   flex-direction: row !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 10px !important;
+  gap: 8px !important;
   flex-wrap: nowrap !important;
+  flex: 0 0 auto !important;
+  margin: 0 6px;
 }
 
 .doc-center-btns .btn-circle,
@@ -3314,16 +3331,18 @@ body:has(#view-doctor.active),
   align-items: center !important;
   justify-content: center !important;
   font-size: 15px !important;
-  background-color: #334155;
-  color: white;
-  border: none;
+  background-color: #334155 !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .doc-center-btns .btn-circle:hover,
 .call-btns .btn-circle:hover {
-  background-color: #475569;
+  background-color: #475569 !important;
+  transform: translateY(-1px);
 }
 
 .btn-circle.hangup {
@@ -3334,14 +3353,53 @@ body:has(#view-doctor.active),
 
 .btn-circle.hangup:hover {
   background-color: #dc2626 !important;
+  transform: scale(1.05);
 }
 
 .doc-right-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 140px;
+  gap: 6px;
+  flex: 1 1 0%;
+  min-width: 0;
   justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.translator-selector-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.translator-selector-strip select,
+.translate-select,
+.simulator-controls select {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 6px !important;
+  padding: 4px 6px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  outline: none !important;
+  cursor: pointer;
+  max-width: 105px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color 0.15s ease;
+}
+
+.translator-selector-strip select:hover,
+.translate-select:hover,
+.simulator-controls select:hover {
+  border-color: #475569 !important;
 }
 
 /* Network Telemetry Panel */
