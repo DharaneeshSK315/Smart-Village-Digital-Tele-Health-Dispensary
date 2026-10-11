@@ -85,8 +85,8 @@ let activeCall = null; // { token, patient, doctor, networkQuality, autoFluctuat
 let activeCallPrescriptionMeds = [];
 const authGuard = createAuthGuard();
 
-// Agora WebRTC State
-let agoraConfig = { enabled: false, appid: "", token: "", channel: "telehealth-room" };
+// Agora Audio State
+let agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
 let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
@@ -109,14 +109,139 @@ function getAgoraUid(role, consultationId) {
   return (hash >>> 0) % 2147483646 + 1;
 }
 
-// Native Browser Webcam & WebRTC Peer State
+// Real-Time Media and Web Audio State
 let localWebcamStream = null;
-let remoteWebcamStream = null;
-let nativePeerConnection = null;
-let nativeSignalingChannel = null;
-let nativeSignalingHeartbeat = null;
 let virtualWebcamCanvas = null;
 let virtualWebcamAnimId = null;
+
+// Global Web Audio Context for audible chimes, unmute detection, and synthetic audio streams
+function unlockAudioContext() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!window._sharedAudioCtx) {
+      window._sharedAudioCtx = new AudioContextClass();
+    }
+    if (window._sharedAudioCtx.state === "suspended") {
+      window._sharedAudioCtx.resume().catch(() => {});
+    }
+    return window._sharedAudioCtx;
+  } catch (e) {
+    console.warn("[Audio] AudioContext unlock warning:", e);
+    return null;
+  }
+}
+
+// Attach gesture listener to immediately unlock Web Audio on first user interaction
+if (typeof window !== "undefined") {
+  const gestureUnlock = () => {
+    unlockAudioContext();
+  };
+  window.addEventListener("click", gestureUnlock, { passive: true });
+  window.addEventListener("touchstart", gestureUnlock, { passive: true });
+  window.addEventListener("pointerdown", gestureUnlock, { passive: true });
+}
+
+// Distinct, audible medical consultation chime (587Hz -> 880Hz) to confirm audio works
+function playConsultationChime() {
+  try {
+    const ctx = unlockAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, now);
+    osc.frequency.setValueAtTime(880, now + 0.12);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.2, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.7);
+    console.info("[Audio] Played tele-consultation connection chime");
+  } catch (e) {
+    console.warn("[Audio] Chime playback warning:", e);
+  }
+}
+
+// Synthesizes a subtle, pleasant clinical presence audio track so audio streams are ALWAYS active
+function createSynthesizedAudioTrack() {
+  try {
+    const ctx = unlockAudioContext();
+    if (!ctx) return null;
+    const dest = ctx.createMediaStreamDestination();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(260, ctx.currentTime);
+    gain.gain.setValueAtTime(0.012, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start();
+    const track = dest.stream.getAudioTracks()[0] || null;
+    return track;
+  } catch (e) {
+    console.warn("[Audio] Could not generate synthesized audio track:", e);
+    return null;
+  }
+}
+
+// User-facing unmute notification pill if browser autoplay policy restricts remote audio
+function showAudioUnmutePrompt(role) {
+  const prefix = getAgoraRolePrefix(role);
+  const viewport = document.getElementById(`${prefix}-viewport-container`);
+  if (!viewport || document.getElementById("telehealth-unmute-pill")) return;
+
+  const pill = document.createElement("button");
+  pill.id = "telehealth-unmute-pill";
+  pill.innerHTML = `<span>🔊</span> <span>Click anywhere to unmute consultation audio</span>`;
+  pill.style.cssText = `
+    position: absolute;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #0284c7, #2563eb);
+    color: #ffffff;
+    border: 1px solid rgba(255,255,255,0.4);
+    padding: 8px 18px;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 999;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+  `;
+
+  const unmuteAction = () => {
+    const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+    const remoteVideo = remoteContainer ? remoteContainer.querySelector("video") : null;
+    if (remoteVideo) {
+      remoteVideo.muted = false;
+      remoteVideo.volume = 1.0;
+      remoteVideo.play().catch(() => {});
+    }
+    unlockAudioContext();
+    pill.remove();
+    showToast("Live consultation audio unmuted and active", "success");
+    playConsultationChime();
+    window.removeEventListener("click", unmuteAction);
+    window.removeEventListener("touchstart", unmuteAction);
+  };
+
+  pill.addEventListener("click", (e) => {
+    e.stopPropagation();
+    unmuteAction();
+  });
+  window.addEventListener("click", unmuteAction, { once: true });
+  window.addEventListener("touchstart", unmuteAction, { once: true });
+  viewport.appendChild(pill);
+}
 
 function attachStreamToContainer(stream, containerId, isMuted = false) {
   const container = document.getElementById(containerId);
@@ -140,22 +265,21 @@ function attachStreamToContainer(stream, containerId, isMuted = false) {
     video.srcObject = stream;
   }
   video.muted = isMuted;
+  if (!isMuted) {
+    video.volume = 1.0;
+  }
 
   const playPromise = video.play();
   if (playPromise !== undefined) {
     playPromise.catch(err => {
-      console.warn(`[Video] Auto-play warning for container '${containerId}':`, err);
-      // If unmuted autoplay was blocked by browser policy, play muted initially and listen for user interaction to unmute
+      console.warn(`[Video] Autoplay note for container '${containerId}':`, err);
       if (!isMuted) {
+        // Fallback to muted playback so visual stream displays immediately, and prompt for unmuting
         video.muted = true;
-        video.play().catch(e => console.warn("[Video] Muted fallback autoplay failed:", e));
-
-        const unmuteHandler = () => {
-          video.muted = false;
-          video.play().catch(() => {});
-        };
-        document.addEventListener("click", unmuteHandler, { once: true });
-        document.addEventListener("touchstart", unmuteHandler, { once: true });
+        video.play().catch(e => console.warn("[Video] Fallback play failed:", e));
+        if (activeCall) {
+          showAudioUnmutePrompt(activeCall.role);
+        }
       }
     });
   }
@@ -169,40 +293,38 @@ async function acquireHardwareMediaStream() {
     throw notSupportedErr;
   }
 
-  // Attempt 1: Safe desktop constraints (ideal dimensions, no strict facingMode, with audio)
+  // Attempt 1: Safe desktop video + audio constraints
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: true
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     });
     return { stream, type: "hardware", hasAudio: true };
   } catch (err1) {
-    console.warn("[Webcam] Attempt 1 (video+audio) failed:", err1.name, err1.message);
+    console.warn("[Webcam] Attempt 1 (video+audio constraints) failed:", err1.name, err1.message);
     if (err1.name === "NotAllowedError" || err1.name === "PermissionDeniedError") {
       throw err1;
     }
   }
 
-  // Attempt 2: Video-only with ideal dimensions (handles no microphone found or audio blocked)
+  // Attempt 2: Bare video: true, audio: true
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false
-    });
-    return { stream, type: "hardware", hasAudio: false };
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    return { stream, type: "hardware", hasAudio: true };
   } catch (err2) {
-    console.warn("[Webcam] Attempt 2 (video-only) failed:", err2.name, err2.message);
-    if (err2.name === "NotAllowedError" || err2.name === "PermissionDeniedError") {
-      throw err2;
-    }
+    console.warn("[Webcam] Attempt 2 (bare video+audio) failed:", err2.name, err2.message);
   }
 
-  // Attempt 3: Bare video: true
+  // Attempt 3: Bare video: true with synthetic audio track fallback
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const synthAudio = createSynthesizedAudioTrack();
+    if (synthAudio) {
+      stream.addTrack(synthAudio);
+    }
     return { stream, type: "hardware", hasAudio: false };
   } catch (err3) {
-    console.warn("[Webcam] Attempt 3 (bare video) failed:", err3.name, err3.message);
+    console.warn("[Webcam] Attempt 3 (video-only with synthetic audio) failed:", err3.name, err3.message);
     throw err3;
   }
 }
@@ -358,6 +480,10 @@ function createVirtualMedicalStream(role) {
 
   const stream = virtualWebcamCanvas.captureStream(30);
   stream._isVirtual = true;
+  const synthAudio = createSynthesizedAudioTrack();
+  if (synthAudio) {
+    stream.addTrack(synthAudio);
+  }
   return stream;
 }
 
@@ -435,28 +561,6 @@ async function initNativeWebcam(role, forceReal = false) {
   }
   if (localCanvas) localCanvas.style.display = "none";
 
-  // Add tracks or replace existing tracks in nativePeerConnection
-  if (nativePeerConnection) {
-    const senders = nativePeerConnection.getSenders();
-    localWebcamStream.getTracks().forEach(track => {
-      const existingSender = senders.find(s => s.track && s.track.kind === track.kind);
-      if (existingSender) {
-        try {
-          existingSender.replaceTrack(track);
-          console.info("[WebRTC] Replaced existing track on sender:", track.kind);
-        } catch (e) {
-          console.warn("[WebRTC] replaceTrack error:", e);
-        }
-      } else {
-        try {
-          nativePeerConnection.addTrack(track, localWebcamStream);
-          console.info("[WebRTC] Added new track to peer connection:", track.kind);
-        } catch (e) {
-          console.warn("[WebRTC] addTrack error:", e);
-        }
-      }
-    });
-  }
 
   const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${agoraPrefix}-cam-toggle`);
   if (btn) {
@@ -478,208 +582,12 @@ async function initNativeWebcam(role, forceReal = false) {
   return localWebcamStream;
 }
 
-function initNativeWebRTC(token, role) {
-  if (typeof BroadcastChannel === "undefined" || typeof RTCPeerConnection === "undefined") {
-    console.warn("[WebRTC] BroadcastChannel or RTCPeerConnection not supported.");
-    return;
-  }
+function stopLocalWebcam() {
+  closePeerCall();
 
-  if (nativeSignalingHeartbeat) {
-    clearInterval(nativeSignalingHeartbeat);
-    nativeSignalingHeartbeat = null;
-  }
-
-  if (nativePeerConnection) {
-    try { nativePeerConnection.close(); } catch(e) {}
-    nativePeerConnection = null;
-  }
-  if (nativeSignalingChannel) {
-    try { nativeSignalingChannel.close(); } catch(e) {}
-    nativeSignalingChannel = null;
-  }
-
-  const channelName = `vm_webrtc_${token}`;
-  nativeSignalingChannel = new BroadcastChannel(channelName);
-  const isInitiator = (role === "doctor" || role === "doc");
-
-  const pcConfig = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" }
-    ]
-  };
-
-  try {
-    nativePeerConnection = new RTCPeerConnection(pcConfig);
-    const pendingIceCandidates = [];
-
-    if (localWebcamStream) {
-      localWebcamStream.getTracks().forEach(track => {
-        try {
-          nativePeerConnection.addTrack(track, localWebcamStream);
-        } catch (e) {
-          console.warn("[WebRTC] addTrack warning:", e);
-        }
-      });
-    }
-
-    nativePeerConnection.onnegotiationneeded = async () => {
-      if (isInitiator && nativePeerConnection.signalingState === "stable") {
-        await sendOffer();
-      }
-    };
-
-    nativePeerConnection.ontrack = (event) => {
-      console.info("[WebRTC] Remote track received:", event.track.kind);
-      if (event.streams && event.streams[0]) {
-        remoteWebcamStream = event.streams[0];
-      } else {
-        if (!remoteWebcamStream) remoteWebcamStream = new MediaStream();
-        const existingTrack = remoteWebcamStream.getTracks().find(track => track.id === event.track.id);
-        if (!existingTrack) remoteWebcamStream.addTrack(event.track);
-      }
-
-      event.track.onunmute = () => updateNetworkUI();
-      event.track.onmute = () => updateNetworkUI();
-      event.track.onended = () => updateNetworkUI();
-
-      if (activeCall) activeCall.hasRemoteVideo = true;
-      showToast("Remote participant connected! Live video active.", "success");
-      updateNetworkUI();
-    };
-
-    nativePeerConnection.onicecandidate = (event) => {
-      if (event.candidate && nativeSignalingChannel) {
-        nativeSignalingChannel.postMessage({
-          type: "ice-candidate",
-          role: role,
-          candidate: event.candidate
-        });
-      }
-    };
-
-    async function sendOffer() {
-      if (!nativePeerConnection) return;
-      try {
-        const offer = await nativePeerConnection.createOffer();
-        await nativePeerConnection.setLocalDescription(offer);
-        if (nativeSignalingChannel) {
-          nativeSignalingChannel.postMessage({
-            type: "offer",
-            role: role,
-            sdp: nativePeerConnection.localDescription
-          });
-          console.info("[WebRTC] Sent offer from initiator:", role);
-        }
-      } catch (err) {
-        console.warn("[WebRTC] Create offer error:", err);
-      }
-    }
-
-    nativeSignalingChannel.onmessage = async (event) => {
-      const msg = event.data;
-      if (!msg || msg.role === role) return;
-
-      try {
-        if (msg.type === "peer-ready" || msg.type === "peer-ping") {
-          console.info("[WebRTC] Peer announcement from:", msg.role);
-          if (isInitiator) {
-            await sendOffer();
-          } else {
-            // Non-initiator responds so initiator knows we are ready
-            if (nativeSignalingChannel && msg.type === "peer-ready") {
-              nativeSignalingChannel.postMessage({ type: "peer-ping", role: role });
-            }
-          }
-        } else if (msg.type === "offer") {
-          console.info("[WebRTC] Received offer from:", msg.role);
-          if (nativePeerConnection) {
-            await nativePeerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-            const answer = await nativePeerConnection.createAnswer();
-            await nativePeerConnection.setLocalDescription(answer);
-            nativeSignalingChannel.postMessage({
-              type: "answer",
-              role: role,
-              sdp: nativePeerConnection.localDescription
-            });
-            console.info("[WebRTC] Sent answer from:", role);
-
-            while (pendingIceCandidates.length) {
-              const candidate = pendingIceCandidates.shift();
-              try {
-                await nativePeerConnection.addIceCandidate(candidate);
-              } catch (e) {
-                console.warn("[WebRTC] Error adding pending ICE candidate on offer handler:", e);
-              }
-            }
-          }
-        } else if (msg.type === "answer") {
-          console.info("[WebRTC] Received answer from:", msg.role);
-          if (nativePeerConnection && (!nativePeerConnection.currentRemoteDescription || nativePeerConnection.signalingState === "have-local-offer")) {
-            await nativePeerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-            while (pendingIceCandidates.length) {
-              const candidate = pendingIceCandidates.shift();
-              try {
-                await nativePeerConnection.addIceCandidate(candidate);
-              } catch (e) {
-                console.warn("[WebRTC] Error adding pending ICE candidate on answer handler:", e);
-              }
-            }
-          }
-        } else if (msg.type === "ice-candidate") {
-          if (nativePeerConnection && msg.candidate) {
-            const candidate = new RTCIceCandidate(msg.candidate);
-            if (nativePeerConnection.remoteDescription && nativePeerConnection.remoteDescription.type) {
-              try {
-                await nativePeerConnection.addIceCandidate(candidate);
-              } catch (e) {
-                console.warn("[WebRTC] addIceCandidate error:", e);
-              }
-            } else {
-              pendingIceCandidates.push(candidate);
-              console.info("[WebRTC] Queued ICE candidate until remote description arrives");
-            }
-          }
-        } else if (msg.type === "peer-hangup") {
-          console.info("[WebRTC] Remote peer hung up");
-          remoteWebcamStream = null;
-          if (activeCall) activeCall.hasRemoteVideo = false;
-          updateNetworkUI();
-        }
-      } catch (sigErr) {
-        console.warn("[WebRTC] Signaling error:", sigErr);
-      }
-    };
-
-    // Announce presence immediately
-    nativeSignalingChannel.postMessage({ type: "peer-ready", role: role });
-
-    // Periodic heartbeat ping until remote track arrives (prevents deadlocks when tabs open out-of-order)
-    nativeSignalingHeartbeat = setInterval(() => {
-      if (remoteWebcamStream) {
-        clearInterval(nativeSignalingHeartbeat);
-        nativeSignalingHeartbeat = null;
-        return;
-      }
-      if (nativeSignalingChannel) {
-        nativeSignalingChannel.postMessage({ type: "peer-ping", role: role });
-      }
-    }, 2500);
-
-  } catch (pcErr) {
-    console.warn("[WebRTC] RTCPeerConnection initialization failed:", pcErr);
-  }
-}
-
-function stopNativeWebcamAndWebRTC() {
   if (virtualWebcamAnimId) {
     cancelAnimationFrame(virtualWebcamAnimId);
     virtualWebcamAnimId = null;
-  }
-
-  if (nativeSignalingHeartbeat) {
-    clearInterval(nativeSignalingHeartbeat);
-    nativeSignalingHeartbeat = null;
   }
 
   if (localWebcamStream) {
@@ -687,23 +595,6 @@ function stopNativeWebcamAndWebRTC() {
     localWebcamStream = null;
     console.info("[Webcam] Local webcam tracks stopped");
   }
-
-  if (nativeSignalingChannel) {
-    try {
-      nativeSignalingChannel.postMessage({ type: "peer-hangup" });
-      nativeSignalingChannel.close();
-    } catch (e) {}
-    nativeSignalingChannel = null;
-  }
-
-  if (nativePeerConnection) {
-    try {
-      nativePeerConnection.close();
-    } catch (e) {}
-    nativePeerConnection = null;
-  }
-
-  remoteWebcamStream = null;
 
   const roles = ["pat", "vhw", "doc"];
   roles.forEach(r => {
@@ -722,6 +613,236 @@ function stopNativeWebcamAndWebRTC() {
     if (localCanvas) localCanvas.style.display = "block";
     if (remoteCanvas) remoteCanvas.style.display = "block";
   });
+}
+
+function stopNativeWebcamAndWebRTC() {
+  stopLocalWebcam();
+}
+
+// Cross-tab / Multi-client Peer Video & Audio Connection State
+let peerConnection = null;
+let peerSignalingChannel = null;
+let peerToken = null;
+let peerLocalRole = null;
+let peerSessionId = Math.random().toString(36).substring(2, 10);
+let remoteWebcamStream = null;
+let peerMakingOffer = false;
+let peerIgnoreOffer = false;
+let peerHeartbeatTimer = null;
+
+function sendPeerSignal(payload) {
+  if (!peerToken) return;
+  const msg = {
+    ...payload,
+    senderToken: peerToken,
+    senderRole: peerLocalRole,
+    senderId: peerSessionId,
+    timestamp: Date.now()
+  };
+  // 1. BroadcastChannel (instant messaging across tabs)
+  if (peerSignalingChannel) {
+    try {
+      peerSignalingChannel.postMessage(msg);
+    } catch (e) {
+      console.warn("[PeerSignaling] BroadcastChannel post warning:", e);
+    }
+  }
+  // 2. Storage event fallback for cross-window / multi-context synchronization
+  try {
+    localStorage.setItem(`vm_peer_sig_${peerToken}`, JSON.stringify(msg));
+  } catch (e) {}
+}
+
+async function handlePeerSignal(data) {
+  if (!data || !activeCall || !peerConnection) return;
+  if (typeof data === "string") {
+    try { data = JSON.parse(data); } catch (e) { return; }
+  }
+  // Ignore signals from self or mismatched consultation tokens
+  if (data.senderId === peerSessionId || data.senderToken !== peerToken) return;
+
+  const isPolite = (peerLocalRole === "patient" || peerLocalRole === "vhw");
+
+  try {
+    if (data.type === "description" && data.description) {
+      const desc = data.description;
+      const readyForOffer = !peerMakingOffer && (peerConnection.signalingState === "stable" || peerConnection.signalingState === "have-local-offer");
+      const offerCollision = desc.type === "offer" && !readyForOffer;
+      peerIgnoreOffer = !isPolite && offerCollision;
+      if (peerIgnoreOffer) {
+        console.log("[Peer] Ignored offer collision (impolite peer)");
+        return;
+      }
+      await peerConnection.setRemoteDescription(desc);
+      if (desc.type === "offer") {
+        await peerConnection.setLocalDescription();
+        sendPeerSignal({ type: "description", description: peerConnection.localDescription });
+      }
+    } else if (data.type === "candidate" && data.candidate) {
+      try {
+        await peerConnection.addIceCandidate(data.candidate);
+      } catch (err) {
+        if (!peerIgnoreOffer) {
+          console.warn("[Peer] Add candidate note:", err);
+        }
+      }
+    } else if (data.type === "presence" || data.type === "ping") {
+      // Remote participant announced active presence
+      if (peerConnection.signalingState === "stable") {
+        try {
+          peerMakingOffer = true;
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
+          sendPeerSignal({ type: "description", description: peerConnection.localDescription });
+        } catch (e) {
+          console.warn("[Peer] Presence offer creation warning:", e);
+        } finally {
+          peerMakingOffer = false;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[Peer] Signaling processing error:", err);
+  }
+}
+
+function handlePeerStorageEvent(event) {
+  if (!event || !peerToken || event.key !== `vm_peer_sig_${peerToken}` || !event.newValue) return;
+  try {
+    const data = JSON.parse(event.newValue);
+    handlePeerSignal(data);
+  } catch (e) {}
+}
+
+async function initPeerCall(token, role) {
+  closePeerCall();
+
+  peerToken = token;
+  peerLocalRole = role;
+  peerSessionId = Math.random().toString(36).substring(2, 10);
+  console.info(`[Peer] Initializing real-time cross-client call for token='${token}', role='${role}', session='${peerSessionId}'`);
+
+  // Setup broadcast & storage signaling
+  try {
+    peerSignalingChannel = new BroadcastChannel(`vm_peer_bridge_${token}`);
+    peerSignalingChannel.onmessage = (event) => handlePeerSignal(event.data);
+  } catch (e) {
+    console.warn("[Peer] BroadcastChannel unavailable, using storage signaling:", e);
+  }
+  window.addEventListener("storage", handlePeerStorageEvent);
+
+  const pcConfig = {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:global.stun.twilio.com:3478" }
+    ]
+  };
+
+  peerConnection = new RTCPeerConnection(pcConfig);
+
+  // Add tracks from local webcam/simulated stream
+  if (localWebcamStream) {
+    localWebcamStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localWebcamStream);
+      console.info(`[Peer] Published local ${track.kind} track to peerConnection`);
+    });
+  }
+
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      sendPeerSignal({ type: "candidate", candidate: event.candidate });
+    }
+  };
+
+  peerConnection.onnegotiationneeded = async () => {
+    try {
+      peerMakingOffer = true;
+      await peerConnection.setLocalDescription();
+      sendPeerSignal({ type: "description", description: peerConnection.localDescription });
+      console.info("[Peer] Sent initial/updated SDP description");
+    } catch (err) {
+      console.error("[Peer] Negotiation error:", err);
+    } finally {
+      peerMakingOffer = false;
+    }
+  };
+
+  peerConnection.ontrack = (event) => {
+    console.info(`[Peer] Remote ${event.track.kind} track arrived!`);
+    if (!remoteWebcamStream) {
+      remoteWebcamStream = new MediaStream();
+    }
+    const duplicateTracks = remoteWebcamStream.getTracks().filter(t => t.kind === event.track.kind);
+    duplicateTracks.forEach(t => remoteWebcamStream.removeTrack(t));
+    remoteWebcamStream.addTrack(event.track);
+
+    const prefix = getAgoraRolePrefix(role);
+    const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+    const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
+    const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+
+    if (remoteContainer) {
+      attachStreamToContainer(remoteWebcamStream, `${prefix}-remote-video-container`, false);
+      remoteContainer.style.display = "block";
+    }
+    if (mainCanvas) mainCanvas.style.display = "none";
+    if (fallback) fallback.style.display = "none";
+
+    playConsultationChime();
+    updateNetworkUI();
+  };
+
+  peerConnection.onconnectionstatechange = () => {
+    console.info(`[Peer] Connection state: ${peerConnection.connectionState}`);
+    if (peerConnection.connectionState === "connected") {
+      const partner = role === "doctor" ? "Patient" : "Doctor";
+      showToast(`Real-time video & audio connected with ${partner}!`, "success");
+      playConsultationChime();
+    } else if (peerConnection.connectionState === "failed") {
+      try { peerConnection.restartIce(); } catch (e) {}
+    }
+  };
+
+  // Announce presence immediately to connect with already open tab
+  sendPeerSignal({ type: "presence" });
+
+  // Periodically send ping while not connected so either tab connects instantly
+  peerHeartbeatTimer = setInterval(() => {
+    if (!activeCall || !peerConnection) return;
+    if (peerConnection.connectionState !== "connected") {
+      sendPeerSignal({ type: "ping" });
+    }
+  }, 3500);
+}
+
+function closePeerCall() {
+  if (peerHeartbeatTimer) {
+    clearInterval(peerHeartbeatTimer);
+    peerHeartbeatTimer = null;
+  }
+  if (peerSignalingChannel) {
+    try {
+      peerSignalingChannel.close();
+    } catch (e) {}
+    peerSignalingChannel = null;
+  }
+  window.removeEventListener("storage", handlePeerStorageEvent);
+  if (peerConnection) {
+    try {
+      peerConnection.close();
+    } catch (e) {}
+    peerConnection = null;
+  }
+  if (remoteWebcamStream) {
+    try {
+      remoteWebcamStream.getTracks().forEach(t => t.stop());
+    } catch (e) {}
+    remoteWebcamStream = null;
+  }
+  peerToken = null;
+  peerLocalRole = null;
+  peerMakingOffer = false;
+  peerIgnoreOffer = false;
 }
 
 function validateAgoraAppId(appid) {
@@ -3068,7 +3189,6 @@ window.joinVhwCall = function(token) {
 
 function shouldUseAgora() {
   if (!agoraConfig || !agoraConfig.appid) return false;
-  if (activeCall && (activeCall.role === "patient" || activeCall.role === "doctor")) return true;
   return agoraConfig.enabled && !agoraConfig.lastFail;
 }
 
@@ -3082,7 +3202,7 @@ function startCallLoop() {
   
   const role = activeCall.role;
   const agoraPrefix = getAgoraRolePrefix(role);
-  console.log("[CallLoop] Using Agora prefix:", agoraPrefix);
+  console.log("[CallLoop] Using role prefix:", agoraPrefix);
   
   const mainCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
   const pipCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
@@ -3114,36 +3234,32 @@ function startCallLoop() {
   console.log("[CallLoop] Updating vitals and files");
   updateVitalsFilesTabs();
 
-  // Route call based on Agora configuration
+  // Display standby remote feed until live peer media arrives
+  mainCanvas.style.display = "block";
+  if (remoteContainer) remoteContainer.style.display = "none";
+
+  // Play audible consultation chime so both doctor and patient hear immediate audio
+  playConsultationChime();
+
+  // Initialize local webcam / simulated feed for PIP and cross-peer transmission
+  (async () => {
+    await initNativeWebcam(role);
+    if (activeCall && activeCall.token) {
+      await initPeerCall(activeCall.token, role);
+    }
+    updateNetworkUI();
+  })();
+
+  // Connect Agora RTC for live audio in parallel if configured
   if (shouldUseAgora()) {
-    console.log("[CallLoop] Agora enabled, using Agora RTC");
-    mainCanvas.style.display = "none";
-    pipCanvas.style.display = "none";
-    if (remoteContainer) remoteContainer.style.display = "block";
-    if (localContainer) localContainer.style.display = "block";
+    console.log("[CallLoop] Connecting Agora RTC for live audio");
     joinAgoraRoom(role);
   } else {
-    console.log("[CallLoop] Using native camera and WebRTC stream");
-    // Show standby remote canvas until remote WebRTC track arrives
-    if (!remoteWebcamStream) {
-      mainCanvas.style.display = "block";
-      if (remoteContainer) remoteContainer.style.display = "none";
-    } else {
-      mainCanvas.style.display = "none";
-      if (remoteContainer) remoteContainer.style.display = "block";
-    }
-
-    // Capture local camera first, then initialize cross-tab WebRTC signaling
-    (async () => {
-      await initNativeWebcam(role);
-      if (activeCall && activeCall.token) {
-        initNativeWebRTC(activeCall.token, role);
-      }
-    })();
-
-    // Start render loop for standby canvas and failovers
-    requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
+    console.log("[CallLoop] Agora audio disabled or not configured");
   }
+
+  // Start render loop for remote canvas and failovers
+  requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
 }
 
 function resizeCanvasToDisplaySize(canvas) {
@@ -3334,60 +3450,62 @@ function renderWebcams(remoteCanvas, localCanvas) {
     }
   }
 
-  // 2. Draw Remote camera feed (Shown when remote WebRTC stream hasn't connected yet)
-  if (activeCall.networkQuality !== "critical") {
-    const remoteImgSrc = activeCall.role === "doctor"
-      ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
-      : (activeCall.doctor?.photo || "doctor_portrait.jpg");
-    const remoteImg = getPortraitImg(remoteImgSrc);
-    const drewRemoteImg = drawCoverImage(remoteCtx, remoteImg, remoteCanvas.width, remoteCanvas.height);
+  // 2. Draw Remote camera feed (Shown on remote canvas when live peer video is connecting)
+  if (remoteCanvas.style.display !== "none") {
+    if (activeCall.networkQuality !== "critical") {
+      const remoteImgSrc = activeCall.role === "doctor"
+        ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
+        : (activeCall.doctor?.photo || "doctor_portrait.jpg");
+      const remoteImg = getPortraitImg(remoteImgSrc);
+      const drewRemoteImg = drawCoverImage(remoteCtx, remoteImg, remoteCanvas.width, remoteCanvas.height);
 
-    if (!drewRemoteImg) {
-      // Elegant deep slate gradient background
-      const grad = remoteCtx.createLinearGradient(0, 0, 0, remoteCanvas.height);
-      grad.addColorStop(0, "#0f172a");
-      grad.addColorStop(1, "#1e293b");
-      remoteCtx.fillStyle = grad;
+      if (!drewRemoteImg) {
+        // Elegant deep slate gradient background
+        const grad = remoteCtx.createLinearGradient(0, 0, 0, remoteCanvas.height);
+        grad.addColorStop(0, "#0f172a");
+        grad.addColorStop(1, "#1e293b");
+        remoteCtx.fillStyle = grad;
+        remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+
+        const centerX = remoteCanvas.width / 2;
+        const centerY = remoteCanvas.height / 2;
+        const remoteName = activeCall.role === "doctor"
+          ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
+          : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Dr. Vikram");
+        const remoteInitials = remoteName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+
+        remoteCtx.fillStyle = activeCall.role === "doctor" ? "#2563eb" : "#0d9488";
+        remoteCtx.beginPath();
+        remoteCtx.arc(centerX, centerY - 28, 44, 0, Math.PI * 2);
+        remoteCtx.fill();
+
+        remoteCtx.fillStyle = "#ffffff";
+        remoteCtx.font = "bold 24px Inter, system-ui, sans-serif";
+        remoteCtx.textAlign = "center";
+        remoteCtx.textBaseline = "middle";
+        remoteCtx.fillText(remoteInitials, centerX, centerY - 28);
+      }
+
+      // Apply adaptive downsampling if simulated
+      const activeQuality = activeCall.networkQuality;
+      const state = NETWORK_STATES[activeQuality];
+      let pixelSize = state ? state.pixelSize : 1;
+      if (activeCall.aiPredicting) pixelSize = 14;
+      if (pixelSize > 1) {
+        pixelateCanvas(remoteCanvas, remoteCtx, pixelSize);
+      }
+    } else {
+      // In critical/audio-only mode, show audio fallback UI
+      remoteCtx.fillStyle = "#0f172a";
       remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
-
-      const centerX = remoteCanvas.width / 2;
-      const centerY = remoteCanvas.height / 2;
-      const remoteName = activeCall.role === "doctor"
-        ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
-        : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Dr. Vikram");
-      const remoteInitials = remoteName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
-
-      remoteCtx.fillStyle = activeCall.role === "doctor" ? "#2563eb" : "#0d9488";
-      remoteCtx.beginPath();
-      remoteCtx.arc(centerX, centerY - 28, 44, 0, Math.PI * 2);
-      remoteCtx.fill();
-
-      remoteCtx.fillStyle = "#ffffff";
-      remoteCtx.font = "bold 24px Inter, system-ui, sans-serif";
+      remoteCtx.fillStyle = "white";
+      remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
       remoteCtx.textAlign = "center";
-      remoteCtx.textBaseline = "middle";
-      remoteCtx.fillText(remoteInitials, centerX, centerY - 28);
+      remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 15);
+      remoteCtx.font = "12px Inter, system-ui, sans-serif";
+      remoteCtx.fillStyle = "#94a3b8";
+      remoteCtx.fillText("Low-bandwidth connection active. Voice audio preserved.", remoteCanvas.width / 2, remoteCanvas.height / 2 + 15);
     }
-
-    // Apply adaptive downsampling if simulated
-    const activeQuality = activeCall.networkQuality;
-    const state = NETWORK_STATES[activeQuality];
-    let pixelSize = state ? state.pixelSize : 1;
-    if (activeCall.aiPredicting) pixelSize = 14;
-    if (pixelSize > 1) {
-      pixelateCanvas(remoteCanvas, remoteCtx, pixelSize);
-    }
-  } else {
-    // In critical/audio-only mode, show audio fallback UI
-    remoteCtx.fillStyle = "#0f172a";
-    remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
-    remoteCtx.fillStyle = "white";
-    remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
-    remoteCtx.textAlign = "center";
-    remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 15);
-    remoteCtx.font = "12px Inter, system-ui, sans-serif";
-    remoteCtx.fillStyle = "#94a3b8";
-    remoteCtx.fillText("Low-bandwidth connection active. Voice audio preserved.", remoteCanvas.width / 2, remoteCanvas.height / 2 + 15);
   }
 
   // Continue render loop
@@ -3442,7 +3560,7 @@ window.simulateNetworkChange = function(quality) {
     activeCall.aiPredicting = true;
     toggleAIBadges(true);
     
-    // Proactively apply resolution blur filter on CSS for real WebRTC and canvas downscaling
+    // Proactively apply resolution blur filter on CSS for video container and canvas downscaling
     const roles = ["pat", "vhw", "doc"];
     roles.forEach(r => {
       const remoteContainer = document.getElementById(`${r}-remote-video-container`);
@@ -3619,6 +3737,11 @@ window.toggleAudioState = async function(role) {
   const prefix = getAgoraRolePrefix(role);
   const btn = document.getElementById(`${role}-mic-toggle`) || document.getElementById(`${prefix}-mic-toggle`);
 
+  // Toggle local stream audio tracks for WebRTC peer audio
+  if (localWebcamStream) {
+    localWebcamStream.getAudioTracks().forEach(t => t.enabled = activeCall.micActive);
+  }
+
   if (activeCall.micActive) {
     if (btn) {
       btn.classList.add("active");
@@ -3636,9 +3759,6 @@ window.toggleAudioState = async function(role) {
       } catch (e) {
         console.warn("[AGORA] Error unmuting local audio:", e);
       }
-    }
-    if (localWebcamStream) {
-      localWebcamStream.getAudioTracks().forEach(t => t.enabled = true);
     }
     showToast("Microphone unmuted", "info");
   } else {
@@ -3658,9 +3778,6 @@ window.toggleAudioState = async function(role) {
       } catch (e) {
         console.warn("[AGORA] Error muting local audio:", e);
       }
-    }
-    if (localWebcamStream) {
-      localWebcamStream.getAudioTracks().forEach(t => t.enabled = false);
     }
     showToast("Microphone muted", "warning");
   }
@@ -3683,27 +3800,24 @@ window.toggleVideoState = async function(role) {
       btn.innerText = "📷";
     }
 
-    if (shouldUseAgora() && localVideoTrack) {
-      try {
-        await localVideoTrack.setEnabled(true);
-        console.info("Agora local video enabled by manual toggle");
-        if (localContainer) {
-          localContainer.style.display = "block";
-          localContainer.innerHTML = "";
-          await localVideoTrack.play(`${prefix}-local-video-container`);
-        }
-        if (localCanvas) localCanvas.style.display = "none";
-        showToast("Camera turned ON", "info");
-      } catch (err) {
-        console.error("Failed to enable Agora local video track:", err);
-      }
-    } else if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+    if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
       localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
       if (localContainer) localContainer.style.display = "block";
       if (localCanvas) localCanvas.style.display = "none";
       showToast("Camera turned ON", "info");
     } else {
       await initNativeWebcam(role);
+      if (peerConnection && localWebcamStream) {
+        const videoTrack = localWebcamStream.getVideoTracks()[0];
+        if (videoTrack) {
+          const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+          if (sender) {
+            sender.replaceTrack(videoTrack).catch(() => {});
+          } else {
+            peerConnection.addTrack(videoTrack, localWebcamStream);
+          }
+        }
+      }
     }
   } else {
     activeCall.manualVideoDisabled = true;
@@ -3711,15 +3825,6 @@ window.toggleVideoState = async function(role) {
     if (btn) {
       btn.classList.remove("active");
       btn.innerText = "📵";
-    }
-
-    if (shouldUseAgora() && localVideoTrack) {
-      try {
-        await localVideoTrack.setEnabled(false);
-        console.info("Agora local video disabled by manual toggle");
-      } catch (err) {
-        console.error("Failed to disable Agora local video track:", err);
-      }
     }
 
     if (localWebcamStream) {
@@ -3737,8 +3842,8 @@ window.toggleVideoState = async function(role) {
 window.leaveConsultation = function() {
   if (!activeCall) return;
 
-  // Stop native webcam and WebRTC cross-tab connection
-  stopNativeWebcamAndWebRTC();
+  // Stop local camera
+  stopLocalWebcam();
 
   if (window.isRecordingActive) {
     window.stopCallRecording();
@@ -3759,7 +3864,7 @@ window.leaveConsultation = function() {
   }
 
   // Agora Disconnect
-  if (agoraConfig.enabled && agoraClient) {
+  if (agoraClient) {
     if (activeCall.networkQualityTimer) {
       clearTimeout(activeCall.networkQualityTimer);
       activeCall.networkQualityTimer = null;
@@ -3985,8 +4090,11 @@ window.submitDigitalPrescription = async function(e) {
     cancelAnimationFrame(activeCall.animationFrameId);
   }
 
-  // Stop real hardware webcam and WebRTC stream
-  stopNativeWebcamAndWebRTC();
+  // Stop local webcam and Agora audio
+  stopLocalWebcam();
+  if (agoraClient) {
+    leaveAgoraRoom();
+  }
 
   stopDocCallTimer();
   activeCall = null;
@@ -4445,7 +4553,7 @@ window.saveAgoraConfig = function() {
   saveDB();
 
   console.info("Agora config saved successfully", { appid, hasToken: !!token, channel, enabled });
-  showToast("Agora WebRTC configurations saved successfully!", "success");
+  showToast("Agora audio configurations saved successfully!", "success");
 };
 
 async function joinAgoraRoom(role) {
@@ -4480,14 +4588,14 @@ async function joinAgoraRoomInternal(role) {
   }
 
   const agoraPrefix = getAgoraRolePrefix(role);
-  showToast(`Connecting Agora RTC: Channel '${agoraConfig.channel}'...`, "info");
+  showToast(`Connecting Agora Audio: Channel '${agoraConfig.channel}'...`, "info");
 
   const sys = AgoraRTC.checkSystemRequirements ? AgoraRTC.checkSystemRequirements() : null;
   if (sys !== null && sys !== undefined) {
     console.info("Agora system requirements:", sys);
-    const isSupported = typeof sys === "boolean" ? sys : (sys.webRTC !== false && sys.webAudio !== false);
+    const isSupported = typeof sys === "boolean" ? sys : (sys.webAudio !== false);
     if (!isSupported) {
-      showToast("Browser does not support the WebRTC or Web Audio APIs required by Agora.", "danger");
+      showToast("Browser does not support the Web Audio APIs required by Agora.", "danger");
       console.error("Agora unsupported system requirements", sys);
     }
   }
@@ -4497,40 +4605,9 @@ async function joinAgoraRoomInternal(role) {
 
     const remoteUsers = new Map();
 
-    const renderRemoteVideo = async (user) => {
-      if (!user.videoTrack) {
-        console.warn(`[AGORA] renderRemoteVideo called for UID: ${user.uid}, but videoTrack is null`);
-        return;
-      }
-      const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-      const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
-      const audioFallback = document.getElementById(`${agoraPrefix}-remote-audio-fallback`);
-      if (!remoteContainer) return;
-
-      if (remoteCanvas) remoteCanvas.style.display = "none";
-      if (audioFallback) audioFallback.style.display = "none";
-      remoteContainer.style.display = "block";
-      remoteContainer.innerHTML = "";
-      
-      try {
-        await user.videoTrack.play(remoteContainer, { fit: "cover" });
-        if (activeCall) activeCall.hasRemoteVideo = true;
-        console.log(`[AGORA] Remote video rendered for UID: ${user.uid}`);
-      } catch (playErr) {
-        console.error(`[AGORA] Remote video rendering error:`, playErr);
-      }
-    };
-
     const subscribeToRemoteUser = async (user, mediaType) => {
       try {
-        if (mediaType === "video") {
-          if (!user.videoTrack) {
-            await agoraClient.subscribe(user, mediaType);
-          }
-          remoteUsers.set(String(user.uid), user);
-          console.log(`[AGORA] Remote video subscribed for UID: ${user.uid}`);
-          await renderRemoteVideo(user);
-        } else if (mediaType === "audio") {
+        if (mediaType === "audio") {
           if (!user.audioTrack) {
             await agoraClient.subscribe(user, mediaType);
           }
@@ -4556,18 +4633,15 @@ async function joinAgoraRoomInternal(role) {
                 window.removeEventListener("touchstart", resumeAudioOnGesture);
                 window.removeEventListener("pointerdown", resumeAudioOnGesture);
               };
-              window.addEventListener("click", resumeAudioOnGesture);
-              window.addEventListener("keydown", resumeAudioOnGesture);
-              window.addEventListener("touchstart", resumeAudioOnGesture);
-              window.addEventListener("pointerdown", resumeAudioOnGesture);
+              window.addEventListener("click", resumeAudioOnGesture, { once: true });
+              window.addEventListener("keydown", resumeAudioOnGesture, { once: true });
+              window.addEventListener("touchstart", resumeAudioOnGesture, { once: true });
+              window.addEventListener("pointerdown", resumeAudioOnGesture, { once: true });
             }
           }
         }
       } catch (subscribeErr) {
         console.error(`[AGORA] Remote subscription failed for UID ${user.uid} (${mediaType}):`, subscribeErr);
-        if (mediaType === "video" && user.videoTrack) {
-          await renderRemoteVideo(user);
-        }
       }
     };
 
@@ -4583,7 +4657,9 @@ async function joinAgoraRoomInternal(role) {
     agoraClient.on("user-published", async (user, mediaType) => {
       console.log(`[AGORA] Remote ${mediaType} published by UID: ${user.uid}`);
       await subscribeToRemoteUser(user, mediaType);
-      showToast(`Remote ${mediaType} stream active in Agora session.`, "success");
+      if (mediaType === "audio") {
+        showToast("Remote voice audio active in Agora session.", "success");
+      }
     });
 
     agoraClient.on("user-joined", (user) => {
@@ -4592,29 +4668,11 @@ async function joinAgoraRoomInternal(role) {
 
     agoraClient.on("user-unpublished", (user, mediaType) => {
       console.log(`[AGORA] user-unpublished: ${user.uid} mediaType: ${mediaType}`);
-      if (mediaType === "video") {
-        if (activeCall) activeCall.hasRemoteVideo = false;
-        const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-        const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
-        if (remoteContainer) {
-          remoteContainer.style.display = "none";
-          remoteContainer.innerHTML = "";
-        }
-        if (remoteCanvas) remoteCanvas.style.display = "block";
-      }
     });
 
     agoraClient.on("user-left", (user) => {
       console.log(`[AGORA] Remote user left: ${user.uid}`);
       remoteUsers.delete(String(user.uid));
-      if (activeCall) activeCall.hasRemoteVideo = false;
-      const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-      const remoteCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
-      if (remoteContainer) {
-        remoteContainer.style.display = "none";
-        remoteContainer.innerHTML = "";
-      }
-      if (remoteCanvas) remoteCanvas.style.display = "block";
     });
 
     // Real-time bandwidth quality hooks
@@ -4624,9 +4682,9 @@ async function joinAgoraRoomInternal(role) {
 
     agoraClient.on("connection-state-change", (curState, revState) => {
       if (curState === "DISCONNECTED" || curState === "FAILED") {
-        showToast("Agora connection lost. Attempting to keep the call alive.", "danger");
+        showToast("Agora audio connection lost. Reconnecting voice link...", "danger");
       } else if (curState === "CONNECTED") {
-        showToast("Agora connection restored.", "success");
+        showToast("Agora audio connection established.", "success");
       }
     });
 
@@ -4639,7 +4697,7 @@ async function joinAgoraRoomInternal(role) {
       throw new Error("No consultation token is available for the Agora channel.");
     }
     
-    // Ensure both participants join the exact same Agora channel
+    // Ensure participants join the configured channel
     const channel = configuredChannel;
 
     const uid = getAgoraUid(role, consultationId);
@@ -4650,9 +4708,8 @@ async function joinAgoraRoomInternal(role) {
     await agoraClient.join(appid, channel, token, uid);
     console.log(`[AGORA] Joined channel: ${channel} UID: ${uid}`);
 
-    // Create local audio and video tracks independently
+    // Create local audio track
     let audioTrack = null;
-    let videoTrack = null;
 
     try {
       audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
@@ -4691,37 +4748,9 @@ async function joinAgoraRoomInternal(role) {
       }
     }
 
-    try {
-      videoTrack = await AgoraRTC.createCameraVideoTrack();
-      console.log("[AGORA] Local camera video track created successfully");
-    } catch (videoErr) {
-      console.error("[AGORA] Camera creation failed:", videoErr);
-    }
-
     localAudioTrack = audioTrack;
-    localVideoTrack = videoTrack;
 
-    // Play local video in PIP container if available
-    const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
-    const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
-    
-    if (localVideoTrack && localContainer) {
-      if (localCanvas) localCanvas.style.display = "none";
-      localContainer.style.display = "block";
-      localContainer.innerHTML = "";
-      try {
-        await localVideoTrack.play(localContainer);
-        if (activeCall) {
-          activeCall.camActive = true;
-          activeCall.manualVideoDisabled = false;
-        }
-        updateNetworkUI();
-      } catch (playErr) {
-        console.error("Agora local video track play failed:", playErr);
-      }
-    }
-
-    // Prepare tracks to publish
+    // Prepare audio tracks to publish
     const tracksToPublish = [];
     if (localAudioTrack) {
       const isMicActive = (activeCall && typeof activeCall.micActive === "boolean") ? activeCall.micActive : true;
@@ -4737,33 +4766,21 @@ async function joinAgoraRoomInternal(role) {
       }
       tracksToPublish.push(localAudioTrack);
     }
-    if (localVideoTrack) {
-      if (activeCall && typeof activeCall.camActive === "boolean") {
-        if (typeof localVideoTrack.setEnabled === "function") {
-          await localVideoTrack.setEnabled(activeCall.camActive);
-        }
-      }
-      tracksToPublish.push(localVideoTrack);
-    }
 
     if (tracksToPublish.length > 0) {
       await agoraClient.publish(tracksToPublish);
-      console.log(`[AGORA] Published ${tracksToPublish.length} local track(s) (Audio: ${!!localAudioTrack}, Video: ${!!localVideoTrack})`);
+      console.log(`[AGORA] Published local audio track`);
       updateNetworkUI();
-      showToast("Realtime audio & video published to session!", "success");
+      showToast("Realtime audio active in Agora session!", "success");
     } else {
       updateNetworkUI();
-      showToast("Agora joined. No local media tracks available to publish.", "warning");
+      showToast("Agora audio joined. Microphone track unavailable.", "warning");
     }
 
     // Catch up on any users already published in the channel
     if (agoraClient.remoteUsers && agoraClient.remoteUsers.length > 0) {
       console.log(`[AGORA] Catchup: checking ${agoraClient.remoteUsers.length} existing remote users`);
       for (const remoteUser of agoraClient.remoteUsers) {
-        if (remoteUser.hasVideo) {
-          console.log(`[AGORA] Catchup subscribing remote video for UID: ${remoteUser.uid}`);
-          await subscribeToRemoteUser(remoteUser, "video");
-        }
         if (remoteUser.hasAudio) {
           console.log(`[AGORA] Catchup subscribing remote audio for UID: ${remoteUser.uid}`);
           await subscribeToRemoteUser(remoteUser, "audio");
@@ -4772,7 +4789,7 @@ async function joinAgoraRoomInternal(role) {
     }
 
   } catch (err) {
-    console.error("Agora WebRTC Error:", err);
+    console.error("Agora Audio Error:", err);
     if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
       console.warn("Agora permission issue detected", err);
     }
@@ -4790,19 +4807,8 @@ async function joinAgoraRoomInternal(role) {
     }
 
     localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-
-    const agoraPrefix = getAgoraRolePrefix(role);
-    const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
-    if (remoteContainer) {
-      remoteContainer.style.display = "flex";
-      remoteContainer.style.alignItems = "center";
-      remoteContainer.style.justifyContent = "center";
-      remoteContainer.style.color = "#cbd5e1";
-      remoteContainer.innerHTML = "Agora video connection failed. Check the App ID, channel, token, and camera permissions.";
-    }
-
-    console.warn("Agora connection failed; simulated video was not shown.", err);
-    showToast(`Agora Connection Error: ${err.message}.`, "danger");
+    console.warn("Agora audio connection issue:", err);
+    showToast(`Agora Audio: ${err.message || "Connection error"}.`, "warning");
   }
 }
 
@@ -4822,7 +4828,7 @@ async function leaveAgoraRoom() {
       await agoraClient.leave();
       agoraClient = null;
     }
-    showToast("Agora WebRTC calling channel closed.", "info");
+    showToast("Agora audio channel closed.", "info");
   } catch (err) {
     console.error("Error leaving Agora:", err);
   }
@@ -4935,72 +4941,28 @@ async function setCallMode(targetMode) {
 }
 
 async function reduceVideoQuality() {
-  if (!localVideoTrack) return;
+  if (!activeCall) return;
   activeCall.autoVideoDisabled = false;
-
-  console.info("Reducing local video quality for adaptive failover");
-
-  try {
-    if (typeof localVideoTrack.setEncoderConfiguration === "function") {
-      await localVideoTrack.setEncoderConfiguration({ width: 640, height: 360, bitrate: 400, frameRate: 18 });
-      console.info("Agora local video encoder set to low quality");
-    } else {
-      console.warn("Agora localVideoTrack.setEncoderConfiguration unavailable");
-    }
-  } catch (err) {
-    console.warn("Failed to reduce Agora video quality:", err);
-  }
+  console.info("Adapting video quality for network failover");
+  updateNetworkUI();
 }
 
 async function enterAudioOnlyMode() {
-  if (!localVideoTrack) return;
+  if (!activeCall) return;
   activeCall.autoVideoDisabled = true;
-
-  try {
-    localVideoTrack.setEnabled(false);
-    console.info("Agora local video disabled for audio-only failover");
-  } catch (err) {
-    console.error("Error disabling local video for audio-only mode:", err);
-  }
+  console.info("Switched to audio-only failover mode (Agora voice stream preserved)");
+  updateNetworkUI();
 }
 
 async function restoreVideoMode() {
+  if (!activeCall) return;
   if (activeCall.manualVideoDisabled) {
     console.info("Manual camera off: skipping automatic video restore");
     return;
   }
-
-  if (!localVideoTrack) {
-    try {
-      const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
-      localAudioTrack = localAudioTrack || audioTrack;
-      localVideoTrack = videoTrack;
-      if (localAudioTrack && !activeCall.micActive) {
-        localAudioTrack.setEnabled(false);
-      }
-      if (activeCall.camActive) {
-        localVideoTrack.play(`${getAgoraRolePrefix(activeCall.role)}-local-video-container`);
-        await agoraClient.publish([localVideoTrack]);
-      }
-      console.info("Restored local camera track after audio-only mode");
-    } catch (err) {
-      console.error("Failed to restore camera track:", err);
-      showToast("Unable to restore camera after network recovery.", "danger");
-      return;
-    }
-  }
-
-  try {
-    if (activeCall.camActive) {
-      localVideoTrack.setEnabled(true);
-    }
-    activeCall.autoVideoDisabled = false;
-    await reduceVideoQuality();
-    await localVideoTrack.setEnabled(true);
-    console.info("Agora local video restored after network recovery");
-  } catch (err) {
-    console.error("Failed to enable video on restore:", err);
-  }
+  activeCall.autoVideoDisabled = false;
+  console.info("Restored video mode after network recovery");
+  updateNetworkUI();
 }
 
 function updateNetworkUI() {
@@ -5047,63 +5009,31 @@ function updateNetworkUI() {
     if (pipFeed) pipFeed.style.display = "none";
   } else {
     if (fallback) fallback.style.display = "none";
-    if (shouldUseAgora()) {
-      const hasRemoteVideo = !!(activeCall && activeCall.hasRemoteVideo);
-      if (hasRemoteVideo) {
-        if (mainCanvas) mainCanvas.style.display = "none";
-        if (remoteContainer) remoteContainer.style.display = "block";
-      } else {
-        if (mainCanvas) mainCanvas.style.display = "block";
-        if (remoteContainer) remoteContainer.style.display = "none";
+    if (pipFeed) pipFeed.style.display = "block";
+
+    // Remote real-time video display
+    const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+    if (hasRemoteStream) {
+      if (remoteContainer) {
+        remoteContainer.style.display = "block";
+        attachStreamToContainer(remoteWebcamStream, `${role}-remote-video-container`, false);
       }
-      if (pipFeed) pipFeed.style.display = "block";
-      if (activeCall.camActive) {
-        if (localContainer) localContainer.style.display = "block";
-        if (pipCanvas) pipCanvas.style.display = "none";
-      } else {
-        if (localContainer) localContainer.style.display = "none";
-        if (pipCanvas) pipCanvas.style.display = "block";
+      if (mainCanvas) mainCanvas.style.display = "none";
+    } else {
+      if (remoteContainer) remoteContainer.style.display = "none";
+      if (mainCanvas) mainCanvas.style.display = "block";
+    }
+
+    const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+    if (hasLocalStream) {
+      if (pipCanvas) pipCanvas.style.display = "none";
+      if (localContainer) {
+        localContainer.style.display = "block";
+        attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
       }
     } else {
-      const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.active && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
-      const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
-
-      if (hasRemoteStream) {
-        // Connected mode: Remote peer on main screen, local stream in PIP box
-        if (mainCanvas) mainCanvas.style.display = "none";
-        if (remoteContainer) {
-          remoteContainer.style.display = "block";
-          attachStreamToContainer(remoteWebcamStream, `${role}-remote-video-container`, false);
-        }
-        if (pipFeed) pipFeed.style.display = "block";
-        if (hasLocalStream) {
-          if (pipCanvas) pipCanvas.style.display = "none";
-          if (localContainer) {
-            localContainer.style.display = "block";
-            attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
-          }
-        } else {
-          if (pipCanvas) pipCanvas.style.display = "block";
-          if (localContainer) localContainer.style.display = "none";
-        }
-      } else if (hasLocalStream) {
-        // Keep both participant panels visible while waiting for the remote stream.
-        if (mainCanvas) mainCanvas.style.display = "block";
-        if (remoteContainer) remoteContainer.style.display = "none";
-        if (pipFeed) pipFeed.style.display = "block";
-        if (pipCanvas) pipCanvas.style.display = "none";
-        if (localContainer) {
-          localContainer.style.display = "block";
-          attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
-        }
-      } else {
-        // Neither stream available: Show standby canvas
-        if (mainCanvas) mainCanvas.style.display = "block";
-        if (remoteContainer) remoteContainer.style.display = "none";
-        if (pipFeed) pipFeed.style.display = "block";
-        if (pipCanvas) pipCanvas.style.display = "block";
-        if (localContainer) localContainer.style.display = "none";
-      }
+      if (pipCanvas) pipCanvas.style.display = "block";
+      if (localContainer) localContainer.style.display = "none";
     }
   }
 
