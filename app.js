@@ -6,6 +6,14 @@ import {
   clearSessionState,
   shouldAutoRestoreSession
 } from './authStateGuard.js';
+import {
+  createChatMessage,
+  filterCleanChat,
+  canReceiveChatMessage,
+  classifyChatBubble,
+  getAuthenticatedUserId,
+  mergeChatMessages
+} from './consultationChat.js';
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -631,11 +639,13 @@ let peerIgnoreOffer = false;
 let peerHeartbeatTimer = null;
 
 function sendPeerSignal(payload) {
-  if (!peerToken) return;
+  const token = peerToken || (activeCall && activeCall.token);
+  if (!token) return;
+  const role = peerLocalRole || (activeCall && activeCall.role);
   const msg = {
     ...payload,
-    senderToken: peerToken,
-    senderRole: peerLocalRole,
+    senderToken: token,
+    senderRole: role,
     senderId: peerSessionId,
     timestamp: Date.now()
   };
@@ -646,21 +656,48 @@ function sendPeerSignal(payload) {
     } catch (e) {
       console.warn("[PeerSignaling] BroadcastChannel post warning:", e);
     }
+  } else {
+    try {
+      const channel = new BroadcastChannel(`vm_peer_bridge_${token}`);
+      channel.postMessage(msg);
+      channel.close();
+    } catch (e) {}
   }
   // 2. Storage event fallback for cross-window / multi-context synchronization
   try {
-    localStorage.setItem(`vm_peer_sig_${peerToken}`, JSON.stringify(msg));
+    localStorage.setItem(`vm_peer_sig_${token}`, JSON.stringify(msg));
   } catch (e) {}
 }
 
 async function handlePeerSignal(data) {
-  if (!data || !activeCall || !peerConnection) return;
+  if (!data || !activeCall) return;
   if (typeof data === "string") {
     try { data = JSON.parse(data); } catch (e) { return; }
   }
+  const currentToken = peerToken || (activeCall && activeCall.token);
   // Ignore signals from self or mismatched consultation tokens
-  if (data.senderId === peerSessionId || data.senderToken !== peerToken) return;
+  if (data.senderId === peerSessionId || (currentToken && data.senderToken !== currentToken)) return;
 
+  // Real-time peer chat message synchronization (doctor <-> patient direct messaging)
+  if (data.type === "chat" && data.chatMsg) {
+    const msg = data.chatMsg;
+    if (!canReceiveChatMessage(msg, currentToken)) {
+      return;
+    }
+    if (!activeCall.chat.some(m => m.id === msg.id)) {
+      activeCall.chat.push(msg);
+      syncChatBox();
+      playChatPingSound();
+      const appIdx = db.appointments.findIndex(a => a.token === currentToken);
+      if (appIdx >= 0) {
+        db.appointments[appIdx].chat = activeCall.chat;
+        saveDB();
+      }
+    }
+    return;
+  }
+
+  if (!peerConnection) return;
   const isPolite = (peerLocalRole === "patient" || peerLocalRole === "vhw");
 
   try {
@@ -707,7 +744,8 @@ async function handlePeerSignal(data) {
 }
 
 function handlePeerStorageEvent(event) {
-  if (!event || !peerToken || event.key !== `vm_peer_sig_${peerToken}` || !event.newValue) return;
+  const token = peerToken || (activeCall && activeCall.token);
+  if (!event || !token || event.key !== `vm_peer_sig_${token}` || !event.newValue) return;
   try {
     const data = JSON.parse(event.newValue);
     handlePeerSignal(data);
@@ -1061,6 +1099,22 @@ async function initDB() {
     if (!updatedDb || !Array.isArray(updatedDb.appointments)) return;
 
     db.appointments = updatedDb.appointments;
+    if (activeCall && activeCall.token) {
+      const activeApp = db.appointments.find(a => a.token === activeCall.token);
+      if (activeApp && Array.isArray(activeApp.chat)) {
+        let hasNew = false;
+        activeApp.chat.forEach(msg => {
+          if (msg && msg.sender !== "bot" && msg.senderRole !== "bot" && !msg.senderName?.includes("AI") && !activeCall.chat.some(m => m.id === msg.id)) {
+            activeCall.chat.push(msg);
+            hasNew = true;
+          }
+        });
+        if (hasNew) {
+          syncChatBox();
+          playChatPingSound();
+        }
+      }
+    }
     if (currentRole === "patient") {
       loadPatientDashboard();
     } else if (currentRole === "doctor") {
@@ -2890,6 +2944,27 @@ function initSimulatedCallState(token, role) {
   const patient = db.patients.find(p => p.id === app.patientId) || { id: app.patientId || "pat-fallback", name: "Patient", age: 30, gender: "Other", village: "Village Clinic" };
   const doctor = db.doctors.find(d => d.id === app.assignedDoctorId) || { id: app.assignedDoctorId || "doc-fallback", name: (currentUser && currentUser.name) ? currentUser.name : "Dr. Vikram" };
 
+  peerToken = token;
+  peerLocalRole = role;
+
+  // Immediately initialize peer signaling channel for real-time messaging
+  if (!peerSignalingChannel || peerSignalingChannel.name !== `vm_peer_bridge_${token}`) {
+    try {
+      if (peerSignalingChannel) peerSignalingChannel.close();
+    } catch (e) {}
+    try {
+      peerSignalingChannel = new BroadcastChannel(`vm_peer_bridge_${token}`);
+      peerSignalingChannel.onmessage = (event) => handlePeerSignal(event.data);
+    } catch (e) {
+      console.warn("[Peer] BroadcastChannel unavailable, using storage signaling:", e);
+    }
+  }
+  window.removeEventListener("storage", handlePeerStorageEvent);
+  window.addEventListener("storage", handlePeerStorageEvent);
+
+  // Retrieve clean chat history: filter out any legacy bot/AI auto-replies
+  const cleanHistory = filterCleanChat(app.chat || []);
+
   activeCall = {
     token,
     patient,
@@ -2904,9 +2979,8 @@ function initSimulatedCallState(token, role) {
     networkCounters: { good: 0, moderate: 0, poor: 0, recovery: 0 },
     micActive: true,
     aiPredicting: false,
-    chat: [
-      { sender: "system", text: "Encrypted rural tele-health session established." },
-      { sender: "worker", text: `Hello ${doctor.name || "Doctor"}, Nurse Anjali here assisting ${patient.name || "Patient"}. Vitals have been synchronized.` }
+    chat: (cleanHistory.length > 0) ? cleanHistory : [
+      { id: "msg_init_1", consultationId: token, sender: "system", text: "Encrypted consultation session established.", time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), timestamp: Date.now() }
     ],
     files: [
       { name: "Clinical Vitals Record.pdf", size: "45 KB", type: "pdf" }
@@ -3649,6 +3723,36 @@ window.switchCallTab = function(role, tab) {
   document.getElementById(`${role}-pane-${tab}`).classList.add("active");
 };
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function playChatPingSound() {
+  try {
+    const ctx = unlockAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.setValueAtTime(1320, now + 0.05);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.12, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } catch (e) {}
+}
+
 window.sendChatMessage = function(role) {
   const input = document.getElementById(`${role}-chat-input`);
   if (!input) {
@@ -3658,73 +3762,100 @@ window.sendChatMessage = function(role) {
 
   const text = input.value.trim();
   if (!text) {
-    console.warn("Chat message is empty");
     return;
   }
 
   if (!activeCall) {
-    console.error("No active call to send message to");
     showToast("Unable to send chat: no active call.", "danger");
     return;
   }
 
-  let sender = "system";
-  if (role === "doctor" || role === "doc") {
-    sender = "doctor";
-  } else if (role === "pat" || role === "patient") {
-    sender = "patient";
-  } else if (role === "vhw") {
-    sender = "worker";
+  const msgObj = createChatMessage({
+    text,
+    role,
+    currentUser,
+    activeCall,
+    peerSessionId
+  });
+
+  if (!msgObj) {
+    return;
   }
 
-  console.info(`[Chat] Sending message as ${sender}: ${text}`);
-  activeCall.chat.push({ sender, text });
+  activeCall.chat.push(msgObj);
   input.value = "";
 
-  syncChatBox();
+  // Broadcast in real-time across tabs/windows (strictly two-way, zero AI bots)
+  sendPeerSignal({
+    type: "chat",
+    chatMsg: msgObj
+  });
 
-  if (role === "doctor" || role === "doc") {
-    setTimeout(() => {
-      if (!activeCall) return;
-      activeCall.chat.push({
-        sender: "worker",
-        text: `Understood, Doctor. Patient mentions that symptoms have persisted since yesterday morning.`
-      });
-      syncChatBox();
-    }, 1500);
-  } else if (role === "pat" || role === "patient") {
-    setTimeout(() => {
-      if (!activeCall) return;
-      activeCall.chat.push({
-        sender: "doctor",
-        text: `Thanks for sharing. Please describe the pain intensity and duration.`
-      });
-      syncChatBox();
-    }, 1500);
+  // Persist permanently in appointment record and database
+  const consultationToken = activeCall.token;
+  const appIdx = db.appointments.findIndex(a => a.token === consultationToken);
+  if (appIdx >= 0) {
+    db.appointments[appIdx].chat = activeCall.chat;
+    saveDB();
   }
+
+  syncChatBox();
 };
 
 function syncChatBox() {
   if (!activeCall) {
-    console.warn("syncChatBox called without activeCall");
     return;
   }
-  console.info("syncChatBox updating chat for roles", activeCall.chat.length);
   const roles = ["pat", "vhw", "doc"];
   
-  roles.forEach(role => {
-    const box = document.getElementById(`${role}-chat-box`);
+  roles.forEach(viewerRole => {
+    const box = document.getElementById(`${viewerRole}-chat-box`);
     if (!box) {
-      console.warn(`Chat box missing for role: ${role}`);
       return;
     }
 
     box.innerHTML = "";
-    activeCall.chat.forEach(msg => {
+    const cleanList = filterCleanChat(activeCall.chat || []);
+    const sortedChat = cleanList.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    // Determine current authenticated user ID dynamically for this view
+    const currentUserId = getAuthenticatedUserId(currentUser, activeCall, viewerRole);
+
+    sortedChat.forEach(msg => {
+      const classification = classifyChatBubble(msg, currentUserId, viewerRole);
+
+      // Wrapper row with conditional flex alignment (justify-end for sender, justify-start for receiver)
+      const row = document.createElement("div");
+      row.className = classification.rowClass;
+
       const bubble = document.createElement("div");
-      bubble.className = `chat-bubble ${msg.sender}`;
-      bubble.innerText = msg.text;
-      box.appendChild(bubble);
+
+      if (classification.isSystem) {
+        bubble.className = "chat-bubble system";
+        bubble.innerText = msg.text;
+      } else if (classification.isSelf) {
+        // Sender's message on the right
+        bubble.className = "chat-bubble self";
+        bubble.innerHTML = `
+          <div class="chat-sender-header" style="color: rgba(255,255,255,0.9); text-align: right; font-size: 11px; margin-bottom: 2px;">
+            You • ${escapeHtml(msg.time || "")}
+          </div>
+          <div class="chat-text-content" style="text-align: left;">${escapeHtml(msg.text)}</div>
+        `;
+      } else {
+        // Receiver's message on the left
+        bubble.className = classification.bubbleClass;
+        bubble.innerHTML = `
+          <div class="chat-sender-header" style="color: ${classification.roleColor}; font-weight: 600; font-size: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px;">
+            <span>${escapeHtml(classification.senderLabel)} <small style="font-size: 10px; font-weight: 500; opacity: 0.85;">(${classification.roleBadge})</small></span>
+            <span style="font-size: 10px; opacity: 0.75; font-weight: normal;">${escapeHtml(msg.time || "")}</span>
+          </div>
+          <div class="chat-text-content" style="text-align: left;">${escapeHtml(msg.text)}</div>
+        `;
+      }
+
+      row.appendChild(bubble);
+      box.appendChild(row);
     });
 
     box.scrollTop = box.scrollHeight;

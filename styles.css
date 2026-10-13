@@ -952,37 +952,72 @@ tr:hover td {
 
 .chat-bubble {
   max-width: 85%;
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  border-radius: 12px;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
   word-break: break-word;
+  display: flex;
+  flex-direction: column;
 }
 
-.chat-bubble.doctor {
+.chat-bubble.self {
   align-self: flex-end;
-  background-color: var(--primary);
-  color: white;
+  background-color: var(--primary, #2563eb);
+  color: #ffffff;
   border-bottom-right-radius: 2px;
 }
 
-.chat-bubble.worker {
+.chat-bubble.peer {
   align-self: flex-start;
-  background-color: var(--bg-secondary);
-  color: var(--text-main);
+  background-color: var(--bg-secondary, #f1f5f9);
+  color: var(--text-main, #0f172a);
   border-bottom-left-radius: 2px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-color, #e2e8f0);
+}
+
+.chat-bubble.bot {
+  align-self: flex-start;
+  background-color: #f0fdf4;
+  color: #14532d;
+  border-bottom-left-radius: 2px;
+  border: 1px solid #86efac;
+}
+
+.chat-bubble.doctor {
+  background-color: var(--primary, #2563eb);
+  color: white;
+}
+
+.chat-bubble.worker,
+.chat-bubble.patient {
+  background-color: var(--bg-secondary, #f1f5f9);
+  color: var(--text-main, #0f172a);
+  border: 1px solid var(--border-color, #e2e8f0);
 }
 
 .chat-bubble.system {
   align-self: center;
-  background-color: var(--warning-light);
-  color: #92400e;
+  background-color: var(--warning-light, #f8fafc);
+  color: #64748b;
   border-radius: 20px;
-  padding: 4px 10px;
+  padding: 4px 12px;
+  font-size: 10px;
+  font-style: italic;
+  text-align: center;
+  border: 1px solid var(--border-color, #e2e8f0);
+}
+
+.chat-sender-header {
   font-size: 10px;
   font-weight: 600;
-  text-align: center;
+  margin-bottom: 2px;
+  letter-spacing: 0.2px;
+}
+
+.chat-text-content {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .chat-input-bar {
@@ -3617,27 +3652,79 @@ body:has(#view-doctor.active),
   margin-bottom: 8px;
 }
 
-.chat-bubble {
-  max-width: 85%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  line-height: 1.4;
-  word-break: break-word;
+/* WhatsApp-style Flex Chat Message Rows & Alignment */
+.chat-message-row {
+  display: flex;
+  width: 100%;
+  margin-bottom: 6px;
+  align-items: flex-end;
 }
 
-.chat-bubble.doctor {
+.chat-message-row.justify-end,
+.chat-message-row.chat-message-self {
+  justify-content: flex-end;
+}
+
+.chat-message-row.justify-start,
+.chat-message-row.chat-message-peer {
+  justify-content: flex-start;
+}
+
+.chat-message-row.justify-center,
+.chat-message-row.chat-message-system {
+  justify-content: center;
+}
+
+.chat-bubble {
+  max-width: 80%;
+  min-width: 60px;
+  padding: 8px 13px;
+  border-radius: 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.chat-bubble.self {
   align-self: flex-end;
+  margin-left: auto;
+  margin-right: 0;
   background-color: #2563eb;
   color: #ffffff;
   border-bottom-right-radius: 2px;
+  border-bottom-left-radius: 14px;
+  border-top-right-radius: 14px;
+  border-top-left-radius: 14px;
 }
 
-.chat-bubble.patient, .chat-bubble.worker {
+.chat-bubble.peer {
   align-self: flex-start;
-  background-color: #f1f5f9;
-  color: #1e293b;
+  margin-right: auto;
+  margin-left: 0;
+  background-color: #f8fafc;
+  color: #0f172a;
   border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 14px;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+  border: 1px solid #e2e8f0;
+}
+
+.chat-bubble.peer.doctor-msg {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  border-left: 3.5px solid #2563eb;
+  color: #1e3a8a;
+}
+
+.chat-bubble.peer.patient-msg {
+  background-color: #f0fdfa;
+  border-color: #99f6e4;
+  border-left: 3.5px solid #0d9488;
+  color: #134e4a;
 }
 
 .chat-bubble.system {
@@ -3647,6 +3734,11 @@ body:has(#view-doctor.active),
   font-size: 10px;
   font-style: italic;
   border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 4px 12px;
+  text-align: center;
+  max-width: 90%;
+  margin: 4px auto;
 }
 
 .doc-chat-input-row {
