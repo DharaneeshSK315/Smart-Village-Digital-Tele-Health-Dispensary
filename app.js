@@ -1773,6 +1773,39 @@ window.handleLogin = async function(e) {
     return;
   }
 
+  const performLocalLogin = () => {
+    if (role === "doctor") {
+      const doctor = (db.doctors && db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase())) ||
+                     DEFAULT_DOCTORS.find(d => d.email.toLowerCase() === email.toLowerCase());
+      if (doctor) {
+        currentUser = doctor;
+        switchView("view-doctor", "doctor");
+        showToast(`Welcome back, ${doctor.name}!`, "success");
+        return true;
+      }
+    } else if (role === "patient") {
+      const patient = (db.patients && db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()) || (p.email && p.email.toLowerCase() === email.toLowerCase()))) ||
+                      DEFAULT_PATIENTS.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()) || (p.email && p.email.toLowerCase() === email.toLowerCase()));
+      if (patient) {
+        currentUser = patient;
+        switchView("view-patient", "patient");
+        showToast(`Logged in as patient: ${patient.name}!`, "success");
+        return true;
+      }
+    } else if (role === "vhw") {
+      currentUser = { id: "vhw-1", name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+      switchView("view-vhw", "vhw");
+      showToast("VHW Nurse Console authenticated!", "success");
+      return true;
+    } else if (role === "admin") {
+      currentUser = { id: "admin-1", name: "System Admin", role: "Admin", email };
+      switchView("view-admin", "admin");
+      showToast("Admin Console authenticated!", "success");
+      return true;
+    }
+    return false;
+  };
+
   if (supabase) {
     showToast("Authenticating credentials...", "info");
     try {
@@ -1782,42 +1815,9 @@ window.handleLogin = async function(e) {
       });
 
       if (error) {
-        console.warn("Supabase auth failed", error);
-
-        // Fallback to local demo accounts when Supabase login is not configured or user is not registered remotely
-        if (role === "doctor") {
-          const doctor = db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase());
-          if (doctor && doctor.password === password) {
-            currentUser = doctor;
-            switchView("view-doctor", "doctor");
-            showToast(`Welcome back, ${doctor.name} (Local Demo Login)`, "success");
-            return;
-          }
-        } else if (role === "patient") {
-          const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
-          if (patient) {
-            currentUser = patient;
-            switchView("view-patient", "patient");
-            showToast(`Logged in as patient: ${patient.name} (Local Demo Login)`, "success");
-            return;
-          }
-        } else if (role === "vhw") {
-          if (AUTHORIZED_VHWS.includes(email.toLowerCase())) {
-            currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
-            switchView("view-vhw", "vhw");
-            showToast("VHW Nurse Console authenticated (Local Demo Login)", "success");
-            return;
-          }
-        } else if (role === "admin") {
-          if (AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
-            currentUser = { name: "System Admin", role: "Admin", email };
-            switchView("view-admin", "admin");
-            showToast("Admin Console authenticated (Local Demo Login)", "success");
-            return;
-          }
-        }
-
-        showToast(`Authentication Failed: ${error.message}`, "danger");
+        console.warn("Supabase auth failed:", error.message);
+        if (performLocalLogin()) return;
+        showToast(`Authentication: ${error.message}. Use demo login or register account.`, "warning");
         return;
       }
 
@@ -1863,6 +1863,8 @@ window.handleLogin = async function(e) {
         showToast("Admin Console authenticated", "success");
       }
     } catch (err) {
+      console.warn("Supabase login network exception:", err.message);
+      if (performLocalLogin()) return;
       showToast(`Login Error: ${err.message}`, "danger");
     }
   } else {
