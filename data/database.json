@@ -227,6 +227,12 @@
     "low": 0,
     "audio": 0
   },
+  "agoraConfig": {
+    "enabled": true,
+    "appid": "aab8b3f972274fcb87cc25048d089e94",
+    "token": "",
+    "channel": "telehealth-room"
+  },
   "currentUser": {
     "id": "doc-1",
     "name": "Dr. Vikram",

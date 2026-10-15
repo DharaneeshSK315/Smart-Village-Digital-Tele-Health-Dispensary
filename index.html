@@ -10,6 +10,8 @@
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
   <!-- Supabase JS CDN Client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Socket.IO Client CDN -->
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 </head>
 <body>
 
@@ -39,6 +41,11 @@
       <div class="connection-status-pill online" id="global-connection-status" onclick="window.toggleSimulatedInternet()" title="Click to Disconnect / Reconnect Internet">
         <span class="status-dot"></span>
         <span id="connection-status-text">Online (Cloud)</span>
+      </div>
+      <!-- Server Configuration Pill for Cross-Device Tele-Health Sync -->
+      <div class="connection-status-pill online" id="server-config-pill" onclick="window.configureBackendServer()" title="Click to view or change the Shared Backend Server URL" style="cursor: pointer;">
+        <span style="font-size: 12px;">🌐</span>
+        <span id="server-status-text">Server: Auto</span>
       </div>
       <div class="current-time" id="live-clock">June 30, 2026 09:30 AM</div>
       

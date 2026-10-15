@@ -5,13 +5,20 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server.js",
+    "start": "node server.js",
+    "test": "node consultationChat.test.js && node authStateGuard.test.js && node crossDeviceCommunication.test.js"
   },
   "devDependencies": {
     "rollup": "^4.63.1",
     "vite": "^5.0.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.109.0"
+    "@supabase/supabase-js": "^2.109.0",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
   }
 }

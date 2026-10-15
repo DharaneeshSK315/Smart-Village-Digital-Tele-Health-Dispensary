@@ -623,8 +623,309 @@ function stopLocalWebcam() {
   });
 }
 
-function stopNativeWebcamAndWebRTC() {
-  stopLocalWebcam();
+// --- SHARED BACKEND & REAL-TIME SOCKET.IO ENGINE ---
+let appSocket = null;
+let isSocketConnecting = false;
+
+export function getBackendUrl() {
+  const custom = (typeof localStorage !== "undefined") ? localStorage.getItem("telehealth_backend_url") : null;
+  if (custom && custom.trim()) {
+    return custom.trim().replace(/\/+$/, "");
+  }
+
+  if (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_BACKEND_URL) {
+    return import.meta.env.VITE_BACKEND_URL.replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    const loc = window.location;
+    // Served directly by Node/Express server on Render / Railway or port 3001
+    if (loc.port === "3001" || (!loc.port && !loc.hostname.includes("github.io"))) {
+      return loc.origin;
+    }
+    // Accessing via LAN IP on local Wi-Fi (e.g. 192.168.x.x:5173 or 10.x.x.x:5173)
+    if (loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1" && !loc.hostname.includes("github.io")) {
+      return `http://${loc.hostname}:3001`;
+    }
+  }
+
+  return "http://localhost:3001";
+}
+
+function updateBackendStatusUI(isOnline, url) {
+  const pill = document.getElementById("global-connection-status");
+  const text = document.getElementById("connection-status-text");
+  const sText = document.getElementById("server-status-text");
+
+  if (pill && text) {
+    if (isOnline) {
+      pill.classList.remove("offline");
+      pill.classList.add("online");
+      text.innerText = "Online (Shared Server)";
+      pill.title = `Connected to central tele-health server: ${url}`;
+    } else {
+      pill.classList.remove("online");
+      pill.classList.add("offline");
+      text.innerText = "Offline (Local Fallback)";
+      pill.title = `Disconnected from central server: ${url}. Operating with local cache.`;
+    }
+  }
+
+  if (sText) {
+    const isCustom = typeof localStorage !== "undefined" && !!localStorage.getItem("telehealth_backend_url");
+    try {
+      const u = new URL(url);
+      sText.innerText = `Server: ${u.host}${isCustom ? " (Custom)" : ""}`;
+    } catch (e) {
+      sText.innerText = `Server: ${url}`;
+    }
+  }
+}
+
+window.configureBackendServer = function() {
+  const current = getBackendUrl();
+  const input = prompt(
+    "SHARED TELE-HEALTH BACKEND SERVER CONFIGURATION:\n\n" +
+    "Enter the URL of your centralized Node.js/Express server.\n" +
+    "- On the same Wi-Fi/LAN: http://<Host-Laptop-IP>:3001 (e.g., http://10.10.68.73:3001)\n" +
+    "- On the Internet: https://<your-deployed-service>.onrender.com\n\n" +
+    "Leave blank and submit to reset to automatic detection.",
+    current
+  );
+
+  if (input !== null) {
+    const trimmed = input.trim();
+    if (trimmed) {
+      localStorage.setItem("telehealth_backend_url", trimmed);
+      showToast(`Backend updated to: ${trimmed}. Reconnecting...`, "info");
+    } else {
+      localStorage.removeItem("telehealth_backend_url");
+      showToast("Reset to automatic backend discovery.", "info");
+    }
+    if (appSocket) {
+      try { appSocket.disconnect(); } catch (e) {}
+      appSocket = null;
+    }
+    isSocketConnecting = false;
+    initSocketConnection();
+    refreshDbFromBackend();
+  }
+};
+
+function refreshCurrentDashboard() {
+  if (currentRole === "patient") {
+    loadPatientDashboard();
+  } else if (currentRole === "vhw") {
+    loadVhwDashboard();
+  } else if (currentRole === "doctor") {
+    loadDoctorDashboard();
+  } else if (currentRole === "admin" && typeof loadAdminDashboard === "function") {
+    loadAdminDashboard();
+  }
+}
+
+async function refreshDbFromBackend() {
+  try {
+    const backend = getBackendUrl();
+    const res = await fetch(`${backend}/api/db`, { cache: "no-store" });
+    if (!res.ok) return false;
+    const body = await res.json();
+    if (body && body.success && body.db) {
+      if (Array.isArray(body.db.appointments)) db.appointments = body.db.appointments;
+      if (Array.isArray(body.db.patients) && body.db.patients.length > 0) db.patients = body.db.patients;
+      if (Array.isArray(body.db.doctors) && body.db.doctors.length > 0) db.doctors = body.db.doctors;
+      if (Array.isArray(body.db.consultations)) db.consultations = body.db.consultations;
+      if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
+      localStorage.setItem("telehealth_db", JSON.stringify(db));
+      console.info("[DB] Centralized database state synced from backend.");
+      refreshCurrentDashboard();
+      return true;
+    }
+  } catch (err) {
+    console.warn("[DB] Could not sync database from backend:", err.message);
+  }
+  return false;
+}
+
+function syncSocketRole() {
+  if (!appSocket || !appSocket.connected) return;
+  const role = currentRole || "guest";
+  const userId = currentUser ? currentUser.id : null;
+  const userName = currentUser ? currentUser.name : null;
+
+  appSocket.emit("join_role", { role, userId, userName });
+
+  const activeToken = peerToken || (activeCall && activeCall.token);
+  if (activeToken) {
+    appSocket.emit("join_consultation", {
+      token: activeToken,
+      role: activeCall ? activeCall.role : role,
+      userId
+    });
+  }
+}
+
+function initSocketConnection() {
+  if (appSocket && (appSocket.connected || isSocketConnecting)) return;
+
+  if (typeof io === "undefined") {
+    console.warn("[Socket] Socket.IO library loading, retrying in 400ms...");
+    setTimeout(initSocketConnection, 400);
+    return;
+  }
+
+  const backend = getBackendUrl();
+  console.info(`[Socket] Initializing real-time connection to ${backend}...`);
+  isSocketConnecting = true;
+
+  try {
+    appSocket = io(backend, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1500,
+      reconnectionDelayMax: 5000,
+      timeout: 10000
+    });
+
+    appSocket.on("connect", () => {
+      isSocketConnecting = false;
+      console.info(`[Socket] Connected to shared backend successfully! Socket ID: ${appSocket.id}`);
+      updateBackendStatusUI(true, backend);
+      syncSocketRole();
+      refreshDbFromBackend();
+    });
+
+    appSocket.on("connect_error", (err) => {
+      isSocketConnecting = false;
+      console.warn(`[Socket] Connection error to ${backend}:`, err.message);
+      updateBackendStatusUI(false, backend);
+    });
+
+    appSocket.on("disconnect", (reason) => {
+      isSocketConnecting = false;
+      console.warn(`[Socket] Disconnected from backend: ${reason}`);
+      updateBackendStatusUI(false, backend);
+    });
+
+    // 1. Appointments Updated (Global Broadcast)
+    appSocket.on("appointments_updated", (newAppointments) => {
+      console.info("[Socket] appointments_updated received from server");
+      if (Array.isArray(newAppointments)) {
+        db.appointments = newAppointments;
+        localStorage.setItem("telehealth_db", JSON.stringify(db));
+        refreshCurrentDashboard();
+      }
+    });
+
+    // 2. Token Requested (Patient creates token -> HW and Doctor receive notification)
+    appSocket.on("token_requested", (data) => {
+      console.info("[Socket] token_requested received:", data);
+      if (data && data.appointment) {
+        const idx = db.appointments.findIndex(a => a.token === data.token);
+        if (idx >= 0) db.appointments[idx] = { ...db.appointments[idx], ...data.appointment };
+        else db.appointments.push(data.appointment);
+        localStorage.setItem("telehealth_db", JSON.stringify(db));
+      }
+      playConsultationChime();
+      showToast(`New Token Request: ${data.token} (${data.appointment?.patientName || "Patient"})`, "info");
+      refreshCurrentDashboard();
+    });
+
+    // 3. Vitals Recorded / Patient Added to Queue
+    appSocket.on("patient_added_to_queue", (data) => {
+      console.info("[Socket] patient_added_to_queue received:", data);
+      showToast(`Queue Updated: Token ${data.token} [${data.urgency || "Normal"}]`, "info");
+      refreshCurrentDashboard();
+    });
+
+    appSocket.on("vitals_recorded", (data) => {
+      console.info("[Socket] vitals_recorded received for token:", data.token);
+      if (currentRole === "patient") {
+        showToast("Your vitals have been recorded by the health worker! You are now in the doctor queue.", "success");
+        loadPatientDashboard();
+      }
+    });
+
+    // 4. Consultation Requested (Doctor clicked "Start Call" -> Patient receives incoming call!)
+    appSocket.on("consultation_requested", (data) => {
+      console.info("[Socket] consultation_requested received:", data);
+      playConsultationChime();
+
+      if (currentRole === "patient") {
+        showToast(`Incoming Consultation Call from ${data.doctorName || "Doctor"}!`, "success");
+        loadPatientDashboard();
+      } else {
+        refreshCurrentDashboard();
+      }
+    });
+
+    // 5. Consultation Accepted (Patient joined -> Doctor notified)
+    appSocket.on("consultation_accepted", (data) => {
+      console.info("[Socket] consultation_accepted received:", data);
+      showToast(`${data.patientName || "Patient"} has joined the consultation!`, "success");
+    });
+
+    // 6. Consultation Started / Ended
+    appSocket.on("consultation_started", (data) => {
+      console.info("[Socket] consultation_started:", data);
+    });
+
+    appSocket.on("consultation_ended", (data) => {
+      console.info("[Socket] consultation_ended:", data);
+      showToast("Consultation session completed.", "info");
+      if (activeCall && activeCall.token === data.token) {
+        window.leaveConsultation();
+      } else {
+        refreshCurrentDashboard();
+      }
+    });
+
+    // 7. Chat Message (Strictly 2-way doctor-patient messaging, zero AI bots)
+    appSocket.on("chat_message", (msg) => {
+      console.info("[Socket] Incoming chat message:", msg);
+      if (!msg || !activeCall) return;
+      const currentToken = peerToken || (activeCall && activeCall.token);
+      if (!canReceiveChatMessage(msg, currentToken)) return;
+
+      if (!activeCall.chat.some(m => m.id === msg.id)) {
+        activeCall.chat.push(msg);
+        syncChatBox();
+        playChatPingSound();
+
+        const appIdx = db.appointments.findIndex(a => a.token === currentToken);
+        if (appIdx >= 0) {
+          db.appointments[appIdx].chat = activeCall.chat;
+          saveDB();
+        }
+      }
+    });
+
+    // 8. Peer Signal (WebRTC SDP & ICE candidates for cross-device video/audio)
+    appSocket.on("peer_signal", (data) => {
+      handlePeerSignal(data);
+    });
+
+    // 9. Emergency Alert
+    appSocket.on("emergency_alert", (data) => {
+      console.warn("[Socket] emergency_alert received:", data);
+      if (typeof window.triggerEmergencyAlert === "function") {
+        window.triggerEmergencyAlert(data.patientName, data.vitals, data.token);
+      }
+    });
+
+    // 10. Agora Config Updated
+    appSocket.on("agora_config_updated", (cfg) => {
+      if (cfg) {
+        agoraConfig = cfg;
+        localStorage.setItem("agora_config", JSON.stringify(cfg));
+      }
+    });
+
+  } catch (e) {
+    isSocketConnecting = false;
+    console.error("[Socket] Failed connecting to backend:", e);
+  }
 }
 
 // Cross-tab / Multi-client Peer Video & Audio Connection State
@@ -667,6 +968,15 @@ function sendPeerSignal(payload) {
   try {
     localStorage.setItem(`vm_peer_sig_${token}`, JSON.stringify(msg));
   } catch (e) {}
+
+  // 3. Socket.IO relay across different physical laptops and devices over the network
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("peer_signal", msg);
+    } catch (e) {
+      console.warn("[PeerSignaling] Socket emit warning:", e);
+    }
+  }
 }
 
 async function handlePeerSignal(data) {
@@ -769,9 +1079,21 @@ async function initPeerCall(token, role) {
   }
   window.addEventListener("storage", handlePeerStorageEvent);
 
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("join_consultation", {
+        token,
+        role,
+        userId: currentUser ? currentUser.id : null
+      });
+    } catch (e) {}
+  }
+
   const pcConfig = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
       { urls: "stun:global.stun.twilio.com:3478" }
     ]
   };
@@ -877,6 +1199,17 @@ function closePeerCall() {
     } catch (e) {}
     remoteWebcamStream = null;
   }
+
+  if (appSocket && appSocket.connected && peerToken) {
+    try {
+      appSocket.emit("leave_consultation", {
+        token: peerToken,
+        role: peerLocalRole,
+        userId: currentUser ? currentUser.id : null
+      });
+    } catch (e) {}
+  }
+
   peerToken = null;
   peerLocalRole = null;
   peerMakingOffer = false;
@@ -892,6 +1225,8 @@ function validateAgoraAppId(appid) {
 
 // Initialize Database
 async function initDB() {
+  initSocketConnection();
+  let loadedFromBackend = await refreshDbFromBackend();
   let loadedFromSupabase = false;
 
   if (supabase) {
@@ -1028,7 +1363,7 @@ async function initDB() {
     }
   }
 
-  if (!loadedFromSupabase) {
+  if (!loadedFromBackend && !loadedFromSupabase) {
     console.log("Running in offline/local storage fallback mode.");
     if (!localStorage.getItem("telehealth_db")) {
       db = {
@@ -1200,6 +1535,32 @@ async function saveDB(tableName = null) {
   // Always update local cache instantly for smooth UI
   localStorage.setItem("telehealth_db", JSON.stringify(db));
 
+  // Sync with centralized shared backend server
+  try {
+    const backend = getBackendUrl();
+    if (tableName === "appointments" || !tableName) {
+      fetch(`${backend}/api/appointments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(db.appointments)
+      }).catch(err => console.debug("[saveDB] appointments backend sync note:", err.message));
+    }
+    if (tableName === "consultations" || !tableName) {
+      if (db.consultations && db.consultations.length > 0) {
+        const latest = db.consultations[db.consultations.length - 1];
+        if (latest) {
+          fetch(`${backend}/api/consultations`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(latest)
+          }).catch(err => console.debug("[saveDB] consultation backend sync note:", err.message));
+        }
+      }
+    }
+  } catch (backendErr) {
+    console.debug("[saveDB] Backend sync exception:", backendErr);
+  }
+
   if (supabase) {
     if (!window.isNetworkOnline) {
       console.log("Device is Offline. Consultation saved locally. Will sync when Online.");
@@ -1251,6 +1612,9 @@ async function saveDB(tableName = null) {
 }
 
 async function refreshAppointmentsFromSupabase() {
+  const backendSynced = await refreshDbFromBackend();
+  if (backendSynced) return true;
+
   if (!supabase) return false;
 
   try {
@@ -1323,6 +1687,7 @@ window.switchView = function(viewId, roleName) {
     clearSessionState();
   }
   updateHeaderProfile();
+  syncSocketRole();
 
   // Load dashboards based on role
   if (roleName === "patient") {
@@ -1847,6 +2212,13 @@ window.bookPatientAppointment = async function(e) {
 
   db.appointments.push(newApp);
   saveDB();
+
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("token_requested", { appointment: newApp });
+    } catch (e) {}
+  }
+
   showToast(`Appointment booked successfully! Token: ${token}. Please visit your local health worker for vitals check-in.`, "success");
   loadPatientDashboard();
   
@@ -1856,8 +2228,14 @@ window.bookPatientAppointment = async function(e) {
 window.cancelActiveAppointment = function() {
   const activeAppIndex = db.appointments.findIndex(a => a.patientId === currentUser.id);
   if (activeAppIndex >= 0) {
+    const token = db.appointments[activeAppIndex].token;
     db.appointments.splice(activeAppIndex, 1);
     saveDB();
+    if (appSocket && appSocket.connected) {
+      try {
+        fetch(`${getBackendUrl()}/api/appointments/${token}`, { method: "DELETE" }).catch(() => {});
+      } catch (e) {}
+    }
     showToast("Appointment and token cancelled.", "warning");
     loadPatientDashboard();
   }
@@ -2222,8 +2600,30 @@ window.vhwSubmitVitals = function(e) {
   saveDB();
   closeVitalsModal();
   
+  const token = appIndex >= 0 ? db.appointments[appIndex].token : db.appointments[db.appointments.length - 1].token;
+
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("vitals_recorded", {
+        token,
+        vitals,
+        urgency: isEmergency ? "Emergency" : triage.flag,
+        patientId,
+        specialty,
+        isHomeVisit: window.isHomeVisitCapture || false
+      });
+      if (isEmergency) {
+        appSocket.emit("emergency_alert", {
+          patientName: p ? p.name : "Patient",
+          vitals,
+          token
+        });
+      }
+    } catch (e) {}
+  }
+
   if (isEmergency) {
-    window.triggerEmergencyAlert(p ? p.name : "Patient", vitals, appIndex >= 0 ? db.appointments[appIndex].token : db.appointments[db.appointments.length - 1].token);
+    window.triggerEmergencyAlert(p ? p.name : "Patient", vitals, token);
   } else {
     showToast(`Vitals recorded! Patient placed in ${specialty} Queue. Triage level: ${triage.flag}`, triage.flag === "Critical" ? "danger" : "success");
   }
@@ -3147,10 +3547,30 @@ window.startDoctorConsultation = function(token) {
 
   // Show live section
   startCallLoop();
+
+  if (appSocket && appSocket.connected) {
+    try {
+      const patientId = (activeCall && activeCall.patient) ? activeCall.patient.id : (app ? app.patientId : null);
+      appSocket.emit("consultation_requested", {
+        token,
+        doctorId: currentUser ? currentUser.id : "doc-1",
+        doctorName: currentUser ? currentUser.name : "Dr. Vikram",
+        patientId
+      });
+      appSocket.emit("consultation_started", {
+        token,
+        role: "doctor"
+      });
+    } catch (e) {}
+  }
+
   showToast(`Connected to clinic. Tele-consultation session started.`, "success");
 };
 
 async function refreshConsultationStateFromCloud() {
+  const backendSynced = await refreshDbFromBackend();
+  if (backendSynced) return true;
+
   if (!supabase || !currentUser || !currentUser.id) return false;
 
   try {
@@ -3173,6 +3593,9 @@ async function refreshConsultationStateFromCloud() {
 }
 
 async function refreshConsultationsFromSupabase() {
+  const backendSynced = await refreshDbFromBackend();
+  if (backendSynced) return true;
+
   if (!supabase) return false;
 
   try {
@@ -3252,6 +3675,20 @@ window.joinPatientCall = async function() {
   
   console.log("[Patient] UI elements shown, starting call loop");
   startCallLoop();
+
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("consultation_accepted", {
+        token: activeApp.token,
+        patientId: currentUser.id,
+        patientName: currentUser.name
+      });
+      appSocket.emit("consultation_started", {
+        token: activeApp.token,
+        role: "patient"
+      });
+    } catch (e) {}
+  }
 };
 
 window.joinVhwCall = function(token) {
@@ -3791,6 +4228,13 @@ window.sendChatMessage = function(role) {
     chatMsg: msgObj
   });
 
+  // Direct socket emission for real-time delivery and centralized DB archiving
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("chat_message", msgObj);
+    } catch (e) {}
+  }
+
   // Persist permanently in appointment record and database
   const consultationToken = activeCall.token;
   const appIdx = db.appointments.findIndex(a => a.token === consultationToken);
@@ -4010,6 +4454,18 @@ window.leaveConsultation = function() {
   }
   saveDB();
 
+  const leavingToken = activeCall ? activeCall.token : null;
+  const leavingRole = activeCall ? activeCall.role : null;
+  if (appSocket && appSocket.connected && leavingToken) {
+    try {
+      appSocket.emit("leave_consultation", {
+        token: leavingToken,
+        role: leavingRole,
+        userId: currentUser ? currentUser.id : null
+      });
+    } catch (e) {}
+  }
+
   const role = activeCall.role;
   stopDocCallTimer();
   activeCall = null;
@@ -4204,6 +4660,20 @@ window.submitDigitalPrescription = async function(e) {
   if (appIdx >= 0) {
     db.appointments[appIdx].status = "Completed";
     db.appointments[appIdx].completedAt = new Date().toISOString();
+  }
+
+  if (appSocket && appSocket.connected) {
+    try {
+      appSocket.emit("consultation_ended", {
+        token: activeCall.token,
+        consultation: newConsultation
+      });
+      appSocket.emit("leave_consultation", {
+        token: activeCall.token,
+        role: "doctor",
+        userId: currentUser ? currentUser.id : null
+      });
+    } catch (e) {}
   }
 
   const consultationSaved = await saveDB("consultations");
