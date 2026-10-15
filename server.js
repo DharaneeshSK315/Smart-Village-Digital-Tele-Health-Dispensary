@@ -22,13 +22,60 @@ app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 // -------------------------------------------------------------
+const DEFAULT_APPOINTMENTS = [
+  {
+    token: "VIL-A-431",
+    patientId: "pat-5",
+    patientName: "Dharaneesh",
+    symptoms: "Fever, headache",
+    urgency: "Normal",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-1",
+    status: "Waiting",
+    vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.5, spo2: 98, hr: 75, pain: 0, photo: null }
+  },
+  {
+    token: "VIL-B-219",
+    patientId: "pat-9",
+    patientName: "Meenakshi",
+    symptoms: "Chest pain, shortness of breath",
+    urgency: "Critical",
+    specialty: "Cardiology",
+    assignedDoctorId: "doc-5",
+    status: "Waiting",
+    vitals: { bpSystolic: 155, bpDiastolic: 95, sugar: 140, temp: 37.2, spo2: 91, hr: 102, pain: 6, photo: null }
+  },
+  {
+    token: "VIL-A-432",
+    patientId: "pat-12",
+    patientName: "Rajan Kumar",
+    symptoms: "Back pain, fatigue",
+    urgency: "Urgent",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-1",
+    status: "Waiting",
+    vitals: { bpSystolic: 130, bpDiastolic: 85, sugar: 120, temp: 37.0, spo2: 96, hr: 88, pain: 4, photo: null }
+  },
+  {
+    token: "VIL-A-745",
+    patientId: "pat-1",
+    patientName: "Sarah Mitchell",
+    symptoms: "Hypertension checkup, mild dizziness",
+    urgency: "Normal",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-4",
+    status: "Waiting",
+    vitals: { bpSystolic: 138, bpDiastolic: 88, sugar: 115, temp: 36.8, spo2: 97, hr: 78, pain: 1, photo: null }
+  }
+];
+
 // CENTRALIZED DATABASE MANAGEMENT
 // -------------------------------------------------------------
 let db = {
   users: [],
   doctors: [],
   patients: [],
-  appointments: [],
+  appointments: [...DEFAULT_APPOINTMENTS],
   consultations: [],
   villages: ["Village Clinic A", "Village Clinic B", "Village Clinic C"],
   failoverLogs: { hd: 0, low: 0, audio: 0 },
@@ -50,9 +97,13 @@ function loadDatabase() {
         ...parsed,
         agoraConfig: parsed.agoraConfig || db.agoraConfig
       };
+      if (!Array.isArray(db.appointments) || db.appointments.length === 0) {
+        db.appointments = [...DEFAULT_APPOINTMENTS];
+      }
       console.log(`[DB] Centralized database loaded successfully (${db.appointments.length} appointments, ${db.patients.length} patients).`);
     } else {
       console.warn(`[DB] Database file not found at ${DB_FILE_PATH}, creating default.`);
+      db.appointments = [...DEFAULT_APPOINTMENTS];
       saveDatabaseToFile();
     }
   } catch (err) {
@@ -242,25 +293,45 @@ io.on("connection", (socket) => {
 
       console.log(`[Event] consultation_requested: Token=${token}, Doctor=${doctorName}, PatientId=${patientId}`);
 
-      const idx = db.appointments.findIndex(a => a.token === token);
+      let idx = db.appointments.findIndex(a => a.token === token);
       if (idx >= 0) {
         db.appointments[idx].status = "Active";
         if (doctorId) db.appointments[idx].assignedDoctorId = doctorId;
+        if (doctorName) db.appointments[idx].doctorName = doctorName;
+      } else {
+        const defaultApp = DEFAULT_APPOINTMENTS.find(a => a.token === token);
+        const newApp = payload.appointment || (defaultApp ? { ...defaultApp } : null) || {
+          token,
+          patientId: patientId || "pat-1",
+          patientName: "Patient",
+          assignedDoctorId: doctorId,
+          doctorName: doctorName || "Doctor",
+          status: "Active",
+          symptoms: "General Tele-Health Consultation"
+        };
+        newApp.status = "Active";
+        if (doctorId) newApp.assignedDoctorId = doctorId;
+        if (doctorName) newApp.doctorName = doctorName;
+        db.appointments.push(newApp);
+        idx = db.appointments.length - 1;
       }
       saveDatabaseToFile();
 
-      const updatedApp = idx >= 0 ? db.appointments[idx] : null;
+      const updatedApp = db.appointments[idx];
+      const targetPatientId = (updatedApp && updatedApp.patientId) ? updatedApp.patientId : patientId;
 
-      // Target the patient device directly via user room + consultation room
-      const targetRoom = patientId ? `user:${patientId}` : `consultation:${token}`;
-      io.to(targetRoom).to(`consultation:${token}`).emit("consultation_requested", {
-        token,
-        doctorId,
-        doctorName: doctorName || "Doctor",
-        patientId,
-        appointment: updatedApp,
-        timestamp: Date.now()
-      });
+      // Target the patient device directly via user room, role:patient room, and consultation room
+      io.to("role:patient")
+        .to(`user:${targetPatientId}`)
+        .to(`consultation:${token}`)
+        .emit("consultation_requested", {
+          token,
+          doctorId,
+          doctorName: doctorName || "Doctor",
+          patientId: targetPatientId,
+          appointment: updatedApp,
+          timestamp: Date.now()
+        });
 
       io.emit("appointments_updated", db.appointments);
     } catch (err) {

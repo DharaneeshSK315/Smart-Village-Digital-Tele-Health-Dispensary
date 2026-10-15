@@ -44,6 +44,7 @@ const DEFAULT_APPOINTMENTS = [
   {
     token: "VIL-A-431",
     patientId: "pat-5",
+    patientName: "Dharaneesh",
     symptoms: "Fever, headache",
     urgency: "Normal",
     specialty: "General Medicine",
@@ -54,6 +55,7 @@ const DEFAULT_APPOINTMENTS = [
   {
     token: "VIL-B-219",
     patientId: "pat-9",
+    patientName: "Meenakshi",
     symptoms: "Chest pain, shortness of breath",
     urgency: "Critical",
     specialty: "Cardiology",
@@ -64,12 +66,24 @@ const DEFAULT_APPOINTMENTS = [
   {
     token: "VIL-A-432",
     patientId: "pat-12",
+    patientName: "Rajan Kumar",
     symptoms: "Back pain, fatigue",
     urgency: "Urgent",
     specialty: "General Medicine",
     assignedDoctorId: "doc-1",
     status: "Waiting",
     vitals: { bpSystolic: 130, bpDiastolic: 85, sugar: 120, temp: 37.0, spo2: 96, hr: 88, pain: 4, photo: null }
+  },
+  {
+    token: "VIL-A-745",
+    patientId: "pat-1",
+    patientName: "Sarah Mitchell",
+    symptoms: "Hypertension checkup, mild dizziness",
+    urgency: "Normal",
+    specialty: "General Medicine",
+    assignedDoctorId: "doc-4",
+    status: "Waiting",
+    vitals: { bpSystolic: 138, bpDiastolic: 88, sugar: 115, temp: 36.8, spo2: 97, hr: 78, pain: 1, photo: null }
   }
 ];
 
@@ -731,7 +745,11 @@ async function refreshDbFromBackend() {
     if (!res.ok) return false;
     const body = await res.json();
     if (body && body.success && body.db) {
-      if (Array.isArray(body.db.appointments)) db.appointments = body.db.appointments;
+      if (Array.isArray(body.db.appointments) && body.db.appointments.length > 0) {
+        db.appointments = body.db.appointments;
+      } else if (!db.appointments || db.appointments.length === 0) {
+        db.appointments = [...DEFAULT_APPOINTMENTS];
+      }
       if (Array.isArray(body.db.patients) && body.db.patients.length > 0) db.patients = body.db.patients;
       if (Array.isArray(body.db.doctors) && body.db.doctors.length > 0) db.doctors = body.db.doctors;
       if (Array.isArray(body.db.consultations)) db.consultations = body.db.consultations;
@@ -811,7 +829,7 @@ function initSocketConnection() {
     // 1. Appointments Updated (Global Broadcast)
     appSocket.on("appointments_updated", (newAppointments) => {
       console.info("[Socket] appointments_updated received from server");
-      if (Array.isArray(newAppointments)) {
+      if (Array.isArray(newAppointments) && newAppointments.length > 0) {
         db.appointments = newAppointments;
         localStorage.setItem("telehealth_db", JSON.stringify(db));
         refreshCurrentDashboard();
@@ -852,9 +870,36 @@ function initSocketConnection() {
       console.info("[Socket] consultation_requested received:", data);
       playConsultationChime();
 
+      if (data && data.token) {
+        let app = db.appointments.find(a => a.token === data.token);
+        if (app) {
+          app.status = "Active";
+          if (data.doctorId) app.assignedDoctorId = data.doctorId;
+          if (data.doctorName) app.doctorName = data.doctorName;
+        } else if (data.appointment) {
+          db.appointments.push({ ...data.appointment, status: "Active" });
+        } else {
+          db.appointments.push({
+            token: data.token,
+            patientId: data.patientId || (currentUser ? currentUser.id : "pat-1"),
+            patientName: currentUser ? currentUser.name : "Patient",
+            status: "Active",
+            assignedDoctorId: data.doctorId || "doc-1",
+            doctorName: data.doctorName || "Doctor",
+            symptoms: "Tele-Health Consultation"
+          });
+        }
+        localStorage.setItem("telehealth_db", JSON.stringify(db));
+      }
+
       if (currentRole === "patient") {
         showToast(`Incoming Consultation Call from ${data.doctorName || "Doctor"}!`, "success");
         loadPatientDashboard();
+        const card = document.getElementById("pat-active-call-card");
+        if (card) {
+          card.style.display = "block";
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       } else {
         refreshCurrentDashboard();
       }
@@ -864,6 +909,16 @@ function initSocketConnection() {
     appSocket.on("consultation_accepted", (data) => {
       console.info("[Socket] consultation_accepted received:", data);
       showToast(`${data.patientName || "Patient"} has joined the consultation!`, "success");
+      if (activeCall && peerConnection) {
+        sendPeerSignal({ type: "presence" });
+      }
+    });
+
+    appSocket.on("participant_joined", (data) => {
+      console.info("[Socket] participant_joined received:", data);
+      if (activeCall && peerConnection && data.token === activeCall.token) {
+        sendPeerSignal({ type: "presence" });
+      }
     });
 
     // 6. Consultation Started / Ended
@@ -1942,10 +1997,21 @@ async function loadPatientDashboard() {
 
   if (supabase) await refreshConsultationsFromSupabase();
   
-  // Active appointment check
-  const activeApp = db.appointments.find(a =>
-    a.patientId === currentUser.id && a.status !== "Completed"
+  // Active appointment check: look for appointment for this patient, or any Active consultation in dispensary
+  let activeApp = db.appointments.find(a =>
+    currentUser && a.patientId === currentUser.id && a.status !== "Completed"
   );
+
+  // If this specific patient does not have an active booking, but there is an Active consultation call waiting
+  if (!activeApp) {
+    const activeConsultation = db.appointments.find(a => a.status === "Active");
+    if (activeConsultation) {
+      activeApp = activeConsultation;
+    } else {
+      activeApp = db.appointments.find(a => currentUser && a.patientId === currentUser.id) ||
+                  DEFAULT_APPOINTMENTS.find(a => currentUser && a.patientId === currentUser.id);
+    }
+  }
   
   const tokenVal = document.getElementById("pat-token-val");
   const tokenSub = document.getElementById("pat-token-sub");
@@ -1955,34 +2021,39 @@ async function loadPatientDashboard() {
   const cancelBtn = document.getElementById("pat-cancel-appointment-btn");
 
   if (activeApp) {
-    tokenVal.innerText = activeApp.token;
-    tokenSub.innerText = `Symptom: ${activeApp.symptoms}`;
-    cancelBtn.style.display = "block";
+    if (tokenVal) tokenVal.innerText = activeApp.token;
+    if (tokenSub) tokenSub.innerText = `Symptom: ${activeApp.symptoms || "Tele-Consultation"}`;
+    if (cancelBtn) cancelBtn.style.display = "block";
 
     // Calculate queue index
     const queueIndex = db.appointments.filter(a => a.status === "Waiting").findIndex(a => a.token === activeApp.token);
-    waitVal.innerText = queueIndex >= 0 ? `${(queueIndex + 1) * 12} mins` : activeApp.status === "Active" ? "In Call" : "Pending";
+    if (waitVal) {
+      waitVal.innerText = queueIndex >= 0 ? `${(queueIndex + 1) * 12} mins` : activeApp.status === "Active" ? "In Call" : "Pending";
+    }
     
-    const doc = db.doctors.find(d => d.id === activeApp.assignedDoctorId);
-    docVal.innerText = doc ? doc.name : "Dr. Vikram";
+    const doc = (db.doctors || DEFAULT_DOCTORS).find(d => d.id === activeApp.assignedDoctorId);
+    if (docVal) docVal.innerText = doc ? doc.name : (activeApp.doctorName || "Dr. Vikram");
     const docSub = document.getElementById("pat-doc-sub");
     if (docSub) docSub.innerText = doc ? `${doc.specialty} Clinic` : "General Medicine Clinic";
 
     if (activeApp.status === "Active") {
-      callCard.style.display = "block";
-      document.getElementById("pat-active-doc-name").innerText = doc ? doc.name : "Consultant";
+      if (callCard) {
+        callCard.style.display = "block";
+        const docNameEl = document.getElementById("pat-active-doc-name");
+        if (docNameEl) docNameEl.innerText = doc ? doc.name : (activeApp.doctorName || "Consultant");
+      }
     } else {
-      callCard.style.display = "none";
+      if (callCard) callCard.style.display = "none";
     }
   } else {
-    tokenVal.innerText = "No Token";
-    tokenSub.innerText = "No active appointment";
-    waitVal.innerText = "-- mins";
-    docVal.innerText = "Dr. Vikram";
+    if (tokenVal) tokenVal.innerText = "No Token";
+    if (tokenSub) tokenSub.innerText = "No active appointment";
+    if (waitVal) waitVal.innerText = "-- mins";
+    if (docVal) docVal.innerText = "Dr. Vikram";
     const docSub = document.getElementById("pat-doc-sub");
     if (docSub) docSub.innerText = "General Medicine Clinic";
-    callCard.style.display = "none";
-    cancelBtn.style.display = "none";
+    if (callCard) callCard.style.display = "none";
+    if (cancelBtn) cancelBtn.style.display = "none";
   }
 
   // Populate appointment specialty dropdown dynamically
@@ -3342,9 +3413,24 @@ const NETWORK_STATES = {
 };
 
 function initSimulatedCallState(token, role) {
-  const app = db.appointments.find(a => a.token === token) || {};
-  const patient = db.patients.find(p => p.id === app.patientId) || { id: app.patientId || "pat-fallback", name: "Patient", age: 30, gender: "Other", village: "Village Clinic" };
-  const doctor = db.doctors.find(d => d.id === app.assignedDoctorId) || { id: app.assignedDoctorId || "doc-fallback", name: (currentUser && currentUser.name) ? currentUser.name : "Dr. Vikram" };
+  let app = db.appointments.find(a => a.token === token);
+  if (!app) {
+    const def = DEFAULT_APPOINTMENTS.find(a => a.token === token);
+    if (def) {
+      app = { ...def, status: "Active" };
+      db.appointments.push(app);
+    } else {
+      app = { token, patientId: "pat-1", patientName: "Patient", status: "Active" };
+      db.appointments.push(app);
+    }
+    saveDB();
+  }
+  const patient = db.patients.find(p => p.id === app.patientId) ||
+                  DEFAULT_PATIENTS.find(p => p.id === app.patientId) ||
+                  { id: app.patientId || "pat-1", name: app.patientName || "Patient", age: 30, gender: "Other", village: "Village Clinic" };
+  const doctor = db.doctors.find(d => d.id === app.assignedDoctorId) ||
+                 DEFAULT_DOCTORS.find(d => d.id === app.assignedDoctorId) ||
+                 { id: app.assignedDoctorId || (currentUser ? currentUser.id : "doc-1"), name: (currentUser && currentUser.name) ? currentUser.name : "Dr. Vikram" };
 
   peerToken = token;
   peerLocalRole = role;
@@ -3439,6 +3525,30 @@ function stopDocCallTimer() {
 }
 
 window.startDoctorConsultation = function(token) {
+  let app = db.appointments.find(a => a.token === token);
+  if (!app) {
+    const defApp = DEFAULT_APPOINTMENTS.find(a => a.token === token);
+    if (defApp) {
+      app = { ...defApp, status: "Active" };
+      db.appointments.push(app);
+    } else {
+      app = {
+        token,
+        patientId: "pat-1",
+        patientName: "Sarah Mitchell",
+        status: "Active",
+        assignedDoctorId: currentUser ? currentUser.id : "doc-1",
+        symptoms: "General Tele-Health Consultation",
+        vitals: { hr: 75, temp: 101.4, bpSystolic: 120, bpDiastolic: 80, spo2: 98 }
+      };
+      db.appointments.push(app);
+    }
+  } else {
+    app.status = "Active";
+    if (currentUser) app.assignedDoctorId = currentUser.id;
+  }
+  saveDB();
+
   const consultSec = document.getElementById("doc-consultation-section");
   const noCallCard = document.getElementById("doc-no-active-call-card");
 
@@ -3448,17 +3558,20 @@ window.startDoctorConsultation = function(token) {
   switchDoctorModule("consultations");
 
   if (noCallCard) noCallCard.style.display = "none";
-  if (consultSec) consultSec.style.display = "block";
+  if (consultSec) {
+    consultSec.style.display = "block";
+    consultSec.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   const liveBadge = document.getElementById("doc-nav-consult-live");
   if (liveBadge) liveBadge.style.display = "inline-block";
 
-  const patName = (activeCall && activeCall.patient) ? activeCall.patient.name : "Patient";
+  const patName = (activeCall && activeCall.patient) ? activeCall.patient.name : (app.patientName || "Patient");
   const docPatName = document.getElementById("doc-call-pat-name");
   if (docPatName) docPatName.innerText = patName;
 
   const docSessionDoctor = document.getElementById("doc-session-doctor-name");
-  if (docSessionDoctor) docSessionDoctor.innerText = currentUser ? currentUser.name : "Dr. Vikram";
+  if (docSessionDoctor) docSessionDoctor.innerText = currentUser ? currentUser.name : (app.doctorName || "Dr. Vikram");
 
   const docTag = document.getElementById("doc-call-tag-name");
   if (docTag) docTag.innerText = patName;
@@ -3476,7 +3589,6 @@ window.startDoctorConsultation = function(token) {
   if (audioPatName) audioPatName.innerText = `${patName} (Audio-Only Mode)`;
 
   // Populate Right Column: 2x2 Vitals Tiles & Reports Panel
-  const app = db.appointments.find(a => a.token === token);
   const vitals = (app && app.vitals) ? app.vitals : { hr: 75, temp: 101.4, bpSystolic: 120, bpDiastolic: 80, spo2: 98 };
 
   const hrEl = document.getElementById("doc-call-hr");
@@ -3525,7 +3637,7 @@ window.startDoctorConsultation = function(token) {
 
   // Patient Info section in right column
   const infoName = document.getElementById("doc-call-info-name");
-  if (infoName) infoName.innerText = (activeCall && activeCall.patient) ? activeCall.patient.name : "--";
+  if (infoName) infoName.innerText = (activeCall && activeCall.patient) ? activeCall.patient.name : (app.patientName || "--");
 
   const infoAgeGender = document.getElementById("doc-call-info-age-gender");
   if (infoAgeGender) infoAgeGender.innerText = (activeCall && activeCall.patient) ? `${activeCall.patient.age || '--'} / ${activeCall.patient.gender || '--'}` : "--";
@@ -3539,11 +3651,14 @@ window.startDoctorConsultation = function(token) {
   // Start live call timer
   startDocCallTimer();
 
-  // Reset prescription compiler fields
+  // Reset prescription compiler fields safely
   activeCallPrescriptionMeds = [];
-  document.getElementById("pres-diagnosis").value = "";
-  document.getElementById("pres-advice").value = "";
-  document.getElementById("pres-referral-check").checked = false;
+  const pDiag = document.getElementById("pres-diagnosis");
+  if (pDiag) pDiag.value = "";
+  const pAdv = document.getElementById("pres-advice");
+  if (pAdv) pAdv.value = "";
+  const pRef = document.getElementById("pres-referral-check");
+  if (pRef) pRef.checked = false;
   
   syncPrescriptionLabels();
 
@@ -3557,7 +3672,8 @@ window.startDoctorConsultation = function(token) {
         token,
         doctorId: currentUser ? currentUser.id : "doc-1",
         doctorName: currentUser ? currentUser.name : "Dr. Vikram",
-        patientId
+        patientId,
+        appointment: app
       });
       appSocket.emit("consultation_started", {
         token,
@@ -3625,8 +3741,8 @@ window.joinPatientCall = async function() {
   console.log("[Patient] All appointments:", db.appointments);
 
   if (!currentUser) {
-    showToast("Please log in as the patient first before joining the consultation.", "warning");
-    return;
+    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", role: "patient" };
+    saveSessionState(currentUser, "patient");
   }
 
   const localAppointments = Array.isArray(db.appointments) ? [...db.appointments] : [];
@@ -3647,7 +3763,7 @@ window.joinPatientCall = async function() {
     if (waitingPat) return waitingPat;
     return appointments[0] || null;
   };
-  const activeApp = findPatientAppointment(db.appointments) || findPatientAppointment(localAppointments);
+  const activeApp = findPatientAppointment(db.appointments) || findPatientAppointment(localAppointments) || DEFAULT_APPOINTMENTS[0];
 
   console.log("[Patient] Active appointment found:", activeApp);
   

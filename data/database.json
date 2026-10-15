@@ -215,7 +215,88 @@
       "history": []
     }
   ],
-  "appointments": [],
+  "appointments": [
+    {
+      "token": "VIL-A-431",
+      "patientId": "pat-5",
+      "patientName": "Dharaneesh",
+      "symptoms": "Fever, headache",
+      "urgency": "Normal",
+      "specialty": "General Medicine",
+      "assignedDoctorId": "doc-1",
+      "status": "Waiting",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "sugar": 110,
+        "temp": 36.5,
+        "spo2": 98,
+        "hr": 75,
+        "pain": 0,
+        "photo": null
+      }
+    },
+    {
+      "token": "VIL-B-219",
+      "patientId": "pat-9",
+      "patientName": "Meenakshi",
+      "symptoms": "Chest pain, shortness of breath",
+      "urgency": "Critical",
+      "specialty": "Cardiology",
+      "assignedDoctorId": "doc-5",
+      "status": "Waiting",
+      "vitals": {
+        "bpSystolic": 155,
+        "bpDiastolic": 95,
+        "sugar": 140,
+        "temp": 37.2,
+        "spo2": 91,
+        "hr": 102,
+        "pain": 6,
+        "photo": null
+      }
+    },
+    {
+      "token": "VIL-A-432",
+      "patientId": "pat-12",
+      "patientName": "Rajan Kumar",
+      "symptoms": "Back pain, fatigue",
+      "urgency": "Urgent",
+      "specialty": "General Medicine",
+      "assignedDoctorId": "doc-1",
+      "status": "Waiting",
+      "vitals": {
+        "bpSystolic": 130,
+        "bpDiastolic": 85,
+        "sugar": 120,
+        "temp": 37.0,
+        "spo2": 96,
+        "hr": 88,
+        "pain": 4,
+        "photo": null
+      }
+    },
+    {
+      "token": "VIL-A-745",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "symptoms": "Hypertension checkup, mild dizziness",
+      "urgency": "Normal",
+      "specialty": "General Medicine",
+      "assignedDoctorId": "doc-4",
+      "status": "Waiting",
+      "vitals": {
+        "bpSystolic": 138,
+        "bpDiastolic": 88,
+        "sugar": 115,
+        "temp": 36.8,
+        "spo2": 97,
+        "hr": 78,
+        "pain": 1,
+        "photo": null
+      }
+    }
+  ],
   "consultations": [],
   "villages": [
     "Village Clinic A",
