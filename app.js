@@ -2446,6 +2446,7 @@ async function loadPatientDashboard() {
     });
   }
 }
+window.loadPatientDashboard = loadPatientDashboard;
 
 window.handleHeaderProfileClick = function() {
   if (currentRole === "patient" || (currentUser && currentUser.role === "patient")) {
@@ -2759,6 +2760,7 @@ function renderVhwPatientList(searchQuery = "") {
     tbody.appendChild(tr);
   });
 }
+window.loadVhwDashboard = loadVhwDashboard;
 
 window.adminDeletePatient = function(id) {
   if (!confirm("Are you sure you want to delete this patient account? This will permanently remove their records.")) return;
@@ -3707,6 +3709,7 @@ async function loadDoctorDashboard() {
 
   switchDoctorModule(targetModule, false);
 }
+window.loadDoctorDashboard = loadDoctorDashboard;
 
 function renderDoctorAlertsStrip(queue) {
   const container = document.getElementById("doc-critical-alerts-strip");
@@ -5456,6 +5459,7 @@ function loadAdminDashboard() {
   // Render Charts
   renderAdminCharts();
 }
+window.loadAdminDashboard = loadAdminDashboard;
 
 window.adminBookAppointment = function(e) {
   e.preventDefault();
