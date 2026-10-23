@@ -75,15 +75,6 @@
       </div>
     </div>
 
-    <!-- Quick Role & Page Navigation Switcher -->
-    <div class="dev-switcher" id="global-role-switcher" title="Quick Page Navigation: Switch between dashboards" style="display: flex; align-items: center; gap: 4px; margin: 0 12px; flex-wrap: wrap;">
-      <button type="button" class="dev-btn active" id="dev-btn-login" onclick="window.switchView('view-login', 'login')">🔑 Sign In</button>
-      <button type="button" class="dev-btn" id="dev-btn-patient" onclick="window.quickLogin('patient')">👤 Patient</button>
-      <button type="button" class="dev-btn" id="dev-btn-doctor" onclick="window.quickLogin('doctor')">🩺 Doctor</button>
-      <button type="button" class="dev-btn" id="dev-btn-vhw" onclick="window.quickLogin('vhw')">🏥 Nurse</button>
-      <button type="button" class="dev-btn" id="dev-btn-admin" onclick="window.quickLogin('admin')">⚙️ Admin</button>
-    </div>
-
     <div class="nav-controls">
       <!-- Simulated Offline/Online Pill -->
       <div class="connection-status-pill online" id="global-connection-status" onclick="window.toggleSimulatedInternet()" title="Click to Disconnect / Reconnect Internet">
