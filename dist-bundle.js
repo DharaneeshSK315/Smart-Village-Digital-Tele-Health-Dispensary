@@ -2748,6 +2748,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       });
     }
   }
+  window.loadPatientDashboard = loadPatientDashboard;
 
   window.handleHeaderProfileClick = function() {
     if (currentRole === "patient" || (currentUser && currentUser.role === "patient")) {
@@ -3058,6 +3059,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       tbody.appendChild(tr);
     });
   }
+  window.loadVhwDashboard = loadVhwDashboard;
 
   window.adminDeletePatient = function(id) {
     if (!confirm("Are you sure you want to delete this patient account? This will permanently remove their records.")) return;
@@ -4006,6 +4008,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     switchDoctorModule(targetModule, false);
   }
+  window.loadDoctorDashboard = loadDoctorDashboard;
 
   function renderDoctorQueue(searchQuery = "") {
     const tbody = document.getElementById("doc-queue-tbody");
@@ -5738,6 +5741,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Render Charts
     renderAdminCharts();
   }
+  window.loadAdminDashboard = loadAdminDashboard;
 
   window.adminBookAppointment = function(e) {
     e.preventDefault();
