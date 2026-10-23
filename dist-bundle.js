@@ -7446,14 +7446,91 @@ var VillageMed = (function (exports, React, ReactDOM) {
         urgency
       };
 
-      const res = await fetch("/api/consultations/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      let data = null;
+      let resOk = false;
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
+      // 1. Try calling the backend API if we have an active server (and not on static github.io where /api returns HTML)
+      try {
+        const backend = getBackendUrl();
+        const apiUrl = (backend && !window.location.hostname.includes("github.io")) 
+          ? `${backend}/api/consultations/request` 
+          : `/api/consultations/request`;
+
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
+          data = await res.json();
+          resOk = true;
+        } else if (contentType.includes("application/json")) {
+          data = await res.json();
+          resOk = false;
+        }
+      } catch (netErr) {
+        console.warn("Backend unavailable, using local dispensary engine:", netErr.message);
+      }
+
+      // 2. Client-side local fallback for GitHub Pages, offline mode, or static hosting
+      if (!data) {
+        console.info("Registering consultation request via local dispensary database engine...");
+        const blockingStatuses = ["Vitals Pending", "Waiting for Doctor Queue", "Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"];
+        const existing = (db.appointments || []).find(
+          a => a.patientId === payload.patientId && blockingStatuses.includes(a.status)
+        );
+
+        if (existing) {
+          data = {
+            success: false,
+            conflict: true,
+            error: `You already have an active consultation request (Token: ${existing.token}, Status: ${existing.status}). Please complete or cancel it first.`,
+            appointment: existing
+          };
+          resOk = false;
+        } else {
+          const doctor = (db.doctors || DEFAULT_DOCTORS).find(d => d.id === doctorId);
+          const patient = (db.patients || DEFAULT_PATIENTS).find(p => p.id === payload.patientId);
+          const villagePrefix = (patient && patient.village)
+            ? (patient.village.includes("A") ? "VIL-A" : patient.village.includes("B") ? "VIL-B" : "VIL-C")
+            : "VIL-A";
+          const tokenNum = Math.floor(100 + Math.random() * 900);
+          const token = `${villagePrefix}-${tokenNum}`;
+
+          const newRequest = {
+            token,
+            consultationRequestId: token,
+            patientId: payload.patientId,
+            patientName: payload.patientName || (patient && patient.name) || "Patient",
+            patientAge: patient ? patient.age : 35,
+            patientGender: patient ? patient.gender : "Other",
+            patientPhone: patient ? patient.phone : "9876543210",
+            patientVillage: patient ? patient.village : "Village Clinic A",
+            assignedDoctorId: doctorId,
+            doctorName: doctor ? doctor.name : "Doctor",
+            specialty: (doctor && doctor.specialty) || "General Medicine",
+            symptoms: symptoms || "General Consultation",
+            urgency: urgency || "Normal",
+            status: "Vitals Pending",
+            vitals: null,
+            vitalsCompleted: false,
+            requestTime: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            bookingTime: new Date().toISOString()
+          };
+
+          db.appointments = db.appointments || [];
+          db.appointments.push(newRequest);
+          saveDB();
+
+          data = { success: true, consultationRequest: newRequest, token, appointment: newRequest };
+          resOk = true;
+        }
+      }
+
+      if (!resOk || !data.success) {
         if (data.conflict && data.appointment) {
           const conflictApp = data.appointment;
           const existingIdx = (db.appointments || []).findIndex(a => a.token === conflictApp.token);
@@ -8088,15 +8165,33 @@ var VillageMed = (function (exports, React, ReactDOM) {
     };
 
     try {
-      const res = await fetch("/api/slots/book", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      let data = null;
+      let resStatus = 0;
+      try {
+        const backend = getBackendUrl();
+        const apiUrl = (backend && !window.location.hostname.includes("github.io")) 
+          ? `${backend}/api/slots/book` 
+          : `/api/slots/book`;
 
-      const data = await res.json();
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        resStatus = res.status;
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        }
+      } catch (netErr) {
+        console.warn("Backend unavailable for slot booking:", netErr.message);
+      }
 
-      if (res.status === 201 && data.success) {
+      if (!data) {
+        throw new Error("Local fallback required");
+      }
+
+      if (resStatus === 201 && data.success) {
         // Successfully booked!
         const app = data.appointment;
         const idx = (db.appointments || []).findIndex(a => a.token === app.token);
