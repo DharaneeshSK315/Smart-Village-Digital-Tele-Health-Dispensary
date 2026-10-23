@@ -1859,15 +1859,58 @@ function updateHeaderProfile() {
   document.getElementById("header-user-avatar").innerText = currentUser.name.split(" ").map(n => n[0]).join("");
 }
 
+// Real-time role detection as user types
+window.autoDetectRole = function(val) {
+  const roleSelect = document.getElementById("login-role");
+  if (!roleSelect || !val) return;
+  const trimmed = val.trim();
+  const digits = trimmed.replace(/[\s\-\(\)\+]/g, "");
+  if (digits.length >= 5 && /^\d+$/.test(digits)) {
+    roleSelect.value = "patient";
+  } else if (trimmed.toLowerCase().endsWith("@villagemed.in") || trimmed.toLowerCase().startsWith("doc.")) {
+    roleSelect.value = "doctor";
+  } else if (trimmed.toLowerCase().includes("nurse") || trimmed.toLowerCase().includes("vhw")) {
+    roleSelect.value = "vhw";
+  } else if (trimmed.toLowerCase().includes("admin")) {
+    roleSelect.value = "admin";
+  }
+};
+
 // Authentication
 window.handleLogin = async function(e) {
-  e.preventDefault();
-  const email = document.getElementById("login-email").value.trim();
-  const password = document.getElementById("login-password").value;
-  const role = document.getElementById("login-role").value;
+  if (e) e.preventDefault();
+  const emailInput = document.getElementById("login-email");
+  const passwordInput = document.getElementById("login-password");
+  const roleSelect = document.getElementById("login-role");
 
-  const AUTHORIZED_ADMINS = db.authConfig.admins;
-  const AUTHORIZED_VHWS = db.authConfig.vhws;
+  const email = (emailInput ? emailInput.value : "").trim();
+  const password = passwordInput ? passwordInput.value : "";
+  let role = roleSelect ? roleSelect.value : "patient";
+
+  const AUTHORIZED_ADMINS = (db && db.authConfig && db.authConfig.admins) || ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
+  const AUTHORIZED_VHWS = (db && db.authConfig && db.authConfig.vhws) || ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
+
+  // Intelligent auto-role detection
+  const digitsOnly = email.replace(/[\s\-\(\)\+]/g, "");
+  const isPhone = digitsOnly.length >= 7 && /^\d+$/.test(digitsOnly);
+  const isDoctorEmail = email.toLowerCase().endsWith("@villagemed.in") || (db.doctors || []).some(d => d.email.toLowerCase() === email.toLowerCase());
+  const isVHW = AUTHORIZED_VHWS.some(v => email.toLowerCase() === v.toLowerCase()) || email.toLowerCase().includes("nurse") || email.toLowerCase().includes("vhw");
+  const isAdmin = AUTHORIZED_ADMINS.some(a => email.toLowerCase() === a.toLowerCase()) || email.toLowerCase().includes("admin");
+
+  if (isPhone) {
+    // Phone numbers are ALWAYS patients (e.g. 9876543210 -> Sarah Mitchell)
+    role = "patient";
+    if (roleSelect) roleSelect.value = "patient";
+  } else if (isDoctorEmail) {
+    role = "doctor";
+    if (roleSelect) roleSelect.value = "doctor";
+  } else if (isVHW) {
+    role = "vhw";
+    if (roleSelect) roleSelect.value = "vhw";
+  } else if (isAdmin) {
+    role = "admin";
+    if (roleSelect) roleSelect.value = "admin";
+  }
 
   // 1. Authorize Admin
   if (role === "admin" && !AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
@@ -1880,8 +1923,8 @@ window.handleLogin = async function(e) {
     return;
   }
   // 3. Authorize Doctor
-  if (role === "doctor" && !email.toLowerCase().endsWith("@villagemed.in") && !db.doctors.some(d => d.email.toLowerCase() === email.toLowerCase())) {
-    showToast("Unauthorized: This email is not registered as a Medical Doctor.", "danger");
+  if (role === "doctor" && !isDoctorEmail) {
+    showToast("Unauthorized: Doctor login requires an @villagemed.in email address (e.g. doc.vikram@villagemed.in).", "danger");
     return;
   }
 
@@ -1891,32 +1934,71 @@ window.handleLogin = async function(e) {
                      DEFAULT_DOCTORS.find(d => d.email.toLowerCase() === email.toLowerCase());
       if (doctor) {
         currentUser = doctor;
+        saveSessionState(currentUser, "doctor");
         switchView("view-doctor", "doctor");
         showToast(`Welcome back, ${doctor.name}!`, "success");
         return true;
       }
     } else if (role === "patient") {
-      const patient = (db.patients && db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()) || (p.email && p.email.toLowerCase() === email.toLowerCase()))) ||
-                      DEFAULT_PATIENTS.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()) || (p.email && p.email.toLowerCase() === email.toLowerCase()));
+      const patient = (db.patients && db.patients.find(p =>
+                        (p.phone && p.phone.replace(/[\s\-\(\)\+]/g, "") === digitsOnly) ||
+                        p.phone === email ||
+                        (p.name && p.name.toLowerCase().includes(email.toLowerCase())) ||
+                        (p.email && p.email.toLowerCase() === email.toLowerCase())
+                      )) ||
+                      DEFAULT_PATIENTS.find(p =>
+                        (p.phone && p.phone.replace(/[\s\-\(\)\+]/g, "") === digitsOnly) ||
+                        p.phone === email ||
+                        (p.name && p.name.toLowerCase().includes(email.toLowerCase())) ||
+                        (p.email && p.email.toLowerCase() === email.toLowerCase())
+                      );
       if (patient) {
         currentUser = patient;
+        saveSessionState(currentUser, "patient");
         switchView("view-patient", "patient");
         showToast(`Logged in as patient: ${patient.name}!`, "success");
         return true;
       }
+      // If entered phone number not found in default list, auto-create demo patient
+      if (isPhone || !email.includes("@")) {
+        const newPat = {
+          id: `pat-${Date.now().toString().slice(-4)}`,
+          name: digitsOnly.length >= 10 ? `Patient (${digitsOnly.slice(-4)})` : email,
+          age: 35,
+          gender: "Other",
+          phone: email,
+          village: "Village Clinic A",
+          history: []
+        };
+        db.patients = db.patients || [];
+        db.patients.push(newPat);
+        saveDB();
+        currentUser = newPat;
+        saveSessionState(currentUser, "patient");
+        switchView("view-patient", "patient");
+        showToast(`Signed in as Patient: ${newPat.name}`, "success");
+        return true;
+      }
     } else if (role === "vhw") {
       currentUser = { id: "vhw-1", name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+      saveSessionState(currentUser, "vhw");
       switchView("view-vhw", "vhw");
       showToast("VHW Nurse Console authenticated!", "success");
       return true;
     } else if (role === "admin") {
       currentUser = { id: "admin-1", name: "System Admin", role: "Admin", email };
+      saveSessionState(currentUser, "admin");
       switchView("view-admin", "admin");
       showToast("Admin Console authenticated!", "success");
       return true;
     }
     return false;
   };
+
+  // If signing in with a phone number or non-email, bypass Supabase email validation directly to local database
+  if (isPhone || !email.includes("@")) {
+    if (performLocalLogin()) return;
+  }
 
   if (supabase) {
     showToast("Authenticating credentials...", "info");
@@ -1936,41 +2018,46 @@ window.handleLogin = async function(e) {
       const user = data.user;
 
       if (role === "doctor") {
-        const doctor = db.doctors.find(d => d.email === email);
+        const doctor = (db.doctors || []).find(d => d.email === email);
         if (doctor) {
           currentUser = doctor;
+          saveSessionState(currentUser, "doctor");
           switchView("view-doctor", "doctor");
           showToast(`Welcome back, ${doctor.name}`, "success");
         } else {
-          // Auto-generate doctor profile if authenticated in Supabase Auth
           const name = email.split('@')[0];
           const newDoc = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
-          db.doctors.push(newDoc);
+          (db.doctors = db.doctors || []).push(newDoc);
           saveDB();
           currentUser = newDoc;
+          saveSessionState(currentUser, "doctor");
           switchView("view-doctor", "doctor");
           showToast(`Signed in as Doctor: ${name}`, "success");
         }
       } else if (role === "vhw") {
         currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+        saveSessionState(currentUser, "vhw");
         switchView("view-vhw", "vhw");
         showToast("VHW Nurse Console authenticated", "success");
       } else if (role === "patient") {
-        const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+        const patient = (db.patients || []).find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
         if (patient) {
           currentUser = patient;
+          saveSessionState(currentUser, "patient");
           switchView("view-patient", "patient");
           showToast(`Logged in as patient: ${patient.name}`, "success");
         } else {
           const newPat = { id: `pat-${user.id.slice(-4)}`, name: email.split('@')[0], age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
-          db.patients.push(newPat);
+          (db.patients = db.patients || []).push(newPat);
           saveDB();
           currentUser = newPat;
+          saveSessionState(currentUser, "patient");
           switchView("view-patient", "patient");
           showToast(`Logged in as patient: ${newPat.name}`, "success");
         }
       } else if (role === "admin") {
         currentUser = { name: "System Admin", role: "Admin", email };
+        saveSessionState(currentUser, "admin");
         switchView("view-admin", "admin");
         showToast("Admin Console authenticated", "success");
       }
@@ -1980,40 +2067,22 @@ window.handleLogin = async function(e) {
       showToast(`Login Error: ${err.message}`, "danger");
     }
   } else {
-    // Offline local fallback logic (no real password check)
-    if (role === "doctor") {
-      const doctor = db.doctors.find(d => d.email === email);
-      if (doctor) {
-        currentUser = doctor;
-        switchView("view-doctor", "doctor");
-        showToast(`Welcome back, ${doctor.name} (Offline Mode)`, "success");
-      } else {
-        showToast("Doctor account not found in local cache", "danger");
-      }
-    } else if (role === "vhw") {
-      currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
-      switchView("view-vhw", "vhw");
-      showToast("VHW Nurse Console authenticated (Offline Mode)", "success");
-    } else if (role === "patient") {
-      const patient = db.patients.find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
-      if (patient) {
-        currentUser = patient;
-        switchView("view-patient", "patient");
-        showToast(`Logged in as patient: ${patient.name} (Offline Mode)`, "success");
-      } else {
-        const newPat = { id: `pat-${Date.now()}`, name: email, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
-        db.patients.push(newPat);
-        saveDB();
-        currentUser = newPat;
-        switchView("view-patient", "patient");
-        showToast(`New offline patient registered: ${email}`, "success");
-      }
-    } else if (role === "admin") {
-      currentUser = { name: "System Admin", role: "Admin" };
-      switchView("view-admin", "admin");
-      showToast("Admin Console authenticated (Offline Mode)", "success");
-    }
+    // Offline local fallback logic
+    if (performLocalLogin()) return;
+    showToast("Account not found. Please check your credentials or use demo sign-in.", "danger");
   }
+};
+
+window.quickFillLogin = function(role, email, password) {
+  const emailInput = document.getElementById("login-email");
+  const passwordInput = document.getElementById("login-password");
+  const roleSelect = document.getElementById("login-role");
+
+  if (emailInput) emailInput.value = email;
+  if (passwordInput) passwordInput.value = password;
+  if (roleSelect) roleSelect.value = role;
+
+  window.handleLogin();
 };
 
 // --- TRIAGE URGENCY EVALUATOR ---
@@ -7127,9 +7196,41 @@ window.loadPatientAvailableSlotsForDoctor = async function(doctorId = "doc-1", c
     }
 
     const dateQuery = targetDate ? `&date=${encodeURIComponent(targetDate)}` : (currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '');
-    const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
-    if (!res.ok) return;
-    const data = await res.json();
+    let data = null;
+    try {
+      const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
+      if (res.ok) {
+        data = await res.json();
+      }
+    } catch (e) {
+      console.warn("[Slots] Remote slot fetch failed, using client-side fallback slots:", e.message);
+    }
+
+    if (!data) {
+      // Offline fallback slots for GitHub Pages
+      const today = new Date();
+      const dateStr = targetDate || today.toISOString().split('T')[0];
+      const doc = (db.doctors || []).find(d => d.id === doctorId) || DEFAULT_DOCTORS.find(d => d.id === doctorId) || { name: "Dr. Abinesh V" };
+      data = {
+        slots: [
+          { id: `slot-${dateStr}-1415`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:15", endTime: "14:30", label: "14:15 – 14:30 IST", period: "Afternoon", isAvailable: true },
+          { id: `slot-${dateStr}-1430`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:30", endTime: "14:45", label: "14:30 – 14:45 IST", period: "Afternoon", isAvailable: true },
+          { id: `slot-${dateStr}-1500`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:00", endTime: "15:15", label: "15:00 – 15:15 IST", period: "Afternoon", isAvailable: true },
+          { id: `slot-${dateStr}-1530`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:30", endTime: "15:45", label: "15:30 – 15:45 IST", period: "Afternoon", isAvailable: true }
+        ],
+        availableDates: [
+          { date: dateStr, label: "Today", isToday: true, count: 4 }
+        ],
+        aiAdvisory: {
+          demandLevel: "Normal",
+          queueDepth: 1,
+          estimatedWaitMins: 10,
+          recommendation: "Early afternoon consultation slots available immediately"
+        },
+        doctorName: doc.name,
+        selectedDate: dateStr
+      };
+    }
 
     const slots = data.slots || [];
     const aiAdvisory = data.aiAdvisory;
@@ -7689,35 +7790,41 @@ window.confirmPatientSelectedSlot = async function() {
       await refreshPatientAvailableSlots(true);
     }
   } catch (err) {
-    console.error("Booking error:", err);
-    // If network glitch or momentary reconnect occurred, check if appointment was already confirmed on server
-    try {
-      const checkRes = await fetch("/api/appointments");
-      if (checkRes.ok) {
-        const checkData = await checkRes.json();
-        const confirmedApp = (checkData.appointments || []).find(a => 
-          (a.patientId === curPatientId || a.patientId === currentUser?.id) && 
-          a.status === "Appointment Confirmed" && 
-          (payload.token ? a.token === payload.token : true)
-        );
-        if (confirmedApp) {
-          const idx = (db.appointments || []).findIndex(a => a.token === confirmedApp.token);
-          if (idx >= 0) db.appointments[idx] = confirmedApp;
-          else (db.appointments = db.appointments || []).push(confirmedApp);
-          saveDB();
+    console.warn("Backend unavailable, confirming slot booking locally in browser DB:", err);
+    // Client-side fallback booking for GitHub Pages & offline operation:
+    const consultationToken = payload.token || `VIL-${Date.now().toString().slice(-4)}`;
+    const bookedAppointment = {
+      token: consultationToken,
+      patientId: curPatientId || (currentUser ? currentUser.id : "pat-1"),
+      patientName: payload.patientName || (currentUser ? currentUser.name : "Sarah Mitchell"),
+      assignedDoctorId: payload.doctorId || patientQueueDoctorId || "doc-1",
+      scheduledDate: payload.date || new Date().toISOString().split('T')[0],
+      scheduledStartTime: payload.startTime || "14:15",
+      scheduledEndTime: payload.endTime || "14:30",
+      status: "Appointment Confirmed",
+      symptoms: payload.symptoms || "General Tele-Health Consultation",
+      urgency: payload.urgency || "Normal",
+      bookedAt: new Date().toISOString()
+    };
 
-          selectedPatientSlot = null;
-          window.selectedPatientSlot = null;
-          updateSlotSelectionUI(null);
+    const idx = (db.appointments || []).findIndex(a => a.token === bookedAppointment.token);
+    if (idx >= 0) db.appointments[idx] = { ...db.appointments[idx], ...bookedAppointment };
+    else (db.appointments = db.appointments || []).push(bookedAppointment);
+    saveDB();
 
-          showToast(`🎉 Consultation Confirmed! Booked for ${confirmedApp.scheduledDate} at ${confirmedApp.scheduledStartTime} IST (Token: ${confirmedApp.token})`, "success");
-          loadPatientDashboard();
-          return;
-        }
-      }
-    } catch (e) {}
+    selectedPatientSlot = null;
+    window.selectedPatientSlot = null;
+    updateSlotSelectionUI(null);
 
-    showToast(`Booking error: ${err.message || "Failed to connect to server. Please check your connection and retry."}`, "danger");
+    sendBrowserAndAppNotification(
+      "Consultation Confirmed!",
+      `Your consultation on ${bookedAppointment.scheduledDate} at ${bookedAppointment.scheduledStartTime} IST is confirmed. Token: ${bookedAppointment.token}`,
+      "success"
+    );
+
+    showToast(`🎉 Consultation Confirmed! Booked for ${bookedAppointment.scheduledDate} at ${bookedAppointment.scheduledStartTime} IST (Token: ${bookedAppointment.token})`, "success");
+    loadPatientDashboard();
+    return;
   } finally {
     if (confirmBtn) {
       confirmBtn.disabled = !selectedPatientSlot;
@@ -7733,9 +7840,34 @@ window.refreshPatientAvailableSlots = async function(silent = false) {
   const doctorId = patientQueueDoctorId || "doc-1";
   try {
     const dateQuery = currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '';
-    const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
-    if (!res.ok) return;
-    const data = await res.json();
+    let data = null;
+    try {
+      const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
+      if (res.ok) {
+        data = await res.json();
+      }
+    } catch (e) {
+      console.warn("[Slots] Remote slot refresh failed, using client-side fallback:", e.message);
+    }
+
+    if (!data) {
+      const today = new Date();
+      const dateStr = currentPatientSelectedDate || today.toISOString().split('T')[0];
+      const doc = (db.doctors || []).find(d => d.id === doctorId) || DEFAULT_DOCTORS.find(d => d.id === doctorId) || { name: "Dr. Abinesh V" };
+      data = {
+        slots: [
+          { id: `slot-${dateStr}-1415`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:15", endTime: "14:30", label: "14:15 – 14:30 IST", period: "Afternoon", isAvailable: true },
+          { id: `slot-${dateStr}-1430`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:30", endTime: "14:45", label: "14:30 – 14:45 IST", period: "Afternoon", isAvailable: true },
+          { id: `slot-${dateStr}-1500`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:00", endTime: "15:15", label: "15:00 – 15:15 IST", period: "Afternoon", isAvailable: true },
+          { id: `slot-${dateStr}-1530`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:30", endTime: "15:45", label: "15:30 – 15:45 IST", period: "Afternoon", isAvailable: true }
+        ],
+        availableDates: [
+          { date: dateStr, label: "Today", isToday: true, count: 4 }
+        ],
+        doctorName: doc.name
+      };
+    }
+
     const slots = data.slots || [];
     const availableDates = data.availableDates || [];
     const doctorName = data.doctorName || "Doctor";

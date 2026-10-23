@@ -92,7 +92,7 @@
           <form id="login-form" onsubmit="handleLogin(event)">
             <div class="form-group">
               <label for="login-email">Email Address or Phone Number</label>
-              <input type="text" id="login-email" class="form-input" placeholder="doctor@hospital.com or 9876543210" required>
+              <input type="text" id="login-email" class="form-input" placeholder="doctor@villagemed.in or 9876543210" required oninput="if(window.autoDetectRole) window.autoDetectRole(this.value)">
             </div>
             
             <div class="form-group">
@@ -103,18 +103,40 @@
             <div class="form-group">
               <label for="login-role">Sign In As</label>
               <select id="login-role" class="form-input">
-                <option value="patient">Patient</option>
+                <option value="patient" selected>Patient</option>
+                <option value="doctor">Medical Doctor</option>
                 <option value="vhw">Village Health Worker / Nurse</option>
-                <option value="doctor" selected>Medical Doctor</option>
                 <option value="admin">System Administrator</option>
               </select>
             </div>
             
-            <button type="submit" class="btn-primary">Sign In</button>
+            <button type="submit" class="btn-primary" style="width: 100%;">Sign In</button>
           </form>
-          <p style="font-size: 12px; color: var(--text-medium); margin-top: 12px; line-height: 1.5;">
-            Demo login: Doctors can use <strong>doc.vikram@villagemed.in</strong>, <strong>doc.dharani@villagemed.in</strong>, or <strong>doc.naveen@villagemed.in</strong> with password <strong>password</strong>.<br>
-            Patients may sign in using their phone number in the Email field.
+
+          <!-- 1-Click Quick Demo Sign-In Buttons -->
+          <div style="margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border-color);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+              <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-medium);">⚡ 1-Click Quick Demo Sign-In</span>
+              <span style="font-size: 10px; color: #166534; font-weight: 600; background: #dcfce7; padding: 2px 6px; border-radius: 4px;">Instant Test</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <button type="button" class="btn-secondary" onclick="window.quickFillLogin('patient', '9876543210', 'password')" style="font-size: 11px; padding: 8px; text-align: left; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                👤 <strong>Patient: Sarah</strong><br><span style="font-size: 10px; opacity: 0.85; font-weight: normal;">9876543210</span>
+              </button>
+              <button type="button" class="btn-secondary" onclick="window.quickFillLogin('doctor', 'doc.vikram@villagemed.in', 'password')" style="font-size: 11px; padding: 8px; text-align: left; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                🩺 <strong>Doctor: Vikram</strong><br><span style="font-size: 10px; opacity: 0.85; font-weight: normal;">General Medicine</span>
+              </button>
+              <button type="button" class="btn-secondary" onclick="window.quickFillLogin('doctor', 'doc.abinesh@villagemed.in', 'password123')" style="font-size: 11px; padding: 8px; text-align: left; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                🩺 <strong>Doctor: Abinesh</strong><br><span style="font-size: 10px; opacity: 0.85; font-weight: normal;">Slot Booking</span>
+              </button>
+              <button type="button" class="btn-secondary" onclick="window.quickFillLogin('vhw', 'nurse@villagemed.in', 'password')" style="font-size: 11px; padding: 8px; text-align: left; background: #fdf2f8; border: 1px solid #fbcfe8; color: #9d174d; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                🏥 <strong>Nurse: Anjali</strong><br><span style="font-size: 10px; opacity: 0.85; font-weight: normal;">Clinic VHW</span>
+              </button>
+            </div>
+          </div>
+
+          <p style="font-size: 11px; color: var(--text-medium); margin-top: 12px; line-height: 1.4;">
+            💡 <em>Patients sign in using phone number (e.g. <strong>9876543210</strong>). Doctors use <strong>@villagemed.in</strong>.</em>
           </p>
 
           <div class="quick-login-divider">OR</div>
