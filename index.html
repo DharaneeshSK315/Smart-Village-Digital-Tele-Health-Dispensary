@@ -332,10 +332,10 @@
                   Join the queue to receive genuine available 15-minute consultation slots based on clinician working hours and real-time availability.
                 </p>
 
-                <form id="pat-booking-form" onsubmit="handlePatientConsultationRequest(event)">
+                <form id="pat-booking-form" onsubmit="event.preventDefault(); handlePatientConsultationRequest(event); return false;">
                   <div class="form-group">
                     <label for="pat-book-symptoms">Primary Symptoms / Reason for Visit</label>
-                    <input type="text" id="pat-book-symptoms" class="form-input" placeholder="e.g., Fever, headache, chest pain" required>
+                    <input type="text" id="pat-book-symptoms" class="form-input" placeholder="e.g., Fever, headache, chest pain" required onkeydown="if(event.key === 'Enter'){ event.preventDefault(); handlePatientConsultationRequest(event); }">
                   </div>
 
                   <div class="form-group">
@@ -358,7 +358,7 @@
                     </select>
                   </div>
 
-                  <button type="submit" id="pat-request-consult-btn" class="btn-primary pat-btn-book" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                  <button type="button" id="pat-request-consult-btn" class="btn-primary pat-btn-book" onclick="handlePatientConsultationRequest(event)" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     Request Consultation
                   </button>
