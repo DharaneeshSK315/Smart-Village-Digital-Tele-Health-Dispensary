@@ -76,26 +76,34 @@ export function shouldAutoRestoreSession({ isSigningOut, event, session, current
 export function findActivePatientAppointment(appointments, patientId, token = null) {
   if (!Array.isArray(appointments) || !patientId) return null;
 
+  const isInactive = status => status === 'Completed' || status === 'Cancelled' || status === 'cancelled';
   const byPatient = appointments.filter((appointment) => appointment
-    && appointment.patientId === patientId
-    && appointment.status !== 'Completed');
+    && (appointment.patientId === patientId || appointment.consultationRequestId === token)
+    && !isInactive(appointment.status));
   if (!byPatient.length) {
     if (!token) return null;
     return appointments.find((appointment) => appointment
       && appointment.token === token
-      && appointment.patientId === patientId
-      && appointment.status !== 'Completed') || null;
+      && (appointment.patientId === patientId || appointment.consultationRequestId === token)
+      && !isInactive(appointment.status)) || null;
   }
 
-  const active = byPatient.find((appointment) => appointment.status === 'Active')
+  // Priority order for active state
+  const active = byPatient.find((appointment) => appointment.status === 'Active' || appointment.status === 'In Progress')
+    || byPatient.find((appointment) => appointment.status === 'Appointment Confirmed' || appointment.status === 'Confirmed')
+    || byPatient.find((appointment) => appointment.status === 'Rescheduled')
+    || byPatient.find((appointment) => appointment.status === 'Waiting for Doctor Queue')
+    || byPatient.find((appointment) => appointment.status === 'Vitals Pending')
     || byPatient.find((appointment) => appointment.status === 'Waiting')
-    || byPatient[0];
+    || byPatient.find((appointment) => appointment.status === 'Awaiting Selection')
+    || byPatient.find((appointment) => appointment.status === 'Queued')
+    || byPatient[byPatient.length - 1];
 
   if (token && active && active.token !== token) {
     const exact = appointments.find((appointment) => appointment
       && appointment.token === token
-      && appointment.patientId === patientId
-      && appointment.status !== 'Completed') || null;
+      && (appointment.patientId === patientId || appointment.consultationRequestId === token)
+      && !isInactive(appointment.status)) || null;
     return exact || active;
   }
 

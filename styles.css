@@ -5154,4 +5154,651 @@ body:has(#view-doctor.active),
   justify-content: flex-end;
 }
 
+/* ==========================================================================
+   SMART CONSULTATION QUEUE & APPOINTMENT ALLOCATION STYLING
+   ========================================================================== */
 
+/* 7 Appointment Status Badges */
+.badge-queued {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+  border: 1px solid #fde68a !important;
+  font-weight: 600;
+}
+
+.badge-awaiting {
+  background-color: #e0f2fe !important;
+  color: #0369a1 !important;
+  border: 1px solid #bae6fd !important;
+  font-weight: 600;
+}
+
+.badge-confirmed {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+  border: 1px solid #a7f3d0 !important;
+  font-weight: 600;
+}
+
+.badge-inprogress {
+  background-color: #ede9fe !important;
+  color: #5b21b6 !important;
+  border: 1px solid #ddd6fe !important;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.badge-inprogress .pulse-dot {
+  width: 7px;
+  height: 7px;
+  background-color: #7c3aed;
+  border-radius: 50%;
+  animation: pulseBadgeDot 1.5s infinite;
+}
+
+@keyframes pulseBadgeDot {
+  0% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.6); }
+  70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 5px rgba(124, 58, 237, 0); }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.badge-completed {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #cbd5e1 !important;
+  font-weight: 600;
+}
+
+.badge-cancelled {
+  background-color: #ffe4e6 !important;
+  color: #9f1239 !important;
+  border: 1px solid #fecdd3 !important;
+  font-weight: 600;
+}
+
+.badge-rescheduled {
+  background-color: #e0f2fe !important;
+  color: #0c4a6e !important;
+  border: 1px solid #7dd3fc !important;
+  font-weight: 600;
+}
+
+/* Patient Smart Queue Flow Container */
+.smart-queue-card {
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+
+.smart-queue-header-banner {
+  background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
+  padding: 18px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.smart-queue-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.smart-queue-body {
+  padding: 20px;
+}
+
+/* Slots Selection Grid */
+.slots-grid-wrapper {
+  margin: 18px 0;
+}
+
+.slots-grid-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.slots-grid-title h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.slots-sync-indicator {
+  font-size: 11.5px;
+  color: #10b981;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.slots-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulseDot 2s infinite;
+}
+
+@keyframes pulseDot {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+.slots-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.slots-cards-container::-webkit-scrollbar {
+  width: 6px;
+}
+.slots-cards-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+/* Individual Slot Card */
+.slot-select-card {
+  position: relative;
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  outline: none;
+}
+
+.slot-select-card * {
+  pointer-events: none;
+}
+
+.slot-select-card:hover {
+  border-color: #93c5fd;
+  background: #f0f7ff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.slot-select-card:focus-visible {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.slot-select-card.selected {
+  border: 2px solid #2563eb !important;
+  border-color: #2563eb !important;
+  background: #eff6ff !important;
+  background-color: #eff6ff !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22), 0 4px 12px rgba(37, 99, 235, 0.12) !important;
+  transform: translateY(-2px);
+}
+
+/* Checkmark indicator badge */
+.slot-check-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  background: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: transparent;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.slot-select-card:hover .slot-check-circle {
+  border-color: #93c5fd;
+}
+
+.slot-select-card.selected .slot-check-circle {
+  border-color: #2563eb !important;
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+}
+
+/* Date Selector Pills */
+.slot-date-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.slot-date-tab:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.slot-date-tab.active {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.slot-date-tab .date-count-pill {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.slot-date-tab.active .date-count-pill {
+  background: rgba(255, 255, 255, 0.25) !important;
+  color: #ffffff !important;
+}
+
+.slot-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.slot-date-chip {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.slot-duration-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: #059669;
+  background: #d1fae5;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.slot-time-display {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slot-doctor-info {
+  font-size: 12px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* AI Demand & Recommendation Pill */
+.slot-ai-advisory {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-demand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  width: fit-content;
+}
+
+.ai-demand-low {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.ai-demand-moderate {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ai-demand-high {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.ai-rec-text {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+  line-height: 1.35;
+}
+
+/* Empty Slots Queue Waiting Alert */
+.queue-empty-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.queue-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #b45309;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+/* Confirmed Appointment Hero Banner in Patient Dashboard */
+.pat-confirmed-hero {
+  background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
+  border: 1px solid #bbf7d0;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.pat-confirmed-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pat-confirmed-token-pill {
+  font-size: 15px;
+  font-weight: 800;
+  background: #065f46;
+  color: #ffffff;
+  padding: 4px 14px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+
+.pat-confirmed-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+}
+
+.pat-confirmed-item .item-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 3px;
+}
+
+.pat-confirmed-item .item-val {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.pat-confirmed-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Doctor Working Hours & Schedule Pane */
+.doc-schedule-card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 24px;
+}
+
+.schedule-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.breaks-manager-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.breaks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.break-item-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.workdays-checkbox-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.workday-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.workday-label:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+/* Modal Overlay & Card for Rescheduling */
+.telehealth-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.telehealth-modal-card {
+  background: #ffffff;
+  border-radius: 16px;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+}
+
+.telehealth-modal-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.telehealth-modal-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.telehealth-modal-body {
+  padding: 22px;
+}
+
+.telehealth-modal-footer {
+  padding: 16px 22px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+
+/* Doctor Appointment Filter Pills */
+.doc-filter-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-filter-pill {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  outline: none;
+}
+
+.btn-filter-pill:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.btn-filter-pill.active {
+  background: #059669;
+  color: #ffffff;
+  border-color: #059669;
+  box-shadow: 0 2px 4px rgba(5, 150, 105, 0.25);
+}
+
+/* Patient Workflow Step Progression */
+.queue-workflow-steps {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.vitals-pending-box {
+  animation: fadeIn 0.25s ease-out;
+}
+/* Patient Cancel Action Buttons */
+.pat-btn-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  transition: all 0.2s ease;
+  line-height: 1.2;
+}
+
+.pat-btn-cancel:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+  color: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.15);
+}
+
+.pat-btn-cancel:active {
+  transform: translateY(0);
+}

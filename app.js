@@ -1,3 +1,5 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom/client';
 import { supabase } from './supabaseClient.js';
 import { createAuthGuard } from './authGuard.mjs';
 import {
@@ -14,6 +16,13 @@ import {
   getAuthenticatedUserId,
   mergeChatMessages
 } from './consultationChat.js';
+
+// Expose React and useState globally for interoperability
+if (typeof window !== 'undefined') {
+  window.React = React;
+  window.ReactDOM = ReactDOM;
+  window.useState = useState;
+}
 
 // --- MOCK DATABASE CONFIGURATION ---
 const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
@@ -82,7 +91,7 @@ const DEFAULT_APPOINTMENTS = [
     urgency: "Normal",
     specialty: "General Medicine",
     assignedDoctorId: "doc-4",
-    status: "Waiting",
+    status: "Completed",
     vitals: { bpSystolic: 138, bpDiastolic: 88, sugar: 115, temp: 36.8, spo2: 97, hr: 78, pain: 1, photo: null }
   }
 ];
@@ -859,9 +868,25 @@ function initSocketConnection() {
 
     appSocket.on("vitals_recorded", (data) => {
       console.info("[Socket] vitals_recorded received for token:", data.token);
+      if (data && data.appointment) {
+        const aIdx = (db.appointments || []).findIndex(a => a.token === data.token);
+        if (aIdx >= 0) db.appointments[aIdx] = data.appointment;
+        else (db.appointments = db.appointments || []).push(data.appointment);
+        saveDB();
+      }
       if (currentRole === "patient") {
-        showToast("Your vitals have been recorded by the health worker! You are now in the doctor queue.", "success");
+        sendBrowserAndAppNotification(
+          "Consultation Ready for Scheduling",
+          "Your consultation is ready for scheduling. Please select one of the available appointment slots.",
+          "info"
+        );
+        showToast("Your consultation is ready for scheduling. Please select one of the available appointment slots.", "success");
         loadPatientDashboard();
+      } else if (currentRole === "doctor") {
+        renderDoctorQueue();
+        renderDoctorAppointments();
+      } else if (currentRole === "vhw") {
+        renderVhwQueue();
       }
     });
 
@@ -974,6 +999,38 @@ function initSocketConnection() {
       if (cfg) {
         agoraConfig = cfg;
         localStorage.setItem("agora_config", JSON.stringify(cfg));
+      }
+    });
+
+    // 11. Smart Queue: Slot Booked (Global Real-time Broadcast)
+    appSocket.on("slot_booked", (payload) => {
+      console.info("[Socket] slot_booked received:", payload);
+      if (typeof handleRealtimeSlotBooked === "function") {
+        handleRealtimeSlotBooked(payload);
+      }
+    });
+
+    // 12. Smart Queue: Slot Cancelled / Released
+    appSocket.on("slot_cancelled", (payload) => {
+      console.info("[Socket] slot_cancelled received:", payload);
+      if (typeof handleRealtimeSlotCancelled === "function") {
+        handleRealtimeSlotCancelled(payload);
+      }
+    });
+
+    // 13. Smart Queue: Doctor Schedule Updated
+    appSocket.on("schedule_updated", (payload) => {
+      console.info("[Socket] schedule_updated received:", payload);
+      if (typeof handleRealtimeScheduleUpdated === "function") {
+        handleRealtimeScheduleUpdated(payload);
+      }
+    });
+
+    // 14. Smart Queue: Appointment Confirmed
+    appSocket.on("appointment_confirmed", (payload) => {
+      console.info("[Socket] appointment_confirmed received:", payload);
+      if (typeof handleRealtimeAppointmentConfirmed === "function") {
+        handleRealtimeAppointmentConfirmed(payload);
       }
     });
 
@@ -1997,20 +2054,26 @@ async function loadPatientDashboard() {
 
   if (supabase) await refreshConsultationsFromSupabase();
   
-  // Active appointment check: look for appointment for this patient, or any Active consultation in dispensary
-  let activeApp = db.appointments.find(a =>
-    currentUser && a.patientId === currentUser.id && a.status !== "Completed"
+  // Active appointment check: look for appointment for this patient
+  const inactiveStatuses = ["Completed", "Cancelled", "cancelled"];
+  const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : null;
+  const patientActiveApps = (db.appointments || []).filter(a =>
+    curPatientId && (a.patientId === curPatientId || a.patientId === currentUser.id || a.patientId === currentUser.profileId) && !inactiveStatuses.includes(a.status)
   );
 
-  // If this specific patient does not have an active booking, but there is an Active consultation call waiting
-  if (!activeApp) {
-    const activeConsultation = db.appointments.find(a => a.status === "Active");
-    if (activeConsultation) {
-      activeApp = activeConsultation;
-    } else {
-      activeApp = db.appointments.find(a => currentUser && a.patientId === currentUser.id) ||
-                  DEFAULT_APPOINTMENTS.find(a => currentUser && a.patientId === currentUser.id);
-    }
+  // Pick the newest active appointment
+  patientActiveApps.sort((a, b) => {
+    const tA = new Date(a.bookingTime || a.requestTime || a.createdAt || 0).getTime();
+    const tB = new Date(b.bookingTime || b.requestTime || b.createdAt || 0).getTime();
+    return tB - tA;
+  });
+
+  let activeApp = patientActiveApps[0] || null;
+
+  // If this specific patient does not have an active booking, check for live active call
+  if (!activeApp && curPatientId) {
+    const liveCall = (db.appointments || []).find(a => (a.status === "In Progress" || a.status === "Active") && (a.patientId === curPatientId || a.patientId === currentUser.id || a.patientId === currentUser.profileId));
+    if (liveCall) activeApp = liveCall;
   }
   
   const tokenVal = document.getElementById("pat-token-val");
@@ -2019,32 +2082,156 @@ async function loadPatientDashboard() {
   const docVal = document.getElementById("pat-doc-val");
   const callCard = document.getElementById("pat-active-call-card");
   const cancelBtn = document.getElementById("pat-cancel-appointment-btn");
+  const confirmedHeroCard = document.getElementById("pat-confirmed-hero-card");
+  const queueFlowCard = document.getElementById("pat-queue-flow-card");
+
+  const stateRequestForm = document.getElementById("pat-consult-request-form-container");
+  const stateVitalsPending = document.getElementById("pat-vitals-pending-container");
+  const stateSlots = document.getElementById("pat-slots-allocation-container");
+  const stateWaiting = document.getElementById("pat-queue-waiting-container");
+
+  const doc = (activeApp && (db.doctors || DEFAULT_DOCTORS).find(d => d.id === activeApp.assignedDoctorId)) || db.doctors[0] || DEFAULT_DOCTORS[0];
+  const docName = doc ? doc.name : (activeApp ? (activeApp.doctorName || "Dr. Vikram") : "Dr. Vikram");
 
   if (activeApp) {
     if (tokenVal) tokenVal.innerText = activeApp.token;
-    if (tokenSub) tokenSub.innerText = `Symptom: ${activeApp.symptoms || "Tele-Consultation"}`;
-    if (cancelBtn) cancelBtn.style.display = "block";
-
-    // Calculate queue index
-    const queueIndex = db.appointments.filter(a => a.status === "Waiting").findIndex(a => a.token === activeApp.token);
-    if (waitVal) {
-      waitVal.innerText = queueIndex >= 0 ? `${(queueIndex + 1) * 12} mins` : activeApp.status === "Active" ? "In Call" : "Pending";
+    if (cancelBtn) {
+      cancelBtn.style.display = "inline-flex";
+      cancelBtn.innerText = ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(activeApp.status)
+        ? "✕ Cancel Appointment"
+        : "✕ Cancel Request";
+      cancelBtn.onclick = () => cancelActiveAppointment(activeApp.token);
     }
-    
-    const doc = (db.doctors || DEFAULT_DOCTORS).find(d => d.id === activeApp.assignedDoctorId);
-    if (docVal) docVal.innerText = doc ? doc.name : (activeApp.doctorName || "Dr. Vikram");
+    if (docVal) docVal.innerText = docName;
     const docSub = document.getElementById("pat-doc-sub");
     if (docSub) docSub.innerText = doc ? `${doc.specialty} Clinic` : "General Medicine Clinic";
 
-    if (activeApp.status === "Active") {
-      if (callCard) {
-        callCard.style.display = "block";
-        const docNameEl = document.getElementById("pat-active-doc-name");
-        if (docNameEl) docNameEl.innerText = doc ? doc.name : (activeApp.doctorName || "Consultant");
-      }
-    } else {
+    // 1. STATE: Vitals Pending (Screening awaiting by health worker at kiosk)
+    if (activeApp.status === "Vitals Pending") {
+      if (tokenSub) tokenSub.innerText = "Status: Vitals Screening Pending";
+      if (waitVal) waitVal.innerText = "Kiosk Check";
+      if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
       if (callCard) callCard.style.display = "none";
+      if (queueFlowCard) queueFlowCard.style.display = "block";
+
+      if (stateRequestForm) stateRequestForm.style.display = "none";
+      if (stateSlots) stateSlots.style.display = "none";
+      if (stateWaiting) stateWaiting.style.display = "none";
+      if (stateVitalsPending) {
+        stateVitalsPending.style.display = "block";
+        const tokEl = document.getElementById("pat-vitals-pending-token");
+        if (tokEl) tokEl.innerText = activeApp.token;
+        const dEl = document.getElementById("pat-vitals-pending-doc");
+        if (dEl) dEl.innerText = docName;
+        const uEl = document.getElementById("pat-vitals-pending-urgency");
+        if (uEl) uEl.innerText = activeApp.urgency || "Normal";
+      }
+      return;
     }
+
+    // 2. STATE: Waiting for Doctor Queue (Vitals recorded! Ready to pick genuine 15-min slot)
+    if (activeApp.status === "Waiting for Doctor Queue") {
+      if (tokenSub) tokenSub.innerText = "Status: Ready to Select Slot";
+      if (waitVal) waitVal.innerText = "Choose 15-Min Slot";
+      if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+      if (callCard) callCard.style.display = "none";
+      if (queueFlowCard) queueFlowCard.style.display = "block";
+
+      if (stateRequestForm) stateRequestForm.style.display = "none";
+      if (stateVitalsPending) stateVitalsPending.style.display = "none";
+      if (stateWaiting) stateWaiting.style.display = "none";
+      if (stateSlots) stateSlots.style.display = "block";
+
+      if (typeof window.loadPatientAvailableSlotsForDoctor === "function") {
+        window.loadPatientAvailableSlotsForDoctor(activeApp.assignedDoctorId || "doc-1", activeApp.token);
+      }
+      return;
+    }
+
+    // 3. STATE: Confirmed / In Progress / Rescheduled
+    const isConfirmedState = ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(activeApp.status);
+    if (isConfirmedState) {
+      if (tokenSub) tokenSub.innerText = `Symptom: ${activeApp.symptoms || "Tele-Consultation"}`;
+      if (waitVal) {
+        if (activeApp.scheduledStartTime) {
+          waitVal.innerText = `${activeApp.scheduledStartTime} IST`;
+        } else {
+          waitVal.innerText = (activeApp.status === "In Progress" || activeApp.status === "Active") ? "In Call" : "Confirmed";
+        }
+      }
+
+      // Hide consultation queue workflow
+      if (queueFlowCard) queueFlowCard.style.display = "none";
+
+      // Render Confirmed Appointment Hero Banner
+      if (confirmedHeroCard) {
+        confirmedHeroCard.style.display = "block";
+        const confToken = document.getElementById("pat-confirmed-token");
+        if (confToken) confToken.innerText = activeApp.token;
+
+        const confBadge = document.getElementById("pat-confirmed-status-badge");
+        if (confBadge) {
+          const statusClassMap = {
+            "Appointment Confirmed": "badge-confirmed",
+            "Confirmed": "badge-confirmed",
+            "In Progress": "badge-inprogress",
+            "Active": "badge-inprogress",
+            "Rescheduled": "badge-rescheduled"
+          };
+          confBadge.className = `badge ${statusClassMap[activeApp.status] || 'badge-confirmed'}`;
+          confBadge.innerHTML = (activeApp.status === "In Progress" || activeApp.status === "Active") ? `<span class="pulse-dot"></span> In Progress` : (activeApp.status || "Confirmed");
+        }
+
+        const confDate = document.getElementById("pat-confirmed-date");
+        if (confDate) confDate.innerText = activeApp.scheduledDate || "Today";
+
+        const confTime = document.getElementById("pat-confirmed-time");
+        if (confTime) {
+          const sTime = activeApp.scheduledStartTime || "--:--";
+          const eTime = activeApp.scheduledEndTime || "--:--";
+          confTime.innerText = `${sTime} - ${eTime} IST (${activeApp.slotDurationMins || 15} mins)`;
+        }
+
+        const confDoc = document.getElementById("pat-confirmed-doctor");
+        if (confDoc) confDoc.innerText = docName;
+
+        const confSpec = document.getElementById("pat-confirmed-specialty");
+        if (confSpec) confSpec.innerText = activeApp.specialty || (doc ? doc.specialty : "General Medicine");
+
+        const joinBtn = document.getElementById("pat-join-confirmed-call-btn");
+        if (joinBtn) {
+          joinBtn.style.display = (activeApp.status === "In Progress" || activeApp.status === "Active" || activeApp.status === "Appointment Confirmed" || activeApp.status === "Confirmed") ? "inline-flex" : "none";
+        }
+      }
+
+      if (activeApp.status === "Active" || activeApp.status === "In Progress") {
+        if (callCard) {
+          callCard.style.display = "block";
+          const docNameEl = document.getElementById("pat-active-doc-name");
+          if (docNameEl) docNameEl.innerText = docName;
+        }
+      } else {
+        if (callCard) callCard.style.display = "none";
+      }
+      return;
+    }
+
+    // 4. STATE: Waiting / Queued in Consultation Queue (or any other active state)
+    if (tokenSub) tokenSub.innerText = "Status: In Consultation Queue";
+    if (waitVal) waitVal.innerText = "In Queue";
+    if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+    if (callCard) callCard.style.display = "none";
+    if (queueFlowCard) queueFlowCard.style.display = "block";
+
+    if (stateRequestForm) stateRequestForm.style.display = "none";
+    if (stateVitalsPending) stateVitalsPending.style.display = "none";
+    if (stateSlots) stateSlots.style.display = "none";
+    if (stateWaiting) {
+      stateWaiting.style.display = "block";
+      const dName = document.getElementById("pat-queue-doctor-name");
+      if (dName) dName.innerText = docName;
+    }
+    return;
   } else {
     if (tokenVal) tokenVal.innerText = "No Token";
     if (tokenSub) tokenSub.innerText = "No active appointment";
@@ -2054,12 +2241,25 @@ async function loadPatientDashboard() {
     if (docSub) docSub.innerText = "General Medicine Clinic";
     if (callCard) callCard.style.display = "none";
     if (cancelBtn) cancelBtn.style.display = "none";
+    const conflictAlert = document.getElementById("pat-active-request-conflict-alert");
+    if (conflictAlert) conflictAlert.style.display = "none";
+    if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+    if (queueFlowCard) {
+      queueFlowCard.style.display = "block";
+      if (stateRequestForm) stateRequestForm.style.display = "block";
+      if (stateVitalsPending) stateVitalsPending.style.display = "none";
+      if (stateSlots) stateSlots.style.display = "none";
+      if (stateWaiting) stateWaiting.style.display = "none";
+      if (typeof initPatientConsultationQueue === "function") {
+        initPatientConsultationQueue();
+      }
+    }
   }
 
   // Populate appointment specialty dropdown dynamically
   const patBookSelect = document.getElementById("pat-book-specialty");
-  if (patBookSelect) {
-    patBookSelect.innerHTML = db.doctors.map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
+  if (patBookSelect && patBookSelect.options.length <= 1) {
+    patBookSelect.innerHTML = (db.doctors || []).map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
   }
 
   // Profile forms
@@ -2298,22 +2498,6 @@ window.bookPatientAppointment = async function(e) {
   document.getElementById("pat-book-symptoms").value = "";
 };
 
-window.cancelActiveAppointment = function() {
-  const activeAppIndex = db.appointments.findIndex(a => a.patientId === currentUser.id);
-  if (activeAppIndex >= 0) {
-    const token = db.appointments[activeAppIndex].token;
-    db.appointments.splice(activeAppIndex, 1);
-    saveDB();
-    if (appSocket && appSocket.connected) {
-      try {
-        fetch(`${getBackendUrl()}/api/appointments/${token}`, { method: "DELETE" }).catch(() => {});
-      } catch (e) {}
-    }
-    showToast("Appointment and token cancelled.", "warning");
-    loadPatientDashboard();
-  }
-};
-
 window.updatePatientProfile = function(e) {
   e.preventDefault();
   const name = document.getElementById("pat-prof-name").value.trim();
@@ -2507,10 +2691,11 @@ window.vhwRegisterPatient = function(e) {
   loadVhwDashboard();
 };
 
-window.openVitalsModal = function(patientId, isHomeVisit = false) {
+window.openVitalsModal = function(patientId, isHomeVisit = false, targetToken = null) {
   const p = db.patients.find(pat => pat.id === patientId);
   if (!p) return;
 
+  window.currentVitalsToken = targetToken;
   const saveModeToggle = document.getElementById("vhw-saved-details-toggle");
   const saveModeLabel = document.getElementById("vhw-saved-mode-text");
   const useSavedDetails = saveModeToggle ? !saveModeToggle.checked : true;
@@ -2519,9 +2704,12 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   document.getElementById("vitals-pat-id").value = patientId;
   document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
 
-  const app = db.appointments.find(a => a.patientId === patientId);
+  const app = targetToken 
+    ? db.appointments.find(a => a.token === targetToken) 
+    : db.appointments.find(a => a.patientId === patientId && (a.status === "Vitals Pending" || a.status === "Waiting for Doctor Queue" || a.status === "Waiting"));
+
   const defaultDemoData = {
-    symptoms: "Chronic chest pain, high fever...",
+    symptoms: "Fever, headache, general discomfort...",
     vitals: {
       bpSystolic: 120,
       bpDiastolic: 80,
@@ -2534,7 +2722,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
   };
   const lastSavedData = app && app.vitals ? app : defaultDemoData;
 
-  document.getElementById("vitals-symptoms").value = useSavedDetails ? (app ? app.symptoms : defaultDemoData.symptoms) : "";
+  document.getElementById("vitals-symptoms").value = useSavedDetails ? (app ? (app.symptoms || "") : defaultDemoData.symptoms) : "";
 
   document.getElementById("vitals-bp-systolic").value = useSavedDetails ? lastSavedData.vitals.bpSystolic : "";
   document.getElementById("vitals-bp-diastolic").value = useSavedDetails ? lastSavedData.vitals.bpDiastolic : "";
@@ -2565,11 +2753,8 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
         document.getElementById("vitals-pain").value = 0;
         document.getElementById("pain-lbl-val").innerText = 0;
       } else {
-        const savedApp = db.appointments.find(a => a.patientId === patientId);
-        const fallback = {
-          symptoms: "Chronic chest pain, high fever...",
-          vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.8, spo2: 98, hr: 75, pain: 0 }
-        };
+        const savedApp = targetToken ? db.appointments.find(a => a.token === targetToken) : db.appointments.find(a => a.patientId === patientId);
+        const fallback = defaultDemoData;
         const details = savedApp && savedApp.vitals ? savedApp : fallback;
         document.getElementById("vitals-symptoms").value = details.symptoms || fallback.symptoms;
         document.getElementById("vitals-bp-systolic").value = details.vitals.bpSystolic;
@@ -2586,7 +2771,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false) {
 
   const vitalsSpecialtySelect = document.getElementById("vitals-specialty");
   if (vitalsSpecialtySelect) {
-    vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
+    vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.id}" ${app && app.assignedDoctorId === d.id ? 'selected' : ''}>${d.specialty} (${d.name})</option>`).join("");
   }
 
   document.getElementById("vitals-modal").classList.add("active");
@@ -2596,91 +2781,131 @@ window.closeVitalsModal = function() {
   document.getElementById("vitals-modal").classList.remove("active");
 };
 
-window.vhwSubmitVitals = function(e) {
+window.vhwSubmitVitals = async function(e) {
   e.preventDefault();
   const patientId = document.getElementById("vitals-pat-id").value;
-  const savedModeToggle = document.getElementById("vhw-saved-details-toggle");
-  const useSavedDetails = savedModeToggle ? !savedModeToggle.checked : true;
   const symptoms = document.getElementById("vitals-symptoms").value.trim();
-  const bpSystolic = parseInt(document.getElementById("vitals-bp-systolic").value);
-  const bpDiastolic = parseInt(document.getElementById("vitals-bp-diastolic").value);
-  const sugar = parseInt(document.getElementById("vitals-sugar").value);
+  const bpSystolic = parseInt(document.getElementById("vitals-bp-systolic").value, 10);
+  const bpDiastolic = parseInt(document.getElementById("vitals-bp-diastolic").value, 10);
+  const sugar = parseInt(document.getElementById("vitals-sugar").value, 10) || 110;
   const temp = parseFloat(document.getElementById("vitals-temp").value);
-  const spo2 = parseInt(document.getElementById("vitals-spo2").value);
-  const hr = parseInt(document.getElementById("vitals-hr").value);
-  const pain = parseInt(document.getElementById("vitals-pain").value);
+  const spo2 = parseInt(document.getElementById("vitals-spo2").value, 10);
+  const hr = parseInt(document.getElementById("vitals-hr").value, 10);
+  const pain = parseInt(document.getElementById("vitals-pain").value, 10) || 0;
   const docId = document.getElementById("vitals-specialty").value;
 
-  if (savedModeToggle && savedModeToggle.checked) {
-    showToast("New details mode is ON: enter fresh values for this dispatch.", "info");
-  } else {
-    showToast("Saved details mode is OFF: previous values are being reused.", "info");
+  // Comprehensive Clinical Range Validations
+  if (isNaN(bpSystolic) || bpSystolic < 50 || bpSystolic > 260) {
+    showToast("Invalid Blood Pressure (Systolic must be 50 - 260 mmHg).", "warning");
+    return;
+  }
+  if (isNaN(bpDiastolic) || bpDiastolic < 30 || bpDiastolic > 160) {
+    showToast("Invalid Blood Pressure (Diastolic must be 30 - 160 mmHg).", "warning");
+    return;
+  }
+  if (isNaN(temp) || temp < 30 || temp > 45) {
+    showToast("Invalid Body Temperature (must be 30.0 - 45.0 °C).", "warning");
+    return;
+  }
+  if (isNaN(spo2) || spo2 < 50 || spo2 > 100) {
+    showToast("Invalid Blood Oxygen SpO2 (must be 50 - 100%).", "warning");
+    return;
+  }
+  if (isNaN(hr) || hr < 30 || hr > 220) {
+    showToast("Invalid Pulse/Heart Rate (must be 30 - 220 bpm).", "warning");
+    return;
   }
 
   const vitals = { bpSystolic, bpDiastolic, sugar, temp, spo2, hr, pain, photo: null };
-
   const p = db.patients.find(pat => pat.id === patientId);
   const doc = db.doctors.find(d => d.id === docId) || db.doctors[0];
   const specialty = doc.specialty;
 
-  // Image upload mock
+  // Image upload
   const photoInput = document.getElementById("vitals-photo");
-  if (photoInput.files && photoInput.files[0]) {
-    vitals.photo = `Wound Image (Shared: ${photoInput.files[0].name})`;
+  if (photoInput && photoInput.files && photoInput.files[0]) {
+    vitals.photo = `Clinical Photo (${photoInput.files[0].name})`;
   }
 
   // Triage assessment
   const triage = evaluateTriageUrgency(vitals);
+  const isEmergency = vitals.spo2 < 90 || vitals.bpSystolic > 180 || vitals.hr > 130;
+  const urgencyFlag = isEmergency ? "Emergency" : triage.flag;
 
-  // Check if existing booked app
-  const appIndex = db.appointments.findIndex(a => a.patientId === patientId);
-  
-  if (appIndex >= 0) {
-    db.appointments[appIndex].vitals = vitals;
-    db.appointments[appIndex].symptoms = symptoms;
-    db.appointments[appIndex].urgency = triage.flag;
-    db.appointments[appIndex].assignedDoctorId = doc.id;
-    db.appointments[appIndex].specialty = specialty;
-    db.appointments[appIndex].isHomeVisit = window.isHomeVisitCapture || false;
-  } else {
-    // New token
-    const prefix = p.village.includes("A") ? "VIL-A" : p.village.includes("B") ? "VIL-B" : "VIL-C";
-    const num = Math.floor(100 + Math.random() * 900);
-    const token = `${prefix}-${num}`;
-    
-    db.appointments.push({
-      token,
-      patientId,
-      symptoms,
-      urgency: triage.flag,
-      specialty,
-      assignedDoctorId: doc.id,
-      status: "Waiting",
-      vitals,
-      isHomeVisit: window.isHomeVisitCapture || false
-    });
+  const targetToken = window.currentVitalsToken;
+  let appIndex = -1;
+  if (targetToken) {
+    appIndex = db.appointments.findIndex(a => a.token === targetToken);
+  }
+  if (appIndex === -1) {
+    appIndex = db.appointments.findIndex(a => a.patientId === patientId && (a.status === "Vitals Pending" || a.status === "Waiting for Doctor Queue" || a.status === "Waiting"));
+  }
+  if (appIndex === -1) {
+    appIndex = db.appointments.findIndex(a => a.patientId === patientId && a.status !== "Completed" && a.status !== "Cancelled");
   }
 
-  // Intercept vital limits for emergency alert escalation
-  const isEmergency = vitals.spo2 < 90 || vitals.bpSystolic > 180 || vitals.hr > 130;
-  
+  let token = null;
   if (appIndex >= 0) {
-    if (isEmergency) db.appointments[appIndex].urgency = "Emergency";
+    db.appointments[appIndex].vitals = vitals;
+    db.appointments[appIndex].vitalsCompleted = true;
+    db.appointments[appIndex].status = "Waiting for Doctor Queue";
+    db.appointments[appIndex].vitalsRecordedAt = new Date().toISOString();
+    if (symptoms) db.appointments[appIndex].symptoms = symptoms;
+    db.appointments[appIndex].urgency = urgencyFlag;
+    db.appointments[appIndex].assignedDoctorId = doc.id;
+    db.appointments[appIndex].doctorName = doc.name;
+    db.appointments[appIndex].specialty = specialty;
+    db.appointments[appIndex].isHomeVisit = window.isHomeVisitCapture || false;
+    token = db.appointments[appIndex].token;
   } else {
-    if (isEmergency) db.appointments[db.appointments.length - 1].urgency = "Emergency";
+    const prefix = p ? (p.village.includes("A") ? "VIL-A" : p.village.includes("B") ? "VIL-B" : "VIL-C") : "VIL-A";
+    token = `${prefix}-${Math.floor(100 + Math.random() * 900)}`;
+    const newReq = {
+      token,
+      consultationRequestId: token,
+      patientId,
+      patientName: p ? p.name : "Patient",
+      symptoms: symptoms || "General Consultation",
+      urgency: urgencyFlag,
+      specialty,
+      assignedDoctorId: doc.id,
+      doctorName: doc.name,
+      status: "Waiting for Doctor Queue",
+      vitals,
+      vitalsCompleted: true,
+      vitalsRecordedAt: new Date().toISOString(),
+      isHomeVisit: window.isHomeVisitCapture || false,
+      createdAt: new Date().toISOString()
+    };
+    db.appointments.push(newReq);
   }
 
   saveDB();
   closeVitalsModal();
-  
-  const token = appIndex >= 0 ? db.appointments[appIndex].token : db.appointments[db.appointments.length - 1].token;
+
+  // Persist vitals to server API
+  try {
+    await fetch("/api/vitals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        patientId,
+        vitals,
+        urgency: urgencyFlag,
+        specialty
+      })
+    });
+  } catch (err) {
+    console.warn("API vitals sync error:", err);
+  }
 
   if (appSocket && appSocket.connected) {
     try {
       appSocket.emit("vitals_recorded", {
         token,
         vitals,
-        urgency: isEmergency ? "Emergency" : triage.flag,
+        urgency: urgencyFlag,
         patientId,
         specialty,
         isHomeVisit: window.isHomeVisitCapture || false
@@ -2698,17 +2923,19 @@ window.vhwSubmitVitals = function(e) {
   if (isEmergency) {
     window.triggerEmergencyAlert(p ? p.name : "Patient", vitals, token);
   } else {
-    showToast(`Vitals recorded! Patient placed in ${specialty} Queue. Triage level: ${triage.flag}`, triage.flag === "Critical" ? "danger" : "success");
+    showToast(`Vitals recorded for ${token}! Patient placed in ${specialty} Queue. Booking slots unlocked.`, "success");
   }
-  
+
   loadVhwDashboard();
 };
 
 function renderVhwQueue() {
   const tbody = document.getElementById("vhw-queue-tbody");
+  if (!tbody) return;
   tbody.innerHTML = "";
 
-  const list = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
+  const vhwAllowedStatuses = ["Vitals Pending", "Waiting for Doctor Queue", "Waiting", "Active"];
+  const list = (db.appointments || []).filter(a => vhwAllowedStatuses.includes(a.status));
   if (list.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 24px;">No patients currently waiting in consultation queue</td></tr>`;
     return;
@@ -2725,8 +2952,8 @@ function renderVhwQueue() {
     } : null);
     const doc = db.doctors.find(d => d.id === a.assignedDoctorId);
     
-    let vitalsHtml = `<span style="color:#94a3b8; font-size:12px; font-style:italic;">Pending Vitals Check</span>`;
-    let priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
+    let vitalsHtml = `<span style="color:#d97706; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:4px;"><span class="pulse-dot" style="background:#f59e0b;"></span> Pending Screening</span>`;
+    let priorityBadge = `<span class="badge" style="background:#fef3c7; color:#92400e; font-size:11px; padding:3px 8px; border-radius:12px;">Vitals Pending</span>`;
 
     if (a.vitals) {
       const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 92;
@@ -2761,7 +2988,7 @@ function renderVhwQueue() {
         <div class="vhw-patient-cell">
           ${getVhwPatientAvatarHtml(p, p ? p.id : a.patientId)}
           <div>
-            <div class="patient-name-bold">${p ? p.name : "Patient"}</div>
+            <div class="patient-name-bold">${p ? p.name : (a.patientName || "Patient")}</div>
             <div class="patient-sub-meta">${p ? `${p.age} yrs / ${p.gender}` : ""}</div>
           </div>
         </div>
@@ -2772,7 +2999,9 @@ function renderVhwQueue() {
       <td style="color:#0f172a; font-weight:500;">${doc ? doc.name : (a.specialty || "General Medicine")}</td>
       <td style="text-align: right; padding-right: 20px;">
         <div style="display:inline-flex; align-items:center; gap:6px;">
-          ${p ? `<button class="btn-queue-action" onclick="openVitalsModal('${p.id}', ${a.isHomeVisit || false})"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Log Vitals</button>` : ""}
+          <button class="btn-queue-action" onclick="openVitalsModal('${p ? p.id : a.patientId}', ${a.isHomeVisit || false}, '${a.token}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> ${a.vitals ? 'Update Vitals' : 'Record Vitals'}
+          </button>
         </div>
       </td>
     `;
@@ -2794,7 +3023,7 @@ window.vhwCancelToken = function(token) {
 window.switchDoctorModule = function(moduleName, updateHash = true) {
   if (currentRole !== "doctor") return;
 
-  const validModules = ["overview", "queue", "appointments", "patients", "consultations", "history", "prescriptions", "reports"];
+  const validModules = ["overview", "queue", "appointments", "schedule", "patients", "consultations", "history", "prescriptions", "reports"];
   if (!validModules.includes(moduleName)) {
     moduleName = "overview";
   }
@@ -2837,6 +3066,11 @@ window.switchDoctorModule = function(moduleName, updateHash = true) {
       title: "Appointment Management",
       sub: "Schedule, filter, and launch upcoming tele-health appointments",
       actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">Active Queue ➔</button>`
+    },
+    schedule: {
+      title: "Doctor Schedule & Availability",
+      sub: "Configure working hours, break periods, and consultation duration",
+      actions: `<button type="button" class="btn-primary" onclick="saveDoctorScheduleSettings()">💾 Save Schedule</button>`
     },
     patients: {
       title: "Registered Patient Directory",
@@ -2886,6 +3120,10 @@ window.switchDoctorModule = function(moduleName, updateHash = true) {
     renderDoctorQueue();
   } else if (moduleName === "appointments") {
     renderDoctorAppointments();
+  } else if (moduleName === "schedule") {
+    if (typeof loadDoctorScheduleSettings === "function") {
+      loadDoctorScheduleSettings();
+    }
   } else if (moduleName === "patients") {
     renderDoctorPatients();
   } else if (moduleName === "history") {
@@ -2948,49 +3186,198 @@ function renderDoctorOverviewSummaries() {
   }
 }
 
-// Render Appointments module
+window.currentDoctorAppFilter = "all";
+
+window.setDoctorAppFilter = function(filterVal) {
+  window.currentDoctorAppFilter = filterVal || "all";
+  const sel = document.getElementById("doc-app-filter");
+  if (sel) sel.value = filterVal;
+
+  document.querySelectorAll(".btn-filter-pill").forEach(btn => {
+    const bFilter = btn.id.replace("filter-btn-", "");
+    if (bFilter.toLowerCase() === filterVal.toLowerCase()) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+
+  renderDoctorAppointments();
+};
+
+// Render Appointments module (AI-Assisted Smart Allocation & 7 Statuses)
 window.renderDoctorAppointments = function(searchQuery = "") {
   const tbody = document.getElementById("doc-appointments-tbody");
   if (!tbody) return;
 
-  const filterVal = document.getElementById("doc-app-filter") ? document.getElementById("doc-app-filter").value : "all";
-  let list = [...(db.appointments || []), ...DEFAULT_APPOINTMENTS];
+  const filterVal = window.currentDoctorAppFilter || (document.getElementById("doc-app-filter") ? document.getElementById("doc-app-filter").value : "all");
+  let list = [...(db.appointments || [])];
+  if (list.length === 0 && Array.isArray(DEFAULT_APPOINTMENTS)) {
+    list = [...DEFAULT_APPOINTMENTS];
+  }
   
   const uniqueMap = new Map();
-  list.forEach(item => uniqueMap.set(item.token, item));
+  list.forEach(item => {
+    if (item && item.token) uniqueMap.set(item.token, item);
+  });
   list = Array.from(uniqueMap.values());
 
-  if (filterVal !== "all") {
-    list = list.filter(a => a.status === filterVal);
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+  if (filterVal && filterVal !== "all") {
+    const f = filterVal.toLowerCase();
+    list = list.filter(a => {
+      if (f === "today") {
+        return (a.scheduledDate === todayIST || a.scheduledDate === "Today") && a.status !== "Cancelled";
+      }
+      if (f === "upcoming") {
+        return (a.scheduledDate >= todayIST || a.scheduledDate === "Today" || !a.scheduledDate) && 
+               ["Appointment Confirmed", "Confirmed", "Waiting for Doctor Queue", "Waiting", "Rescheduled"].includes(a.status);
+      }
+      if (f === "completed") {
+        return a.status === "Completed";
+      }
+      if (f === "cancelled") {
+        return a.status === "Cancelled";
+      }
+      if (f === "confirmed_active") {
+        return ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(a.status);
+      }
+      if (f === "queued_awaiting") {
+        return ["Waiting for Doctor Queue", "Vitals Pending", "Waiting", "Queued"].includes(a.status);
+      }
+      return a.status.toLowerCase() === f;
+    });
   }
 
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     list = list.filter(a => {
       const p = (db.patients || DEFAULT_PATIENTS).find(pat => pat.id === a.patientId);
-      return (a.token && a.token.toLowerCase().includes(q)) || (p && p.name.toLowerCase().includes(q)) || (a.symptoms && a.symptoms.toLowerCase().includes(q));
+      return (
+        (a.token && a.token.toLowerCase().includes(q)) ||
+        (a.patientName && a.patientName.toLowerCase().includes(q)) ||
+        (p && p.name.toLowerCase().includes(q)) ||
+        (a.symptoms && a.symptoms.toLowerCase().includes(q))
+      );
     });
   }
 
+  // Sort: active/confirmed first, then by booking time descending
+  list.sort((a, b) => {
+    const statusPriority = { "In Progress": 1, "Active": 1, "Appointment Confirmed": 2, "Confirmed": 2, "Rescheduled": 3, "Waiting for Doctor Queue": 4, "Waiting": 4, "Vitals Pending": 5, "Completed": 6, "Cancelled": 7 };
+    const prioA = statusPriority[a.status] || 9;
+    const prioB = statusPriority[b.status] || 9;
+    if (prioA !== prioB) return prioA - prioB;
+    const timeA = new Date(a.bookingTime || a.createdAt || 0).getTime();
+    const timeB = new Date(b.bookingTime || b.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
+
   if (list.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:#94a3b8;">No matching appointments found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:#94a3b8;">No matching appointments found.</td></tr>`;
     return;
   }
+
+  const statusClassMap = {
+    "Vitals Pending": "badge-awaiting",
+    "Waiting for Doctor Queue": "badge-queued",
+    "Queued": "badge-queued",
+    "Awaiting Selection": "badge-awaiting",
+    "Appointment Confirmed": "badge-confirmed",
+    "Confirmed": "badge-confirmed",
+    "In Progress": "badge-inprogress",
+    "Active": "badge-inprogress",
+    "Waiting": "badge-confirmed",
+    "Completed": "badge-completed",
+    "Cancelled": "badge-cancelled",
+    "Rescheduled": "badge-rescheduled"
+  };
 
   tbody.innerHTML = list.map(a => {
     const p = (db.patients || DEFAULT_PATIENTS).find(pat => pat.id === a.patientId);
     const doc = (db.doctors || DEFAULT_DOCTORS).find(d => d.id === a.assignedDoctorId);
-    const docName = doc ? doc.name : "Dr. Vikram";
+    const docName = doc ? doc.name : (a.doctorName || "Dr. Vikram");
+    const pName = p ? p.name : (a.patientName || "Patient");
+    const pId = p ? p.id : (a.patientId || "pat-1");
+    const pMeta = p ? `${p.age || 30} yrs / ${p.gender || 'Patient'} • ID: ${pId}` : `ID: ${pId}`;
+
+    const bookingStr = a.bookingTime || a.createdAt ? new Date(a.bookingTime || a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now";
+    const dateStr = a.scheduledDate || "Today";
+    const startTimeStr = a.scheduledStartTime || "--:--";
+    const endTimeStr = a.scheduledEndTime || "--:--";
+    const duration = a.slotDurationMins || 15;
+
+    const badgeCls = statusClassMap[a.status] || "badge-confirmed";
+    const badgeHtml = (a.status === "In Progress" || a.status === "Active")
+      ? `<span class="badge ${badgeCls}"><span class="pulse-dot"></span> In Progress</span>`
+      : `<span class="badge ${badgeCls}">${a.status || 'Confirmed'}</span>`;
+
+    let vitalsCol = `<span style="font-size:11.5px; color:#94a3b8; font-style:italic;">Pending Screening</span>`;
+    if (a.vitals) {
+      const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 92;
+      const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
+      const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
+      const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
+      const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.8°C";
+      vitalsCol = `
+        <div style="font-size:11.5px; line-height:1.45;">
+          <div style="font-weight:600; color:#0f172a;">BP: ${bpVal} • <span class="${isSpo2Low ? 'vital-danger' : ''}">SpO2: ${spo2Val}</span></div>
+          <div style="color:#64748b;">HR: ${hrVal} • Temp: ${tempVal}</div>
+        </div>
+      `;
+    }
+
+    let actionButtons = "";
+    if (a.status === "Appointment Confirmed" || a.status === "Confirmed" || a.status === "Rescheduled" || a.status === "Waiting") {
+      actionButtons = `
+        <button class="btn-doc-start-call" style="padding:4px 9px; font-size:11.5px; margin-right:4px;" onclick="startDoctorConsultation('${a.token}')">Start Call</button>
+        <button class="btn-secondary" style="padding:4px 8px; font-size:11px; margin-right:4px;" onclick="openDoctorRescheduleModal('${a.token}')">Reschedule</button>
+        <button class="btn-danger-outline" style="padding:4px 8px; font-size:11px;" onclick="cancelDoctorAppointment('${a.token}')">Cancel</button>
+      `;
+    } else if (a.status === "In Progress" || a.status === "Active") {
+      actionButtons = `
+        <button class="btn-doc-start-call" style="padding:4px 10px; font-size:11.5px;" onclick="startDoctorConsultation('${a.token}')">Join Room</button>
+      `;
+    } else if (a.status === "Waiting for Doctor Queue") {
+      actionButtons = `
+        <button class="btn-doc-start-call" style="padding:4px 9px; font-size:11.5px; margin-right:4px;" onclick="startDoctorConsultation('${a.token}')">Call Now</button>
+        <button class="btn-danger-outline" style="padding:4px 8px; font-size:11px;" onclick="cancelDoctorAppointment('${a.token}')">Cancel</button>
+      `;
+    } else if (a.status === "Completed") {
+      actionButtons = `<span style="font-size:12px; color:#166534; font-weight:600;">✓ Completed</span>`;
+    } else if (a.status === "Cancelled") {
+      actionButtons = `<span style="font-size:12px; color:#991b1b; font-style:italic;">Cancelled</span>`;
+    } else {
+      actionButtons = `
+        <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openDoctorRescheduleModal('${a.token}')">Manage</button>
+      `;
+    }
+
     return `
       <tr>
-        <td><span class="token-pill">${a.token}</span></td>
-        <td><strong>${p ? p.name : "Patient"}</strong></td>
-        <td>${p ? `${p.age} / ${p.gender}` : "--"}</td>
-        <td style="font-size:12px; color:#475569;">${a.symptoms || "General Checkup"}</td>
-        <td>${docName}</td>
-        <td><span class="badge" style="background:${a.status === 'Completed' ? '#dcfce7' : '#dbeafe'}; color:${a.status === 'Completed' ? '#166534' : '#1e40af'};">${a.status}</span></td>
-        <td style="text-align:right; padding-right:20px;">
-          <button class="btn-doc-start-call" style="padding:4px 10px; font-size:11.5px;" onclick="startDoctorConsultation('${a.token}')">Start Call</button>
+        <td>
+          <span class="token-pill">${a.token}</span>
+          <div style="font-size:11px; color:#64748b; margin-top:4px;">Booked: ${bookingStr}</div>
+        </td>
+        <td>
+          <div style="font-weight:600; color:#0f172a;">${pName}</div>
+          <div style="font-size:11.5px; color:#64748b;">${pMeta}</div>
+        </td>
+        <td>
+          <div style="font-weight:600; color:#059669; font-size:12.5px;">📅 ${dateStr}</div>
+          <div style="font-size:12px; color:#334155; font-weight:500;">⏰ ${startTimeStr} - ${endTimeStr} IST (${duration} mins)</div>
+        </td>
+        <td>
+          ${vitalsCol}
+        </td>
+        <td>
+          <div style="font-size:12.5px; color:#1e293b; max-width:180px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${a.symptoms || "Tele-Health Consultation"}</div>
+          <div style="font-size:11px; color:#64748b;">${docName} (${a.specialty || 'General Medicine'})</div>
+        </td>
+        <td>${badgeHtml}</td>
+        <td style="text-align:right; padding-right:16px;">
+          ${actionButtons}
         </td>
       </tr>
     `;
@@ -3161,7 +3548,7 @@ async function loadDoctorDashboard() {
   }
 
   // Active consultation queue counts update
-  const queueList = db.appointments ? db.appointments.filter(a => a.status === "Waiting" || a.status === "Active") : [];
+  const queueList = db.appointments ? db.appointments.filter(a => a.status === "Waiting" || a.status === "Active" || a.status === "Waiting for Doctor Queue") : [];
   
   let criticalCount = 0;
   queueList.forEach(q => {
@@ -3225,10 +3612,10 @@ function renderDoctorQueue(searchQuery = "") {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  // Active queue appointments across all clinicians
-  let list = db.appointments.filter(a => a.status === "Waiting" || a.status === "Active");
+  // Active queue appointments across all clinicians (including Waiting for Doctor Queue)
+  let list = (db.appointments || []).filter(a => a.status === "Waiting for Doctor Queue" || a.status === "Waiting" || a.status === "Active");
   if (list.length === 0) {
-    list = [...DEFAULT_APPOINTMENTS];
+    list = [...DEFAULT_APPOINTMENTS.filter(a => a.status === "Waiting for Doctor Queue" || a.status === "Waiting" || a.status === "Active")];
   }
 
   // Ensure reference appointments exist for consistent preview
@@ -5407,17 +5794,26 @@ async function joinAgoraRoomInternal(role) {
       }
     });
 
-    // Join room
+    // Join room (Secure Server-Generated Token & Scoped Room)
     const appid = (agoraConfig.appid || "").trim();
-    const configuredChannel = (agoraConfig.channel || "telehealth-room").trim();
     const consultationId = String(activeCall?.token || "").trim();
-    const token = (agoraConfig.token || "").trim() || null;
     if (!consultationId) {
       throw new Error("No consultation token is available for the Agora channel.");
     }
-    
-    // Ensure participants join the configured channel
-    const channel = configuredChannel;
+
+    let channel = `telehealth-${consultationId}`;
+    let token = (agoraConfig.token || "").trim() || null;
+
+    try {
+      const tokenRes = await fetch(`/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(consultationId)}&userId=${encodeURIComponent(currentUser ? currentUser.id : 'user')}`);
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        if (tokenData.channel) channel = tokenData.channel;
+        if (tokenData.token) token = tokenData.token;
+      }
+    } catch (e) {
+      console.warn("[Agora] Could not fetch server token, falling back to configured token/channel:", e);
+    }
 
     const uid = getAgoraUid(role, consultationId);
     if (!appid) {
@@ -6537,5 +6933,1401 @@ window.addEventListener("popstate", () => {
     switchDoctorModule(moduleName, false);
   }
 });
+
+// ============================================================================
+// AI-ASSISTED SMART CONSULTATION QUEUE & APPOINTMENT ALLOCATION CLIENT ENGINE
+// ============================================================================
+
+let currentPatientQueueRequest = null;
+let currentPatientAvailableSlots = [];
+let selectedPatientSlot = null;
+let patientQueueDoctorId = "doc-1";
+
+let selectedPatientRescheduleSlot = null;
+let patientRescheduleSlots = [];
+
+let doctorRescheduleTargetToken = null;
+let selectedDoctorRescheduleSlot = null;
+let doctorRescheduleSlots = [];
+
+// Helper: In-app & Browser Notifications
+function sendBrowserAndAppNotification(title, body, type = "info") {
+  showToast(`${title}: ${body}`, type);
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(title, {
+        body,
+        icon: "/favicon.ico"
+      });
+    } catch (e) {
+      console.warn("[Notification] Could not display browser notification:", e);
+    }
+  }
+}
+
+// Helper: Format slot date cleanly for India Standard Time
+function formatSlotDate(dateStr) {
+  if (!dateStr) return "Today";
+  const parts = dateStr.split("-");
+  if (parts.length === 3) {
+    const d = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+    return d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" });
+  }
+  return dateStr;
+}
+
+// Helper: Populate doctor select dropdowns
+window.initPatientConsultationQueue = function() {
+  const docSelect = document.getElementById("pat-consult-doctor-select");
+  if (docSelect) {
+    const doctors = (db.doctors && db.doctors.length > 0) ? db.doctors : (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS : [
+      { id: "doc-1", name: "Dr. Vikram Malhotra", specialty: "General Medicine" },
+      { id: "doc-2", name: "Dr. Ananya Sharma", specialty: "Cardiology" }
+    ]);
+    const currentVal = docSelect.value;
+    docSelect.innerHTML = doctors.map(d => `<option value="${d.id}" ${d.id === currentVal ? 'selected' : ''}>${d.name} (${d.specialty})</option>`).join("");
+  }
+};
+
+// 1. Patient: Request Consultation -> Creates Consultation Request with status "Vitals Pending"
+window.handlePatientConsultationRequest = async function(event) {
+  if (event) event.preventDefault();
+
+  // Request browser notification permission if not yet decided
+  if ("Notification" in window && Notification.permission === "default") {
+    try { Notification.requestPermission(); } catch (e) {}
+  }
+
+  const docSelect = document.getElementById("pat-book-specialty") || document.getElementById("pat-consult-doctor-select");
+  const symptomsInput = document.getElementById("pat-book-symptoms") || document.getElementById("pat-consult-symptoms");
+  const urgencySelect = document.getElementById("pat-book-urgency") || document.getElementById("pat-consult-urgency");
+  const submitBtn = document.getElementById("pat-request-consult-btn");
+
+  const doctorId = docSelect ? docSelect.value : "doc-1";
+  const symptoms = symptomsInput ? symptomsInput.value.trim() : "";
+  const urgency = urgencySelect ? urgencySelect.value : "Normal";
+
+  patientQueueDoctorId = doctorId;
+  currentPatientQueueRequest = { doctorId, symptoms, urgency };
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<span>⏳ Registering Consultation Request...</span>`;
+  }
+
+  try {
+    const payload = {
+      patientId: (currentUser && currentUser.id) ? currentUser.id : "pat-1",
+      patientName: (currentUser && currentUser.name) ? currentUser.name : "Sarah Mitchell",
+      doctorId,
+      symptoms: symptoms || "General Consultation",
+      urgency
+    };
+
+    const res = await fetch("/api/consultations/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (data.conflict && data.appointment) {
+        const conflictApp = data.appointment;
+        const existingIdx = (db.appointments || []).findIndex(a => a.token === conflictApp.token);
+        if (existingIdx >= 0) db.appointments[existingIdx] = conflictApp;
+        else (db.appointments = db.appointments || []).push(conflictApp);
+        saveDB();
+
+        showToast(data.error || `Active request found (Token: ${conflictApp.token})`, "warning");
+
+        const formContainer = document.getElementById("pat-consult-request-form-container");
+        if (formContainer) {
+          let conflictBanner = document.getElementById("pat-active-request-conflict-alert");
+          if (!conflictBanner) {
+            conflictBanner = document.createElement("div");
+            conflictBanner.id = "pat-active-request-conflict-alert";
+            conflictBanner.className = "alert";
+            conflictBanner.style.cssText = "margin-bottom: 16px; padding: 12px 14px; background: #fffbeb; border: 1.5px solid #f59e0b; border-radius: 8px; font-size: 13px; color: #92400e; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;";
+            formContainer.insertBefore(conflictBanner, formContainer.firstChild);
+          }
+          conflictBanner.innerHTML = `
+            <div style="flex: 1; min-width: 220px;">
+              <strong style="color: #b45309;">⚠️ Active Consultation: Token ${conflictApp.token}</strong>
+              <div style="font-size: 12px; color: #78350f; margin-top: 2px;">Status: <strong>${conflictApp.status}</strong> (${conflictApp.doctorName || 'Doctor'})</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn-primary" style="font-size: 11.5px; padding: 6px 12px;" onclick="loadPatientDashboard()">Continue Active Queue</button>
+              <button type="button" class="pat-btn-cancel" style="font-size: 11.5px; padding: 6px 12px;" onclick="cancelActiveAppointment('${conflictApp.token}')">✕ Cancel Request</button>
+            </div>
+          `;
+          conflictBanner.style.display = "flex";
+        }
+
+        loadPatientDashboard();
+        return;
+      }
+
+      showToast(data.error || "Failed to create consultation request", "danger");
+      return;
+    }
+
+    const newReq = data.consultationRequest || data.appointment;
+    const existingIdx = (db.appointments || []).findIndex(a => a.token === newReq.token);
+    if (existingIdx >= 0) db.appointments[existingIdx] = newReq;
+    else (db.appointments = db.appointments || []).push(newReq);
+    saveDB();
+
+    showToast(`Consultation request registered (Token: ${newReq.token})! Please proceed to the kiosk for health worker vitals screening.`, "success");
+
+    if (appSocket && appSocket.connected) {
+      appSocket.emit("consultation_requested", { token: newReq.token, appointment: newReq });
+      appSocket.emit("token_requested", { token: newReq.token, appointment: newReq });
+    }
+
+    loadPatientDashboard();
+  } catch (err) {
+    console.error("Consultation request failed:", err);
+    showToast(`Error submitting consultation request: ${err.message}`, "danger");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<span>Request Consultation</span> <span class="btn-arrow">→</span>`;
+    }
+  }
+};
+
+// Check screening status manually for patient
+window.checkPatientVitalsStatus = async function() {
+  try {
+    const res = await fetch("/api/consultations");
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.consultations) {
+        db.consultations = data.consultations;
+      }
+    }
+    loadDB();
+    loadPatientDashboard();
+    showToast("Vitals screening status refreshed.", "info");
+  } catch (e) {
+    loadPatientDashboard();
+  }
+};
+
+let currentPatientSelectedDate = null;
+let currentPatientAvailableDates = [];
+
+// Fetch genuine available slots for assigned doctor and render State 2
+window.loadPatientAvailableSlotsForDoctor = async function(doctorId = "doc-1", consultationToken = null, targetDate = null) {
+  try {
+    patientQueueDoctorId = doctorId;
+    if (consultationToken) {
+      window.activeConsultationRequestToken = consultationToken;
+    }
+
+    const dateQuery = targetDate ? `&date=${encodeURIComponent(targetDate)}` : (currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '');
+    const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const slots = data.slots || [];
+    const aiAdvisory = data.aiAdvisory;
+    const doctorName = data.doctorName || "Doctor";
+    const availableDates = data.availableDates || [];
+
+    currentPatientAvailableDates = availableDates;
+    currentPatientSelectedDate = data.selectedDate || targetDate || (availableDates[0] ? availableDates[0].date : null);
+
+    const docNameEl = document.getElementById("pat-slots-doctor-name");
+    if (docNameEl) docNameEl.innerText = doctorName;
+
+    // Render AI demand advisory pill & wait time
+    if (aiAdvisory) {
+      const pill = document.getElementById("pat-ai-demand-pill");
+      if (pill) {
+        pill.className = `ai-demand-pill demand-${(aiAdvisory.demandLevel || 'Low').toLowerCase()}`;
+        pill.innerText = `🤖 AI Demand: ${aiAdvisory.demandLevel} (${aiAdvisory.queueDepth} in queue)`;
+      }
+      const waitText = document.getElementById("pat-ai-wait-text");
+      if (waitText) waitText.innerText = `Est. wait: ~${aiAdvisory.estimatedWaitMins} mins`;
+      const recText = document.getElementById("pat-ai-recommendation-text");
+      if (recText) recText.innerText = aiAdvisory.recommendation;
+    }
+
+    const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
+    const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+
+    // Render Date Selector Tabs
+    renderPatientDateSelector(availableDates, currentPatientSelectedDate, doctorId);
+
+    if (slots.length > 0 || availableDates.length > 0) {
+      if (stateSlots) stateSlots.style.display = "block";
+      if (stateWaiting) stateWaiting.style.display = "none";
+      renderPatientAvailableSlots(slots);
+    } else {
+      if (stateSlots) stateSlots.style.display = "none";
+      if (stateWaiting) stateWaiting.style.display = "block";
+      const waitDoc = document.getElementById("pat-queue-doctor-name");
+      if (waitDoc) waitDoc.innerText = doctorName;
+    }
+  } catch (e) {
+    console.error("loadPatientAvailableSlotsForDoctor error:", e);
+  }
+};
+
+// Render Date Tabs for selecting consultation date
+function renderPatientDateSelector(availableDates, activeDate, doctorId) {
+  const tabsContainer = document.getElementById("pat-date-tabs-container");
+  const datePicker = document.getElementById("pat-slot-date-picker");
+
+  if (datePicker && activeDate) {
+    datePicker.value = activeDate;
+  }
+
+  if (!tabsContainer) return;
+  tabsContainer.innerHTML = "";
+
+  if (!availableDates || availableDates.length === 0) {
+    tabsContainer.innerHTML = `<span style="font-size:11.5px; color:#64748b;">Checking doctor calendar...</span>`;
+    return;
+  }
+
+  tabsContainer.innerHTML = availableDates.map(d => {
+    const isActive = d.date === activeDate;
+    const dayTag = d.isToday ? ' (Today)' : d.isTomorrow ? ' (Tomorrow)' : '';
+    return `
+      <button type="button" class="slot-date-tab ${isActive ? 'active' : ''}" onclick="onPatientDatePick('${d.date}')" title="${d.openSlotCount} slots available">
+        <span>📅 ${d.label}${dayTag}</span>
+        <span class="date-count-pill">${d.openSlotCount}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+// Patient picks a different date
+window.onPatientDatePick = function(dateStr) {
+  if (!dateStr) return;
+  currentPatientSelectedDate = dateStr;
+  const doctorId = patientQueueDoctorId || "doc-1";
+  loadPatientAvailableSlotsForDoctor(doctorId, window.activeConsultationRequestToken, dateStr);
+};
+
+// ----------------------------------------------------------------------------
+// REACT STATE HOOK & CONSULTATION SLOTS SELECTION COMPONENT
+// ----------------------------------------------------------------------------
+
+// Cross-tab broadcast channel for real-time synchronization across browser tabs
+const slotBroadcastChannel = (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined")
+  ? new BroadcastChannel("telehealth_slot_channel")
+  : null;
+
+if (slotBroadcastChannel) {
+  slotBroadcastChannel.onmessage = (evt) => {
+    const data = evt.data;
+    if (data && data.type === "SLOT_BOOKED") {
+      if (typeof loadPatientDashboard === "function" && currentRole === "patient") {
+        loadPatientDashboard();
+      }
+    }
+  };
+}
+
+// React State Hook for storing selected slot
+export function usePatientSlotState(initialSlot = null) {
+  const [selectedSlot, setSelectedSlot] = useState(initialSlot);
+  return [selectedSlot, setSelectedSlot];
+}
+if (typeof window !== "undefined") {
+  window.usePatientSlotState = usePatientSlotState;
+}
+
+// React Component for Consultation Slots Queue
+export function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, onSlotChange }) {
+  // Requirement 2: Implement React state using `useState` to store the selected slot
+  const [selectedSlot, setSelectedSlot] = useState(initialSelectedSlot || null);
+
+  // Sync internal React state when initialSelectedSlot changes externally
+  useEffect(() => {
+    setSelectedSlot(initialSelectedSlot || null);
+  }, [initialSelectedSlot]);
+
+  // Requirement 3: When a user clicks a slot, update the selected slot state immediately.
+  // Requirement 5: Allow only one slot to be selected at a time. Selecting another slot deselects the previous.
+  const handleCardClick = useCallback((slot, e) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    const isSame = selectedSlot && selectedSlot.slotId === slot.slotId;
+    const nextSlot = isSame ? null : slot;
+    setSelectedSlot(nextSlot);
+    if (onSlotChange) {
+      onSlotChange(nextSlot);
+    }
+  }, [selectedSlot, onSlotChange]);
+
+  const handleKeyDown = useCallback((slot, e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleCardClick(slot, e);
+    }
+  }, [handleCardClick]);
+
+  if (!slots || slots.length === 0) {
+    return React.createElement(
+      "div",
+      {
+        style: {
+          gridColumn: "1 / -1",
+          textAlign: "center",
+          padding: "28px 16px",
+          color: "#64748b",
+          background: "#f8fafc",
+          border: "1px dashed #cbd5e1",
+          borderRadius: "10px"
+        }
+      },
+      React.createElement("div", { style: { fontSize: "24px", marginBottom: "6px" } }, "⏱️"),
+      React.createElement("strong", null, "No consultation slots available for this date."),
+      React.createElement("br", null),
+      React.createElement("span", { style: { fontSize: "12px" } }, "Please select another upcoming date using the tabs above.")
+    );
+  }
+
+  return slots.map((s) => {
+    const isSelected = selectedSlot && selectedSlot.slotId === s.slotId;
+    return React.createElement(
+      "div",
+      {
+        key: s.slotId,
+        id: `pat-slot-card-${s.slotId}`,
+        className: `slot-select-card${isSelected ? " selected" : ""}`,
+        role: "button",
+        tabIndex: 0,
+        "aria-selected": isSelected ? "true" : "false",
+        onClick: (e) => handleCardClick(s, e),
+        onKeyDown: (e) => handleKeyDown(s, e),
+        style: {
+          cursor: "pointer",
+          touchAction: "manipulation"
+        }
+      },
+      // Top header with Date, Duration, and Checkmark indicator
+      React.createElement(
+        "div",
+        { className: "slot-card-top" },
+        React.createElement(
+          "div",
+          { style: { display: "flex", alignItems: "center", gap: "6px" } },
+          React.createElement("span", { className: "slot-date-chip" }, `📅 ${formatSlotDate(s.date)}`),
+          React.createElement("span", { className: "slot-duration-chip" }, `⏱️ ${s.durationMins || 15} Mins`)
+        ),
+        React.createElement(
+          "span",
+          {
+            className: "slot-check-circle",
+            title: isSelected ? "Slot Selected" : "Select slot"
+          },
+          isSelected ? "✓" : ""
+        )
+      ),
+      // Time display (IST)
+      React.createElement(
+        "div",
+        { className: "slot-time-display" },
+        React.createElement("span", null, `${s.startTime} – ${s.endTime}`),
+        React.createElement("small", { style: { fontSize: "11px", fontWeight: 600, color: "#64748b" } }, " IST")
+      ),
+      // Doctor info
+      React.createElement(
+        "div",
+        { className: "slot-doctor-info" },
+        `👨‍⚕️ ${s.doctorName || "Doctor"} (${s.specialty || "General Medicine"})`
+      ),
+      // AI Advisory badge (if available)
+      s.aiAdvisory
+        ? React.createElement(
+            "div",
+            {
+              className: "slot-ai-advisory",
+              style: {
+                marginTop: "4px",
+                paddingTop: "6px",
+                borderTop: "1px dashed #cbd5e1",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+              }
+            },
+            React.createElement(
+              "span",
+              {
+                className: `ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || "Low").toLowerCase()}`,
+                style: { fontSize: "10px", padding: "1px 6px" }
+              },
+              `🤖 ${s.aiAdvisory.demandLevel} Demand`
+            ),
+            React.createElement(
+              "span",
+              {
+                style: { fontSize: "10.5px", color: "#15803d", fontStyle: "italic" }
+              },
+              `~${s.aiAdvisory.estimatedWaitMins || 5}m wait`
+            )
+          )
+        : null
+    );
+  });
+}
+
+let reactSlotsRoot = null;
+
+// Synchronize UI visuals (Confirm button, preview banner, card highlights)
+function updateSlotSelectionUI(slot) {
+  // 1. Update DOM card classes and checkmarks
+  document.querySelectorAll(".slot-select-card").forEach((el) => {
+    el.classList.remove("selected");
+    el.setAttribute("aria-selected", "false");
+    const chk = el.querySelector(".slot-check-circle");
+    if (chk) chk.innerText = "";
+  });
+
+  if (slot) {
+    const targetCard = document.getElementById(`pat-slot-card-${slot.slotId}`);
+    if (targetCard) {
+      targetCard.classList.add("selected");
+      targetCard.setAttribute("aria-selected", "true");
+      const chk = targetCard.querySelector(".slot-check-circle");
+      if (chk) chk.innerText = "✓";
+    }
+  }
+
+  // 2. Requirement 6: Enable Confirm & Book button ONLY when a slot is selected
+  const confirmBtn = document.getElementById("pat-confirm-slot-btn");
+  if (confirmBtn) {
+    confirmBtn.disabled = !slot;
+    confirmBtn.innerHTML = slot
+      ? `<span>Confirm &amp; Book: ${formatSlotDate(slot.date)} @ ${slot.startTime} IST ✓</span>`
+      : `<span>Confirm &amp; Book Selected Slot ✓</span>`;
+  }
+
+  // 3. Update preview banner
+  const preview = document.getElementById("pat-selected-slot-preview");
+  const previewText = document.getElementById("pat-selected-slot-preview-text");
+  if (preview && previewText) {
+    if (slot) {
+      previewText.innerText = `${formatSlotDate(slot.date)} (${slot.startTime} – ${slot.endTime} IST) with ${slot.doctorName || "Doctor"}`;
+      preview.style.display = "flex";
+    } else {
+      preview.style.display = "none";
+    }
+  }
+
+  // 4. Hide conflict alert when user selects a new slot
+  if (slot) {
+    const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+    if (conflictAlert) conflictAlert.style.display = "none";
+  }
+}
+
+// Mount or update the React component inside the slots container
+function mountReactSlotsSelector(slots, activeSlot) {
+  const container = document.getElementById("pat-slots-container") || document.getElementById("pat-available-slots-list");
+  if (!container) return;
+
+  const reactElement = React.createElement(PatientConsultationSlotsComponent, {
+    slots: slots,
+    initialSelectedSlot: activeSlot,
+    onSlotChange: (newSlot) => {
+      if (newSlot) {
+        applySlotSelection(newSlot);
+      } else {
+        deselectPatientSlot();
+      }
+    }
+  });
+
+  try {
+    if (!reactSlotsRoot || container._reactRoot !== reactSlotsRoot) {
+      reactSlotsRoot = ReactDOM.createRoot(container);
+      container._reactRoot = reactSlotsRoot;
+    }
+    reactSlotsRoot.render(reactElement);
+  } catch (err) {
+    console.warn("[Slots] React mounting fallback:", err);
+    renderVanillaSlotsFallback(container, slots, activeSlot);
+  }
+}
+
+// Fallback direct DOM renderer if React root fails
+function renderVanillaSlotsFallback(container, slots, activeSlot) {
+  if (!container) return;
+  if (!slots || slots.length === 0) {
+    container.innerHTML = `<div style="grid-column: 1 / -1; text-align:center; padding:28px 16px; color:#64748b; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px;">
+      <div style="font-size:24px; margin-bottom:6px;">⏱️</div>
+      <strong>No consultation slots available for this date.</strong><br>
+      <span style="font-size:12px;">Please select another upcoming date using the tabs above.</span>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = slots.map((s) => {
+    const isSelected = activeSlot && activeSlot.slotId === s.slotId;
+    return `
+      <div class="slot-select-card${isSelected ? ' selected' : ''}"
+           id="pat-slot-card-${s.slotId}"
+           role="button"
+           tabindex="0"
+           aria-selected="${isSelected ? 'true' : 'false'}"
+           onclick="selectPatientSlot('${s.slotId}', event)"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPatientSlot('${s.slotId}', event);}">
+        <div class="slot-card-top">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="slot-date-chip">📅 ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-chip">⏱️ ${s.durationMins || 15} Mins</span>
+          </div>
+          <span class="slot-check-circle" title="Select slot">${isSelected ? '✓' : ''}</span>
+        </div>
+        <div class="slot-time-display">
+          <span>${s.startTime} – ${s.endTime}</span>
+          <small style="font-size:11px; font-weight:600; color:#64748b;">IST</small>
+        </div>
+        <div class="slot-doctor-info">
+          👨‍⚕️ ${s.doctorName || 'Doctor'} (${s.specialty || 'General Medicine'})
+        </div>
+        ${s.aiAdvisory ? `
+          <div class="slot-ai-advisory" style="margin-top:4px; padding-top:6px; border-top:1px dashed #cbd5e1; display:flex; justify-content:space-between; align-items:center;">
+            <span class="ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || 'Low').toLowerCase()}" style="font-size:10px; padding:1px 6px;">🤖 ${s.aiAdvisory.demandLevel} Demand</span>
+            <span style="font-size:10.5px; color:#15803d; font-style:italic;">~${s.aiAdvisory.estimatedWaitMins || 5}m wait</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join("");
+}
+
+// Render all available slot cards for Patient (Preserving active selection across polls!)
+function renderPatientAvailableSlots(slots) {
+  currentPatientAvailableSlots = slots || [];
+
+  // CRITICAL FIX: Do not unconditionally wipe out selected slot during polling!
+  if (selectedPatientSlot) {
+    const stillValid = currentPatientAvailableSlots.find((s) => s.slotId === selectedPatientSlot.slotId);
+    if (stillValid) {
+      selectedPatientSlot = {
+        ...stillValid,
+        appointmentId: selectedPatientSlot.appointmentId,
+        consultationRequestId: selectedPatientSlot.consultationRequestId
+      };
+      window.selectedPatientSlot = selectedPatientSlot;
+      updateSlotSelectionUI(selectedPatientSlot);
+    } else {
+      // Slot was booked or no longer open
+      const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+      if (conflictAlert) {
+        conflictAlert.innerText = `⚠️ Slot Conflict: Your previously selected slot is no longer available. Please choose another opening.`;
+        conflictAlert.style.display = "block";
+      }
+      selectedPatientSlot = null;
+      window.selectedPatientSlot = null;
+      updateSlotSelectionUI(null);
+    }
+  } else {
+    updateSlotSelectionUI(null);
+  }
+
+  const countInd = document.getElementById("pat-slots-count-indicator");
+  if (countInd) {
+    const dateLabel = currentPatientSelectedDate ? formatSlotDate(currentPatientSelectedDate) : "selected date";
+    countInd.innerText = `Showing ${currentPatientAvailableSlots.length} available 15-minute consultation slot${currentPatientAvailableSlots.length === 1 ? '' : 's'} on ${dateLabel}`;
+  }
+
+  // Mount React Component
+  mountReactSlotsSelector(currentPatientAvailableSlots, selectedPatientSlot);
+}
+
+// Internal slot selection applicator
+function applySlotSelection(slot) {
+  if (!slot) {
+    deselectPatientSlot();
+    return;
+  }
+
+  // Find active consultation request token
+  const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : "pat-1";
+  const activeApp = (db.appointments || []).find(
+    a => (a.patientId === curPatientId || a.patientId === currentUser?.id || a.patientId === currentUser?.profileId) &&
+         (a.status === "Waiting for Doctor Queue" || a.status === "Waiting" || a.status === "Vitals Pending")
+  );
+  const tokenToBind = activeApp ? activeApp.token : window.activeConsultationRequestToken;
+
+  selectedPatientSlot = {
+    ...slot,
+    appointmentId: tokenToBind || null,
+    consultationRequestId: tokenToBind || null
+  };
+  window.selectedPatientSlot = selectedPatientSlot;
+
+  updateSlotSelectionUI(selectedPatientSlot);
+}
+
+// Patient selects/deselects a slot (Global window API)
+window.selectPatientSlot = function(slotId, event) {
+  if (event) {
+    event.stopPropagation();
+  }
+
+  const slot = currentPatientAvailableSlots.find(s => s.slotId === slotId);
+  if (!slot) return;
+
+  // DESELECTION: If user clicks the currently selected slot, deselect it
+  if (selectedPatientSlot && selectedPatientSlot.slotId === slotId) {
+    deselectPatientSlot();
+    return;
+  }
+
+  applySlotSelection(slot);
+  mountReactSlotsSelector(currentPatientAvailableSlots, selectedPatientSlot);
+};
+
+// Deselect current slot
+window.deselectPatientSlot = function() {
+  selectedPatientSlot = null;
+  window.selectedPatientSlot = null;
+
+  updateSlotSelectionUI(null);
+  mountReactSlotsSelector(currentPatientAvailableSlots, null);
+};
+
+// Patient confirms selected slot (Transactional validation & 409 conflict handling)
+window.confirmPatientSelectedSlot = async function() {
+  if (!selectedPatientSlot) {
+    showToast("Please select an available consultation slot first.", "warning");
+    return;
+  }
+
+  const confirmBtn = document.getElementById("pat-confirm-slot-btn");
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<span>⏳ Securing Consultation Slot...</span>`;
+  }
+
+  // Resolve active consultation request token and patient ID
+  const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : "pat-1";
+  const activeApp = (db.appointments || []).find(
+    a => (a.patientId === curPatientId || a.patientId === currentUser?.id || a.patientId === currentUser?.profileId) &&
+         (a.status === "Waiting for Doctor Queue" || a.status === "Waiting")
+  );
+
+  const payload = {
+    token: activeApp ? activeApp.token : (selectedPatientSlot.appointmentId || undefined),
+    consultationRequestId: activeApp ? activeApp.token : (selectedPatientSlot.consultationRequestId || undefined),
+    slotId: selectedPatientSlot.slotId,
+    doctorId: selectedPatientSlot.doctorId,
+    patientId: curPatientId,
+    patientName: (currentUser && currentUser.name) ? currentUser.name : (activeApp?.patientName || "Sarah Mitchell"),
+    date: selectedPatientSlot.date,
+    startTime: selectedPatientSlot.startTime,
+    endTime: selectedPatientSlot.endTime,
+    symptoms: (activeApp && activeApp.symptoms) || "General Tele-Health Consultation",
+    urgency: (activeApp && activeApp.urgency) || "Normal"
+  };
+
+  try {
+    const res = await fetch("/api/slots/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (res.status === 201 && data.success) {
+      // Successfully booked!
+      const app = data.appointment;
+      const idx = (db.appointments || []).findIndex(a => a.token === app.token);
+      if (idx >= 0) db.appointments[idx] = app;
+      else (db.appointments = db.appointments || []).push(app);
+      saveDB();
+
+      selectedPatientSlot = null;
+      window.selectedPatientSlot = null;
+      updateSlotSelectionUI(null);
+
+      // Broadcast to other tabs
+      if (slotBroadcastChannel) {
+        try {
+          slotBroadcastChannel.postMessage({ type: "SLOT_BOOKED", appointment: app });
+        } catch (e) {}
+      }
+
+      sendBrowserAndAppNotification(
+        "Consultation Confirmed!",
+        `Your consultation on ${app.scheduledDate} at ${app.scheduledStartTime} IST is confirmed. Token: ${app.token}`,
+        "success"
+      );
+
+      showToast(`🎉 Consultation Confirmed! Booked for ${app.scheduledDate} at ${app.scheduledStartTime} IST (Token: ${app.token})`, "success");
+
+      // Reload patient dashboard to immediately display the Confirmed Hero banner
+      loadPatientDashboard();
+    } else if (res.status === 409) {
+      // Double-booking conflict detected!
+      const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+      if (conflictAlert) {
+        conflictAlert.innerText = `⚠️ Slot Conflict: ${data.error || "That slot was just booked by another patient. We've refreshed the available slots below."}`;
+        conflictAlert.style.display = "block";
+      }
+
+      showToast("Selected slot was just booked by another patient! Refreshing available slots...", "warning");
+      selectedPatientSlot = null;
+      window.selectedPatientSlot = null;
+      updateSlotSelectionUI(null);
+      await refreshPatientAvailableSlots(true);
+    } else {
+      showToast(data.error || "Failed to book consultation slot.", "danger");
+      await refreshPatientAvailableSlots(true);
+    }
+  } catch (err) {
+    console.error("Booking error:", err);
+    // If network glitch or momentary reconnect occurred, check if appointment was already confirmed on server
+    try {
+      const checkRes = await fetch("/api/appointments");
+      if (checkRes.ok) {
+        const checkData = await checkRes.json();
+        const confirmedApp = (checkData.appointments || []).find(a => 
+          (a.patientId === curPatientId || a.patientId === currentUser?.id) && 
+          a.status === "Appointment Confirmed" && 
+          (payload.token ? a.token === payload.token : true)
+        );
+        if (confirmedApp) {
+          const idx = (db.appointments || []).findIndex(a => a.token === confirmedApp.token);
+          if (idx >= 0) db.appointments[idx] = confirmedApp;
+          else (db.appointments = db.appointments || []).push(confirmedApp);
+          saveDB();
+
+          selectedPatientSlot = null;
+          window.selectedPatientSlot = null;
+          updateSlotSelectionUI(null);
+
+          showToast(`🎉 Consultation Confirmed! Booked for ${confirmedApp.scheduledDate} at ${confirmedApp.scheduledStartTime} IST (Token: ${confirmedApp.token})`, "success");
+          loadPatientDashboard();
+          return;
+        }
+      }
+    } catch (e) {}
+
+    showToast(`Booking error: ${err.message || "Failed to connect to server. Please check your connection and retry."}`, "danger");
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = !selectedPatientSlot;
+      confirmBtn.innerHTML = selectedPatientSlot
+        ? `<span>Confirm &amp; Book: ${formatSlotDate(selectedPatientSlot.date)} @ ${selectedPatientSlot.startTime} IST ✓</span>`
+        : `<span>Confirm &amp; Book Selected Slot ✓</span>`;
+    }
+  }
+};
+
+// Refresh available slots for patient
+window.refreshPatientAvailableSlots = async function(silent = false) {
+  const doctorId = patientQueueDoctorId || "doc-1";
+  try {
+    const dateQuery = currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '';
+    const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const slots = data.slots || [];
+    const availableDates = data.availableDates || [];
+    const doctorName = data.doctorName || "Doctor";
+
+    currentPatientAvailableDates = availableDates;
+    if (!currentPatientSelectedDate && availableDates.length > 0) {
+      currentPatientSelectedDate = availableDates[0].date;
+    }
+
+    renderPatientDateSelector(availableDates, currentPatientSelectedDate, doctorId);
+
+    const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
+    const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+
+    if (slots.length > 0 || availableDates.length > 0) {
+      if (stateWaiting && stateWaiting.style.display !== "none") {
+        stateWaiting.style.display = "none";
+        if (stateSlots) stateSlots.style.display = "block";
+        sendBrowserAndAppNotification("Slots Available!", `A consultation slot just opened up for ${doctorName}!`, "info");
+      } else if (stateSlots) {
+        stateSlots.style.display = "block";
+      }
+      renderPatientAvailableSlots(slots);
+      if (!silent) showToast("Refreshed latest available slots.", "info");
+    } else {
+      if (stateSlots && stateSlots.style.display !== "none") {
+        stateSlots.style.display = "none";
+        if (stateWaiting) stateWaiting.style.display = "block";
+      }
+      if (!silent) showToast("No slots currently available. Remaining in priority queue.", "warning");
+    }
+  } catch (e) {
+    console.warn("Refresh slots error:", e);
+  }
+};
+
+// Return to State 1
+window.resetConsultationQueueView = function() {
+  const stateRequest = document.getElementById("pat-consult-request-form-container") || document.getElementById("pat-queue-state-request");
+  const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
+  const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+  if (stateRequest) stateRequest.style.display = "block";
+  if (stateSlots) stateSlots.style.display = "none";
+  if (stateWaiting) stateWaiting.style.display = "none";
+  selectedPatientSlot = null;
+  window.selectedPatientSlot = null;
+};
+
+// Priority Queue Waiting State actions
+window.checkPatientQueueSlots = function() {
+  refreshPatientAvailableSlots(false);
+};
+
+window.cancelPatientQueueRequest = function() {
+  resetConsultationQueueView();
+  showToast("Consultation queue request cancelled.", "info");
+};
+
+// 2. Patient Reschedule Modal & Execution
+window.openPatientRescheduleModal = async function() {
+  const activeApp = (db.appointments || []).find(a =>
+    currentUser && a.patientId === currentUser.id && !["Completed", "Cancelled"].includes(a.status)
+  );
+  if (!activeApp) {
+    showToast("No active appointment found to reschedule.", "warning");
+    return;
+  }
+
+  const modal = document.getElementById("pat-reschedule-modal");
+  const container = document.getElementById("pat-reschedule-slots-container");
+  const confirmBtn = document.getElementById("pat-reschedule-confirm-btn");
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  if (modal) modal.style.display = "flex";
+  if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">Loading available slots...</div>`;
+
+  selectedPatientRescheduleSlot = null;
+
+  try {
+    const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(activeApp.assignedDoctorId || 'doc-1')}`);
+    const data = await res.json();
+    patientRescheduleSlots = data.slots || [];
+
+    if (patientRescheduleSlots.length === 0) {
+      if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">No alternative slots currently open. Please check back shortly.</div>`;
+      return;
+    }
+
+    if (container) {
+      container.innerHTML = patientRescheduleSlots.map(s => `
+        <div class="slot-select-card" id="pat-resched-card-${s.slotId}" onclick="selectPatientRescheduleSlot('${s.slotId}')">
+          <div class="slot-card-header">
+            <span class="slot-date-pill">📅 ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-pill">⏱️ ${s.durationMins || 15} Mins</span>
+          </div>
+          <div class="slot-time-range">${s.startTime} – ${s.endTime} <small>IST</small></div>
+          <div class="slot-doc-name">👨‍⚕️ ${s.doctorName || 'Doctor'}</div>
+        </div>
+      `).join("");
+    }
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#dc2626;">Error loading slots: ${err.message}</div>`;
+  }
+};
+
+window.selectPatientRescheduleSlot = function(slotId) {
+  const slot = patientRescheduleSlots.find(s => s.slotId === slotId);
+  if (!slot) return;
+  selectedPatientRescheduleSlot = slot;
+
+  document.querySelectorAll("#pat-reschedule-slots-container .slot-select-card").forEach(el => el.classList.remove("selected"));
+  const target = document.getElementById(`pat-resched-card-${slotId}`);
+  if (target) target.classList.add("selected");
+
+  const confirmBtn = document.getElementById("pat-reschedule-confirm-btn");
+  if (confirmBtn) confirmBtn.disabled = false;
+};
+
+window.confirmPatientReschedule = async function() {
+  if (!selectedPatientRescheduleSlot) return;
+
+  const activeApp = (db.appointments || []).find(a =>
+    currentUser && a.patientId === currentUser.id && !["Completed", "Cancelled"].includes(a.status)
+  );
+  if (!activeApp) return;
+
+  const confirmBtn = document.getElementById("pat-reschedule-confirm-btn");
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerText = "Rescheduling...";
+  }
+
+  try {
+    const res = await fetch(`/api/appointments/${encodeURIComponent(activeApp.token)}/reschedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ newSlot: selectedPatientRescheduleSlot })
+    });
+
+    const data = await res.json();
+    if (res.status === 200 && data.success) {
+      const idx = db.appointments.findIndex(a => a.token === activeApp.token);
+      if (idx >= 0) db.appointments[idx] = data.appointment;
+      saveDB();
+
+      closePatientRescheduleModal();
+      sendBrowserAndAppNotification("Appointment Rescheduled", `Your consultation is now scheduled for ${data.appointment.scheduledDate} at ${data.appointment.scheduledStartTime} IST.`, "success");
+      loadPatientDashboard();
+    } else if (res.status === 409) {
+      showToast("Selected slot was just booked by someone else! Please pick another slot.", "warning");
+      openPatientRescheduleModal();
+    } else {
+      showToast(data.error || "Failed to reschedule appointment.", "danger");
+    }
+  } catch (err) {
+    showToast(`Rescheduling error: ${err.message}`, "danger");
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerText = "Confirm Reschedule";
+    }
+  }
+};
+
+window.closePatientRescheduleModal = function() {
+  const modal = document.getElementById("pat-reschedule-modal");
+  if (modal) modal.style.display = "none";
+  selectedPatientRescheduleSlot = null;
+};
+
+// 3. Patient: Cancel Active Appointment
+window.cancelActiveAppointment = async function(targetToken = null) {
+  const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : null;
+  const activeApps = (db.appointments || []).filter(a =>
+    curPatientId && (a.patientId === curPatientId || a.patientId === currentUser.id || a.patientId === currentUser.profileId) && !["Completed", "Cancelled", "cancelled"].includes(a.status)
+  );
+
+  const tokensToCancel = targetToken 
+    ? [targetToken] 
+    : (activeApps.length > 0 ? activeApps.map(a => a.token).filter(Boolean) : []);
+
+  if (tokensToCancel.length === 0) {
+    showToast("No active consultation found to cancel.", "info");
+    return;
+  }
+
+  const confirmMsg = tokensToCancel.length === 1
+    ? `Are you sure you want to cancel your consultation request (Token: ${tokensToCancel[0]})?`
+    : `Are you sure you want to cancel your active consultation request?`;
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+
+  // Mark in local DB
+  (db.appointments || []).forEach(a => {
+    if (tokensToCancel.includes(a.token) || (curPatientId && (a.patientId === curPatientId || a.patientId === currentUser.id) && !["Completed", "Cancelled", "cancelled"].includes(a.status))) {
+      a.status = "Cancelled";
+      a.cancelledAt = new Date().toISOString();
+    }
+  });
+  saveDB();
+
+  // Call server cancel endpoint for each token
+  for (const token of tokensToCancel) {
+    try {
+      await fetch(`/api/appointments/${encodeURIComponent(token)}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+    } catch (err) {
+      console.warn("Cancel API error for token " + token, err);
+    }
+  }
+
+  const conflictAlert = document.getElementById("pat-active-request-conflict-alert");
+  if (conflictAlert) conflictAlert.style.display = "none";
+
+  showToast("Consultation appointment cancelled successfully. You can now request a new consultation.", "info");
+  sendBrowserAndAppNotification("Appointment Cancelled", "Consultation appointment cancelled.", "info");
+  loadPatientDashboard();
+};
+
+// 4. Doctor: Schedule & Working Hours Settings
+window.loadDoctorScheduleSettings = async function() {
+  const doctorSelect = document.getElementById("doc-schedule-doctor-select");
+  if (doctorSelect && doctorSelect.options.length <= 1) {
+    const doctors = (db.doctors && db.doctors.length > 0) ? db.doctors : (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS : [
+      { id: "doc-1", name: "Dr. Vikram Malhotra", specialty: "General Medicine" },
+      { id: "doc-2", name: "Dr. Ananya Sharma", specialty: "Cardiology" }
+    ]);
+    const currentVal = (currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1";
+    doctorSelect.innerHTML = doctors.map(d => `<option value="${d.id}" ${d.id === currentVal ? 'selected' : ''}>${d.name} (${d.specialty})</option>`).join("");
+  }
+
+  const doctorId = (doctorSelect && doctorSelect.value) ? doctorSelect.value : ((currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1");
+
+  try {
+    const res = await fetch(`/api/doctor/schedule/${encodeURIComponent(doctorId)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const sched = data.schedule || {};
+
+    const startInput = document.getElementById("doc-sched-start");
+    const endInput = document.getElementById("doc-sched-end");
+    const durationInput = document.getElementById("doc-sched-duration");
+    const breaksContainer = document.getElementById("doc-breaks-container");
+
+    if (startInput) startInput.value = sched.workStart || "09:00";
+    if (endInput) endInput.value = sched.workEnd || "17:00";
+    if (durationInput) durationInput.value = String(sched.slotDurationMins || 15);
+
+    // Days checkboxes
+    const workDays = sched.workDays || [1, 2, 3, 4, 5, 6];
+    document.querySelectorAll("input[name='doc-work-day']").forEach(cb => {
+      cb.checked = workDays.includes(parseInt(cb.value, 10));
+    });
+
+    // Breaks
+    if (breaksContainer) {
+      breaksContainer.innerHTML = "";
+      const breaks = (sched.breaks && sched.breaks.length > 0) ? sched.breaks : [{ start: "13:00", end: "14:00" }];
+      breaks.forEach(b => {
+        addDoctorBreakRow(b.start, b.end);
+      });
+    }
+  } catch (err) {
+    console.warn("Error loading doctor schedule:", err);
+  }
+};
+
+window.addDoctorBreakRow = function(start = "13:00", end = "14:00") {
+  const container = document.getElementById("doc-breaks-container");
+  if (!container) return;
+  const div = document.createElement("div");
+  div.className = "doc-break-row";
+  div.style.cssText = "display: flex; align-items: center; gap: 8px; margin-bottom: 8px;";
+  div.innerHTML = `
+    <input type="time" class="form-input doc-break-start" value="${start}" style="max-width: 130px;">
+    <span style="color: #64748b; font-size: 13px;">to</span>
+    <input type="time" class="form-input doc-break-end" value="${end}" style="max-width: 130px;">
+    <button type="button" class="btn-danger-outline" style="padding: 4px 8px; font-size: 11px;" onclick="this.closest('.doc-break-row').remove()">Remove</button>
+  `;
+  container.appendChild(div);
+};
+
+window.saveDoctorScheduleSettings = async function() {
+  const doctorSelect = document.getElementById("doc-schedule-doctor-select");
+  const doctorId = (doctorSelect && doctorSelect.value) ? doctorSelect.value : ((currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1");
+
+  const startInput = document.getElementById("doc-sched-start");
+  const endInput = document.getElementById("doc-sched-end");
+  const durationInput = document.getElementById("doc-sched-duration");
+
+  const workStart = startInput ? startInput.value : "09:00";
+  const workEnd = endInput ? endInput.value : "17:00";
+  const slotDurationMins = durationInput ? parseInt(durationInput.value, 10) : 15;
+
+  const workDays = [];
+  document.querySelectorAll("input[name='doc-work-day']:checked").forEach(cb => {
+    workDays.push(parseInt(cb.value, 10));
+  });
+
+  const breaks = [];
+  document.querySelectorAll(".doc-break-row").forEach(row => {
+    const s = row.querySelector(".doc-break-start")?.value;
+    const e = row.querySelector(".doc-break-end")?.value;
+    if (s && e) breaks.push({ start: s, end: e });
+  });
+
+  const payload = {
+    workStart,
+    workEnd,
+    slotDurationMins,
+    workDays,
+    breaks
+  };
+
+  try {
+    const res = await fetch(`/api/doctor/schedule/${encodeURIComponent(doctorId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast("Doctor working hours, breaks, and slot duration saved successfully!", "success");
+    } else {
+      showToast(data.error || "Failed to update doctor schedule.", "danger");
+    }
+  } catch (err) {
+    showToast(`Save error: ${err.message}`, "danger");
+  }
+};
+
+// 5. Doctor Reschedule & Cancel Actions
+window.openDoctorRescheduleModal = async function(token) {
+  const app = (db.appointments || []).find(a => a.token === token);
+  if (!app) {
+    showToast(`Appointment ${token} not found.`, "warning");
+    return;
+  }
+
+  doctorRescheduleTargetToken = token;
+  selectedDoctorRescheduleSlot = null;
+
+  const modal = document.getElementById("doc-reschedule-modal");
+  const disp = document.getElementById("doc-reschedule-token-display");
+  const container = document.getElementById("doc-reschedule-slots-container");
+  const confirmBtn = document.getElementById("doc-reschedule-confirm-btn");
+
+  if (disp) disp.innerText = `Token: ${token} (${app.patientName || 'Patient'})`;
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (modal) modal.style.display = "flex";
+  if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">Loading available slots...</div>`;
+
+  try {
+    const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(app.assignedDoctorId || 'doc-1')}`);
+    const data = await res.json();
+    doctorRescheduleSlots = data.slots || [];
+
+    if (doctorRescheduleSlots.length === 0) {
+      if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">No open slots found for this doctor.</div>`;
+      return;
+    }
+
+    if (container) {
+      container.innerHTML = doctorRescheduleSlots.map(s => `
+        <div class="slot-select-card" id="doc-resched-card-${s.slotId}" onclick="selectDoctorRescheduleSlot('${s.slotId}')">
+          <div class="slot-card-header">
+            <span class="slot-date-pill">📅 ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-pill">⏱️ ${s.durationMins || 15} Mins</span>
+          </div>
+          <div class="slot-time-range">${s.startTime} – ${s.endTime} <small>IST</small></div>
+          <div class="slot-doc-name">👨‍⚕️ ${s.doctorName || 'Doctor'}</div>
+        </div>
+      `).join("");
+    }
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#dc2626;">Error: ${err.message}</div>`;
+  }
+};
+
+window.selectDoctorRescheduleSlot = function(slotId) {
+  const slot = doctorRescheduleSlots.find(s => s.slotId === slotId);
+  if (!slot) return;
+  selectedDoctorRescheduleSlot = slot;
+
+  document.querySelectorAll("#doc-reschedule-slots-container .slot-select-card").forEach(el => el.classList.remove("selected"));
+  const target = document.getElementById(`doc-resched-card-${slotId}`);
+  if (target) target.classList.add("selected");
+
+  const confirmBtn = document.getElementById("doc-reschedule-confirm-btn");
+  if (confirmBtn) confirmBtn.disabled = false;
+};
+
+window.confirmDoctorReschedule = async function() {
+  if (!selectedDoctorRescheduleSlot || !doctorRescheduleTargetToken) return;
+
+  const confirmBtn = document.getElementById("doc-reschedule-confirm-btn");
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerText = "Rescheduling...";
+  }
+
+  try {
+    const res = await fetch(`/api/appointments/${encodeURIComponent(doctorRescheduleTargetToken)}/reschedule`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ newSlot: selectedDoctorRescheduleSlot })
+    });
+
+    const data = await res.json();
+    if (res.status === 200 && data.success) {
+      const idx = db.appointments.findIndex(a => a.token === doctorRescheduleTargetToken);
+      if (idx >= 0) db.appointments[idx] = data.appointment;
+      saveDB();
+
+      closeDoctorRescheduleModal();
+      showToast(`Appointment ${doctorRescheduleTargetToken} rescheduled to ${data.appointment.scheduledDate} ${data.appointment.scheduledStartTime} IST.`, "success");
+      renderDoctorAppointments();
+    } else {
+      showToast(data.error || "Failed to reschedule appointment.", "danger");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "danger");
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerText = "Confirm Reschedule";
+    }
+  }
+};
+
+window.closeDoctorRescheduleModal = function() {
+  const modal = document.getElementById("doc-reschedule-modal");
+  if (modal) modal.style.display = "none";
+  selectedDoctorRescheduleSlot = null;
+  doctorRescheduleTargetToken = null;
+};
+
+window.cancelDoctorAppointment = async function(token) {
+  if (!confirm(`Are you sure you want to cancel appointment ${token}? The slot will be released back into availability.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/appointments/${encodeURIComponent(token)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    const data = await res.json();
+    if (data.success) {
+      const app = (db.appointments || []).find(a => a.token === token);
+      if (app) app.status = "Cancelled";
+      saveDB();
+
+      showToast(`Appointment ${token} cancelled and slot released.`, "info");
+      renderDoctorAppointments();
+    } else {
+      showToast(data.error || "Failed to cancel appointment.", "danger");
+    }
+  } catch (err) {
+    showToast(`Error cancelling appointment: ${err.message}`, "danger");
+  }
+};
+
+// 6. Real-time Socket Event Handlers & Doctor Synchronization
+function handleRealtimeSlotBooked(payload) {
+  // If viewing slots for the doctor that just got booked:
+  if (patientQueueDoctorId === payload.doctorId) {
+    if (selectedPatientSlot && selectedPatientSlot.slotId === payload.slotId) {
+      const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+      if (conflictAlert) {
+        conflictAlert.innerText = `⚠️ Slot Conflict: The slot at ${payload.startTime} IST was just booked by another patient! Refreshing...`;
+        conflictAlert.style.display = "block";
+      }
+      deselectPatientSlot();
+    }
+    refreshPatientAvailableSlots(true);
+  }
+
+  // If in reschedule modals, refresh
+  const patModal = document.getElementById("pat-reschedule-modal");
+  if (patModal && patModal.style.display !== "none") {
+    openPatientRescheduleModal();
+  }
+
+  // Refresh doctor views immediately
+  if (currentRole === "doctor") {
+    renderDoctorAppointments();
+    renderDoctorOverviewSummaries();
+    renderDoctorQueue();
+  }
+}
+
+function handleRealtimeSlotCancelled(payload) {
+  // If patient is waiting in priority queue (State 3), notify and switch to State 2!
+  const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+  if (stateWaiting && stateWaiting.style.display !== "none" && patientQueueDoctorId === payload.doctorId) {
+    sendBrowserAndAppNotification("Consultation Slot Opened!", `A 15-minute slot just opened up for ${payload.doctorName || 'Doctor'}!`, "success");
+    refreshPatientAvailableSlots(false);
+  } else if (patientQueueDoctorId === payload.doctorId) {
+    refreshPatientAvailableSlots(true);
+  }
+
+  if (currentRole === "doctor") {
+    renderDoctorAppointments();
+    renderDoctorOverviewSummaries();
+    renderDoctorQueue();
+  }
+}
+
+function handleRealtimeScheduleUpdated(payload) {
+  if (patientQueueDoctorId === payload.doctorId) {
+    refreshPatientAvailableSlots(true);
+  }
+  if (currentRole === "doctor") {
+    const docSelect = document.getElementById("doc-schedule-doctor-select");
+    if (docSelect && docSelect.value === payload.doctorId) {
+      loadDoctorScheduleSettings();
+    }
+  }
+}
+
+function handleRealtimeAppointmentConfirmed(payload) {
+  if (payload && payload.appointment) {
+    const app = payload.appointment;
+    const idx = (db.appointments || []).findIndex(a => a.token === app.token);
+    if (idx >= 0) db.appointments[idx] = app;
+    else (db.appointments = db.appointments || []).push(app);
+    saveDB();
+
+    const curPatId = currentUser ? (currentUser.profileId || currentUser.id) : null;
+    const isThisPatient = curPatId && (app.patientId === curPatId || app.patientId === currentUser?.id || app.patientId === currentUser?.profileId);
+
+    if (isThisPatient) {
+      sendBrowserAndAppNotification("Consultation Booked", `Your appointment ${app.token} is confirmed for ${app.scheduledDate} at ${app.scheduledStartTime} IST.`, "success");
+      loadPatientDashboard();
+    } else if (currentRole === "doctor") {
+      renderDoctorAppointments();
+      renderDoctorOverviewSummaries();
+      renderDoctorQueue();
+      if (typeof loadDoctorScheduleSettings === "function") {
+        loadDoctorScheduleSettings();
+      }
+      showToast(`📅 Confirmed: ${app.patientName} booked ${app.scheduledDate} @ ${app.scheduledStartTime} IST (${app.token})`, "info");
+    }
+  }
+}
+
+// Reliable 5-second polling fallback to keep Doctor & Patient views synchronized
+let autoSyncInterval = null;
+function initTelehealthAutoSync() {
+  if (autoSyncInterval) return;
+  autoSyncInterval = setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const res = await fetch("/api/appointments");
+      if (!res.ok) return;
+      const data = await res.json();
+      const appointments = data.appointments || data;
+      if (Array.isArray(appointments) && appointments.length > 0) {
+        let changed = false;
+        appointments.forEach(remoteApp => {
+          const localIdx = (db.appointments || []).findIndex(a => a.token === remoteApp.token);
+          if (localIdx >= 0) {
+            if (JSON.stringify(db.appointments[localIdx]) !== JSON.stringify(remoteApp)) {
+              db.appointments[localIdx] = remoteApp;
+              changed = true;
+            }
+          } else {
+            (db.appointments = db.appointments || []).push(remoteApp);
+            changed = true;
+          }
+        });
+        if (changed) {
+          saveDB();
+          if (currentRole === "doctor") {
+            renderDoctorAppointments();
+            renderDoctorOverviewSummaries();
+            renderDoctorQueue();
+          } else if (currentRole === "patient") {
+            loadPatientDashboard();
+          }
+        }
+      }
+    } catch (e) {
+      // Quiet background sync
+    }
+  }, 5000);
+}
+initTelehealthAutoSync();
+
 
 

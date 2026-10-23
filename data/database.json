@@ -224,7 +224,7 @@
       "urgency": "Normal",
       "specialty": "General Medicine",
       "assignedDoctorId": "doc-1",
-      "status": "Waiting",
+      "status": "Active",
       "vitals": {
         "bpSystolic": 120,
         "bpDiastolic": 80,
@@ -243,8 +243,8 @@
       "symptoms": "Chest pain, shortness of breath",
       "urgency": "Critical",
       "specialty": "Cardiology",
-      "assignedDoctorId": "doc-5",
-      "status": "Waiting",
+      "assignedDoctorId": "doc-1",
+      "status": "Completed",
       "vitals": {
         "bpSystolic": 155,
         "bpDiastolic": 95,
@@ -254,7 +254,9 @@
         "hr": 102,
         "pain": 6,
         "photo": null
-      }
+      },
+      "doctorName": "Dr. Vikram",
+      "completedAt": "2026-10-20T08:10:12.869Z"
     },
     {
       "token": "VIL-A-432",
@@ -269,7 +271,7 @@
         "bpSystolic": 130,
         "bpDiastolic": 85,
         "sugar": 120,
-        "temp": 37.0,
+        "temp": 37,
         "spo2": 96,
         "hr": 88,
         "pain": 4,
@@ -284,7 +286,7 @@
       "urgency": "Normal",
       "specialty": "General Medicine",
       "assignedDoctorId": "doc-4",
-      "status": "Waiting",
+      "status": "Cancelled",
       "vitals": {
         "bpSystolic": 138,
         "bpDiastolic": 88,
@@ -292,12 +294,428 @@
         "temp": 36.8,
         "spo2": 97,
         "hr": 78,
+        "pain": 3,
+        "photo": null
+      },
+      "isHomeVisit": false,
+      "cancelledAt": "2026-10-20T07:25:36.430Z"
+    },
+    {
+      "token": "VIL-A-410",
+      "consultationRequestId": "VIL-A-410",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "patientAge": 67,
+      "patientGender": "Female",
+      "patientPhone": "9876543210",
+      "patientVillage": "Village Clinic A",
+      "assignedDoctorId": "doc-4",
+      "doctorName": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "symptoms": "fever",
+      "urgency": "Normal",
+      "status": "Cancelled",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "sugar": 110,
+        "temp": 36.8,
+        "spo2": 98,
+        "hr": 75,
+        "pain": 3,
+        "photo": null
+      },
+      "vitalsCompleted": true,
+      "requestTime": "2026-10-20T08:33:09.034Z",
+      "createdAt": "2026-10-20T08:33:09.034Z",
+      "bookingTime": "2026-10-23T07:11:14.332Z",
+      "vitalsRecordedAt": "2026-10-20T08:33:35.802Z",
+      "isHomeVisit": false,
+      "scheduledDate": "2026-10-24",
+      "scheduledStartTime": "09:00",
+      "scheduledEndTime": "09:15",
+      "slotDurationMins": 15,
+      "slotId": "doc-4-2026-10-24-0900-xeef",
+      "bookedAt": "2026-10-23T07:11:14.332Z",
+      "cancelledAt": "2026-10-23T07:14:55.746Z"
+    },
+    {
+      "token": "VIL-A-530",
+      "consultationRequestId": "VIL-A-530",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "patientAge": 67,
+      "patientGender": "Female",
+      "patientPhone": "9876543210",
+      "patientVillage": "Village Clinic A",
+      "assignedDoctorId": "doc-4",
+      "doctorName": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "symptoms": "fever",
+      "urgency": "Normal",
+      "status": "Cancelled",
+      "vitals": null,
+      "vitalsCompleted": false,
+      "requestTime": "2026-10-23T07:23:17.506Z",
+      "createdAt": "2026-10-23T07:23:17.506Z",
+      "bookingTime": "2026-10-23T07:23:17.506Z",
+      "cancelledAt": "2026-10-23T07:54:17.365Z"
+    },
+    {
+      "token": "VIL-A-365",
+      "consultationRequestId": "VIL-A-365",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "patientAge": 67,
+      "patientGender": "Female",
+      "patientPhone": "9876543210",
+      "patientVillage": "Village Clinic A",
+      "assignedDoctorId": "doc-4",
+      "doctorName": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "symptoms": "fever",
+      "urgency": "Normal",
+      "status": "Cancelled",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "sugar": 110,
+        "temp": 36.8,
+        "spo2": 98,
+        "hr": 75,
+        "pain": 3,
+        "photo": null
+      },
+      "vitalsCompleted": true,
+      "requestTime": "2026-10-23T07:55:03.846Z",
+      "createdAt": "2026-10-23T07:55:03.846Z",
+      "bookingTime": "2026-10-23T07:55:03.846Z",
+      "vitalsRecordedAt": "2026-10-23T07:55:15.618Z",
+      "isHomeVisit": false,
+      "cancelledAt": "2026-10-23T08:21:20.640Z"
+    },
+    {
+      "token": "VIL-A-627",
+      "consultationRequestId": "VIL-A-627",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "patientAge": 67,
+      "patientGender": "Female",
+      "patientPhone": "9876543210",
+      "patientVillage": "Village Clinic A",
+      "assignedDoctorId": "doc-4",
+      "doctorName": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "symptoms": "fever",
+      "urgency": "Normal",
+      "status": "Cancelled",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "sugar": 110,
+        "temp": 36.8,
+        "spo2": 98,
+        "hr": 75,
+        "pain": 3,
+        "photo": null
+      },
+      "vitalsCompleted": true,
+      "requestTime": "2026-10-23T07:57:41.902Z",
+      "createdAt": "2026-10-23T07:57:41.902Z",
+      "bookingTime": "2026-10-23T07:57:41.902Z",
+      "vitalsRecordedAt": "2026-10-23T07:58:29.038Z",
+      "isHomeVisit": false,
+      "cancelledAt": "2026-10-23T08:26:06.348Z"
+    },
+    {
+      "token": "VIL-A-191",
+      "consultationRequestId": "VIL-A-191",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "patientAge": 67,
+      "patientGender": "Female",
+      "patientPhone": "9876543210",
+      "patientVillage": "Village Clinic A",
+      "assignedDoctorId": "doc-4",
+      "doctorName": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "symptoms": "headache",
+      "urgency": "Normal",
+      "status": "Cancelled",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "sugar": 110,
+        "temp": 36.8,
+        "spo2": 98,
+        "hr": 75,
+        "pain": 3,
+        "photo": null
+      },
+      "vitalsCompleted": true,
+      "requestTime": "2026-10-23T08:27:37.651Z",
+      "createdAt": "2026-10-23T08:27:37.651Z",
+      "bookingTime": "2026-10-23T08:34:28.634Z",
+      "vitalsRecordedAt": "2026-10-23T08:27:55.520Z",
+      "isHomeVisit": false,
+      "scheduledDate": "2026-10-23",
+      "scheduledStartTime": "14:15",
+      "scheduledEndTime": "14:30",
+      "slotDurationMins": 15,
+      "slotId": "doc-4-2026-10-23-1415-0jv0",
+      "bookedAt": "2026-10-23T08:34:28.634Z",
+      "cancelledAt": "2026-10-23T08:40:32.673Z"
+    },
+    {
+      "token": "VIL-A-685",
+      "consultationRequestId": "VIL-A-685",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "patientAge": 67,
+      "patientGender": "Female",
+      "patientPhone": "9876543210",
+      "patientVillage": "Village Clinic A",
+      "assignedDoctorId": "doc-4",
+      "doctorName": "Dr. Abinesh V",
+      "specialty": "General Medicine",
+      "symptoms": "headache",
+      "urgency": "Normal",
+      "status": "Active",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "bp": "120/80",
+        "temp": 36.8,
+        "temperature": 36.8,
+        "hr": 75,
+        "pulse": 75,
+        "spo2": 98,
+        "sugar": 110,
+        "pain": 3,
+        "photo": null
+      },
+      "vitalsCompleted": true,
+      "requestTime": "2026-10-23T08:41:16.327Z",
+      "createdAt": "2026-10-23T08:41:16.327Z",
+      "bookingTime": "2026-10-23T08:42:23.168Z",
+      "vitalsRecordedAt": "2026-10-23T08:41:43.170Z",
+      "isHomeVisit": false,
+      "scheduledDate": "2026-10-23",
+      "scheduledStartTime": "14:15",
+      "scheduledEndTime": "14:30",
+      "slotDurationMins": 15,
+      "slotId": "doc-4-2026-10-23-1415-78wc",
+      "bookedAt": "2026-10-23T08:42:23.168Z"
+    },
+    {
+      "token": "VIL-A-725",
+      "consultationRequestId": "VIL-A-725",
+      "patientId": "pat-resched-1",
+      "patientName": "Kavita Reddy",
+      "symptoms": "Migraine",
+      "urgency": "Normal",
+      "specialty": "General Medicine",
+      "assignedDoctorId": "doc-1",
+      "doctorName": "Dr. Vikram",
+      "status": "Rescheduled",
+      "scheduledDate": "2026-10-23",
+      "scheduledStartTime": "15:15",
+      "scheduledEndTime": "15:30",
+      "slotDurationMins": 15,
+      "slotId": "doc-1-2026-10-23-1515-y0gi",
+      "vitals": null,
+      "bookingTime": "2026-10-23T08:51:45.904Z",
+      "bookedAt": "2026-10-23T08:51:45.904Z",
+      "createdAt": "2026-10-23T08:51:45.904Z",
+      "rescheduledAt": "2026-10-23T08:51:45.907Z"
+    },
+    {
+      "token": "VIL-A-711",
+      "consultationRequestId": "VIL-A-711",
+      "patientId": "pat-cancel-test",
+      "patientName": "Sunil Verma",
+      "symptoms": "Allergy follow-up",
+      "urgency": "Normal",
+      "specialty": "General Medicine",
+      "assignedDoctorId": "doc-1",
+      "doctorName": "Dr. Vikram",
+      "status": "Cancelled",
+      "scheduledDate": "2026-10-23",
+      "scheduledStartTime": "15:00",
+      "scheduledEndTime": "15:15",
+      "slotDurationMins": 15,
+      "slotId": "doc-1-2026-10-23-1500-xnq1",
+      "vitals": null,
+      "bookingTime": "2026-10-23T08:51:45.969Z",
+      "bookedAt": "2026-10-23T08:51:45.969Z",
+      "createdAt": "2026-10-23T08:51:45.969Z",
+      "cancelledAt": "2026-10-23T08:51:45.970Z"
+    },
+    {
+      "token": "VIL-A-936",
+      "consultationRequestId": "VIL-A-936",
+      "patientId": "pat-e2e-workflow",
+      "patientName": "Ananya Roy",
+      "assignedDoctorId": "doc-1",
+      "doctorName": "Dr. Vikram",
+      "specialty": "General Medicine",
+      "symptoms": "Persistent headache and elevated fatigue",
+      "urgency": "Normal",
+      "status": "Completed",
+      "vitals": {
+        "bpSystolic": 120,
+        "bpDiastolic": 80,
+        "bp": "120/80",
+        "temp": 36.8,
+        "temperature": 36.8,
+        "hr": 74,
+        "pulse": 74,
+        "spo2": 98,
+        "sugar": 110,
         "pain": 1,
         "photo": null
-      }
+      },
+      "vitalsCompleted": true,
+      "requestTime": "2026-10-23T08:51:46.562Z",
+      "createdAt": "2026-10-23T08:51:46.562Z",
+      "bookingTime": "2026-10-23T08:51:46.717Z",
+      "vitalsRecordedAt": "2026-10-23T08:51:46.650Z",
+      "scheduledDate": "2026-10-23",
+      "scheduledStartTime": "14:45",
+      "scheduledEndTime": "15:00",
+      "slotDurationMins": 15,
+      "slotId": "doc-1-2026-10-23-1445-yzib",
+      "bookedAt": "2026-10-23T08:51:46.717Z",
+      "completedAt": "2026-10-23T08:51:46.725Z"
     }
   ],
-  "consultations": [],
+  "consultations": [
+    {
+      "id": "con-7902",
+      "token": "VIL-B-219",
+      "patientId": "pat-9",
+      "doctorId": "doc-1",
+      "status": "completed",
+      "date": "2026-10-20",
+      "completedAt": "2026-10-20T07:11:37.902Z",
+      "patientName": "Meenakshi",
+      "village": "Village Clinic B",
+      "doctorName": "Dr. Vikram",
+      "diagnosis": "Acute chest discomfort and mild dyspnea, suspected angina / cardiac evaluation needed.",
+      "advice": "Complete bed rest, emergency ECG evaluation required.",
+      "medicines": "Paracetamol 500mg (1-0-1)",
+      "failoverState": "HD Video",
+      "referral": false
+    },
+    {
+      "id": "cons-VIL-A-839",
+      "token": "VIL-A-839",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-20T08:19:44.787Z"
+    },
+    {
+      "id": "cons-VIL-A-485",
+      "token": "VIL-A-485",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-20T08:21:46.597Z"
+    },
+    {
+      "id": "cons-VIL-A-443",
+      "token": "VIL-A-443",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-20T08:23:52.373Z"
+    },
+    {
+      "id": "cons-VIL-A-620",
+      "token": "VIL-A-620",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-21T16:36:58.910Z"
+    },
+    {
+      "id": "cons-VIL-A-172",
+      "token": "VIL-A-172",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-22T17:00:36.784Z"
+    },
+    {
+      "id": "cons-VIL-A-201",
+      "token": "VIL-A-201",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-22T17:16:08.672Z"
+    },
+    {
+      "id": "cons-VIL-A-922",
+      "token": "VIL-A-922",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T03:29:04.318Z"
+    },
+    {
+      "id": "cons-VIL-A-110",
+      "token": "VIL-A-110",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T03:31:47.035Z"
+    },
+    {
+      "id": "cons-VIL-A-449",
+      "token": "VIL-A-449",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T03:59:20.492Z"
+    },
+    {
+      "id": "cons-VIL-A-541",
+      "token": "VIL-A-541",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T04:06:40.445Z"
+    },
+    {
+      "id": "cons-VIL-A-238",
+      "token": "VIL-A-238",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T08:21:58.246Z"
+    },
+    {
+      "id": "cons-VIL-A-936",
+      "token": "VIL-A-936",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T08:51:46.724Z"
+    }
+  ],
   "villages": [
     "Village Clinic A",
     "Village Clinic B",
@@ -314,6 +732,189 @@
     "token": "",
     "channel": "telehealth-room"
   },
+  "doctorSchedules": {
+    "doc-1": {
+      "workStart": "09:00",
+      "workEnd": "17:00",
+      "breaks": [
+        {
+          "start": "13:00",
+          "end": "14:00"
+        }
+      ],
+      "workDays": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "slotDurationMins": 15
+    },
+    "doc-2": {
+      "workStart": "09:00",
+      "workEnd": "17:00",
+      "breaks": [
+        {
+          "start": "13:00",
+          "end": "14:00"
+        }
+      ],
+      "workDays": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "slotDurationMins": 15
+    },
+    "doc-3": {
+      "workStart": "09:00",
+      "workEnd": "17:00",
+      "breaks": [
+        {
+          "start": "13:00",
+          "end": "14:00"
+        }
+      ],
+      "workDays": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "slotDurationMins": 15
+    },
+    "doc-4": {
+      "workStart": "09:00",
+      "workEnd": "17:00",
+      "breaks": [
+        {
+          "start": "13:00",
+          "end": "14:00"
+        }
+      ],
+      "workDays": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "slotDurationMins": 15
+    },
+    "doc-5": {
+      "workStart": "09:00",
+      "workEnd": "17:00",
+      "breaks": [
+        {
+          "start": "13:00",
+          "end": "14:00"
+        }
+      ],
+      "workDays": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "slotDurationMins": 15
+    }
+  },
+  "bookedSlots": [
+    {
+      "slotId": "doc-4-2026-10-24-0900-xeef",
+      "doctorId": "doc-4",
+      "date": "2026-10-24",
+      "startTime": "09:00",
+      "endTime": "09:15",
+      "token": "VIL-A-410",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "status": "cancelled",
+      "bookedAt": "2026-10-23T07:11:14.331Z"
+    },
+    {
+      "slotId": "doc-4-2026-10-23-1415-0jv0",
+      "doctorId": "doc-4",
+      "date": "2026-10-23",
+      "startTime": "14:15",
+      "endTime": "14:30",
+      "token": "VIL-A-191",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "status": "cancelled",
+      "bookedAt": "2026-10-23T08:34:28.634Z"
+    },
+    {
+      "slotId": "doc-4-2026-10-23-1415-78wc",
+      "doctorId": "doc-4",
+      "date": "2026-10-23",
+      "startTime": "14:15",
+      "endTime": "14:30",
+      "token": "VIL-A-685",
+      "patientId": "pat-1",
+      "patientName": "Sarah Mitchell",
+      "status": "booked",
+      "bookedAt": "2026-10-23T08:42:23.168Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-23-1500-tv4o",
+      "doctorId": "doc-1",
+      "date": "2026-10-23",
+      "startTime": "15:00",
+      "endTime": "15:15",
+      "token": "VIL-A-725",
+      "patientId": "pat-resched-1",
+      "patientName": "Kavita Reddy",
+      "status": "rescheduled",
+      "bookedAt": "2026-10-23T08:51:45.904Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-23-1515-y0gi",
+      "doctorId": "doc-1",
+      "date": "2026-10-23",
+      "startTime": "15:15",
+      "endTime": "15:30",
+      "token": "VIL-A-725",
+      "patientId": "pat-resched-1",
+      "patientName": "Kavita Reddy",
+      "status": "booked",
+      "bookedAt": "2026-10-23T08:51:45.907Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-23-1500-xnq1",
+      "doctorId": "doc-1",
+      "date": "2026-10-23",
+      "startTime": "15:00",
+      "endTime": "15:15",
+      "token": "VIL-A-711",
+      "patientId": "pat-cancel-test",
+      "patientName": "Sunil Verma",
+      "status": "cancelled",
+      "bookedAt": "2026-10-23T08:51:45.969Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-23-1445-yzib",
+      "doctorId": "doc-1",
+      "date": "2026-10-23",
+      "startTime": "14:45",
+      "endTime": "15:00",
+      "token": "VIL-A-936",
+      "patientId": "pat-e2e-workflow",
+      "patientName": "Ananya Roy",
+      "status": "booked",
+      "bookedAt": "2026-10-23T08:51:46.716Z"
+    }
+  ],
   "currentUser": {
     "id": "doc-1",
     "name": "Dr. Vikram",

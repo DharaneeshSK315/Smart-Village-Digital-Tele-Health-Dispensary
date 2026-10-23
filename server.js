@@ -64,13 +64,22 @@ const DEFAULT_APPOINTMENTS = [
     urgency: "Normal",
     specialty: "General Medicine",
     assignedDoctorId: "doc-4",
-    status: "Waiting",
+    status: "Completed",
     vitals: { bpSystolic: 138, bpDiastolic: 88, sugar: 115, temp: 36.8, spo2: 97, hr: 78, pain: 1, photo: null }
   }
 ];
 
 // CENTRALIZED DATABASE MANAGEMENT
 // -------------------------------------------------------------
+// Default working schedules for each doctor (IST times)
+const DEFAULT_DOCTOR_SCHEDULES = {
+  "doc-1": { workStart: "09:00", workEnd: "17:00", breaks: [{ start: "13:00", end: "14:00" }], workDays: [1,2,3,4,5,6], slotDurationMins: 15 },
+  "doc-2": { workStart: "09:00", workEnd: "17:00", breaks: [{ start: "13:00", end: "14:00" }], workDays: [1,2,3,4,5,6], slotDurationMins: 15 },
+  "doc-3": { workStart: "09:00", workEnd: "17:00", breaks: [{ start: "13:00", end: "14:00" }], workDays: [1,2,3,4,5,6], slotDurationMins: 15 },
+  "doc-4": { workStart: "09:00", workEnd: "17:00", breaks: [{ start: "13:00", end: "14:00" }], workDays: [1,2,3,4,5,6], slotDurationMins: 15 },
+  "doc-5": { workStart: "09:00", workEnd: "17:00", breaks: [{ start: "13:00", end: "14:00" }], workDays: [1,2,3,4,5,6], slotDurationMins: 15 }
+};
+
 let db = {
   users: [],
   doctors: [],
@@ -84,7 +93,9 @@ let db = {
     appid: "aab8b3f972274fcb87cc25048d089e94",
     token: "",
     channel: "telehealth-room"
-  }
+  },
+  doctorSchedules: JSON.parse(JSON.stringify(DEFAULT_DOCTOR_SCHEDULES)),
+  bookedSlots: []  // [{ slotId, doctorId, date, startTime, endTime, token, patientId, patientName, status }]
 };
 
 function loadDatabase() {
@@ -95,8 +106,18 @@ function loadDatabase() {
       db = {
         ...db,
         ...parsed,
-        agoraConfig: parsed.agoraConfig || db.agoraConfig
+        agoraConfig: parsed.agoraConfig || db.agoraConfig,
+        doctorSchedules: parsed.doctorSchedules || JSON.parse(JSON.stringify(DEFAULT_DOCTOR_SCHEDULES)),
+        bookedSlots: parsed.bookedSlots || []
       };
+      // Ensure each doctor schedule has default slotDurationMins
+      Object.keys(DEFAULT_DOCTOR_SCHEDULES).forEach(dId => {
+        if (!db.doctorSchedules[dId]) {
+          db.doctorSchedules[dId] = { ...DEFAULT_DOCTOR_SCHEDULES[dId] };
+        } else if (!db.doctorSchedules[dId].slotDurationMins) {
+          db.doctorSchedules[dId].slotDurationMins = 15;
+        }
+      });
       if (!Array.isArray(db.appointments) || db.appointments.length === 0) {
         db.appointments = [...DEFAULT_APPOINTMENTS];
       }
@@ -253,7 +274,10 @@ io.on("connection", (socket) => {
       const idx = db.appointments.findIndex(a => a.token === token);
       if (idx >= 0) {
         db.appointments[idx].vitals = vitals;
-        db.appointments[idx].urgency = urgency;
+        db.appointments[idx].vitalsCompleted = true;
+        db.appointments[idx].status = "Waiting for Doctor Queue";
+        db.appointments[idx].vitalsRecordedAt = new Date().toISOString();
+        if (urgency) db.appointments[idx].urgency = urgency;
         if (specialty) db.appointments[idx].specialty = specialty;
         if (typeof isHomeVisit === "boolean") db.appointments[idx].isHomeVisit = isHomeVisit;
       }
@@ -266,6 +290,7 @@ io.on("connection", (socket) => {
         token,
         urgency,
         appointment: updatedApp,
+        status: "Waiting for Doctor Queue",
         timestamp: Date.now()
       });
 
@@ -275,6 +300,7 @@ io.on("connection", (socket) => {
           vitals,
           urgency,
           appointment: updatedApp,
+          status: "Waiting for Doctor Queue",
           timestamp: Date.now()
         });
       }
@@ -477,7 +503,335 @@ io.on("connection", (socket) => {
   socket.on("disconnect", (reason) => {
     console.log(`[Socket] Disconnected: id=${socket.id}, reason=${reason}`);
   });
+  // 12. EVENT: schedule_updated (Doctor updates their working hours)
+  socket.on("schedule_updated", (payload) => {
+    try {
+      const { doctorId, schedule } = payload || {};
+      if (!doctorId || !schedule) return;
+      if (!db.doctorSchedules) db.doctorSchedules = {};
+      db.doctorSchedules[doctorId] = schedule;
+      saveDatabaseToFile();
+      console.log(`[Schedule] Doctor ${doctorId} updated working hours.`);
+      // Notify all patients and VHWs so they can refresh slot availability
+      io.to("role:patient").to("role:vhw").emit("schedule_updated", { doctorId, schedule, timestamp: Date.now() });
+    } catch (err) {
+      console.error("[Schedule] schedule_updated error:", err.message);
+    }
+  });
 });
+
+// -------------------------------------------------------------
+// SCHEDULING ENGINE — IST SLOT GENERATION (Asia/Kolkata = UTC+5:30)
+// -------------------------------------------------------------
+
+/**
+ * Returns current time in IST as a Date object.
+ */
+function nowIST() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+}
+
+/**
+ * Parse a "HH:MM" time string and apply it to a given date (in IST).
+ * Returns epoch milliseconds.
+ */
+function parseISTTime(dateStr, timeStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const [h, min] = timeStr.split(":").map(Number);
+  // Build a UTC timestamp that corresponds to this IST wall-clock time
+  // IST = UTC + 5h30m => UTC = IST - 5h30m
+  return Date.UTC(y, m - 1, d, h - 5, min - 30, 0, 0);
+}
+
+/**
+ * Format a UTC epoch ms value as IST "HH:MM" string.
+ */
+function epochToISTTime(epochMs) {
+  return new Date(epochMs).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
+/**
+ * Format a UTC epoch ms value as IST date string "YYYY-MM-DD".
+ */
+function epochToISTDate(epochMs) {
+  return new Date(epochMs).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+/**
+ * Get the IST day-of-week for a given YYYY-MM-DD IST date string.
+ * Returns 0=Sun, 1=Mon ... 6=Sat deterministically in UTC.
+ */
+function getDayOfWeekIST(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") {
+    dateStr = epochToISTDate(Date.now());
+  }
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) {
+    return 1;
+  }
+  const [y, m, d] = parts;
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0)).getUTCDay();
+}
+
+/**
+ * Check whether a given slot (startEpoch, endEpoch) overlaps with existing booked slots
+ * for the doctor on that date, AND with Active/Confirmed/Waiting/In Progress appointments.
+ */
+function isSlotConflicting(doctorId, dateStr, startEpoch, endEpoch) {
+  // 1. Check bookedSlots (active reservations)
+  const booked = (db.bookedSlots || []).filter(
+    s => s.doctorId === doctorId && s.date === dateStr && s.status !== "cancelled" && s.status !== "Cancelled" && s.status !== "rescheduled" && s.status !== "Rescheduled"
+  );
+  for (const s of booked) {
+    const sStart = parseISTTime(s.date, s.startTime);
+    const sEnd   = parseISTTime(s.date, s.endTime);
+    if (startEpoch < sEnd && endEpoch > sStart) return true;
+  }
+
+  // 2. Check appointments with Confirmed, In Progress, Waiting, Active, Rescheduled
+  const blockingStatuses = ["Appointment Confirmed", "Confirmed", "In Progress", "Waiting", "Active", "Rescheduled"];
+  const activeApps = (db.appointments || []).filter(
+    a => a.assignedDoctorId === doctorId && blockingStatuses.includes(a.status) && a.scheduledDate === dateStr
+  );
+  for (const a of activeApps) {
+    if (a.scheduledStartTime) {
+      const aStart = parseISTTime(a.scheduledDate, a.scheduledStartTime);
+      const aEnd   = a.scheduledEndTime ? parseISTTime(a.scheduledDate, a.scheduledEndTime) : (aStart + 15 * 60 * 1000);
+      if (startEpoch < aEnd && endEpoch > aStart) return true;
+    }
+  }
+
+  // 3. Current active consultation status check (if doctor is live in a call right now)
+  const ongoing = (db.appointments || []).find(
+    a => a.assignedDoctorId === doctorId && (a.status === "In Progress" || a.status === "Active")
+  );
+  if (ongoing) {
+    const todayStr = epochToISTDate(Date.now());
+    if (dateStr === todayStr) {
+      const nowBufferEnd = Date.now() + 15 * 60 * 1000;
+      if (startEpoch < nowBufferEnd && endEpoch > Date.now()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Deterministically generate the next N available consultation slots for a doctor,
+ * starting from "now" in IST, looking up to 7 days ahead.
+ * Uses doctor's configured working hours, breaks, and slot duration (default: 15 mins).
+ * Returns array of slot objects.
+ */
+function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
+  const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
+    workStart: "09:00",
+    workEnd: "17:00",
+    breaks: [{ start: "13:00", end: "14:00" }],
+    workDays: [1,2,3,4,5,6],
+    slotDurationMins: 15
+  };
+
+  const slotLimit = (typeof maxSlots === "number" && maxSlots > 0) ? maxSlots : 100;
+  const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+  const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
+  const slots = [];
+  const nowMs = Date.now();
+  // Start looking from 5 minutes from now so no immediate-past slots are offered
+  const searchFromMs = nowMs + 5 * 60 * 1000;
+
+  const todayIST = epochToISTDate(nowMs);
+  const [y0, m0, d0] = todayIST.split("-").map(Number);
+
+  // If a specific date is requested, search specifically for that date (up to 30 days ahead)
+  const maxDayOffset = targetDate ? 30 : 7;
+
+  // Iterate over calendar days
+  for (let dayOffset = 0; dayOffset <= maxDayOffset && slots.length < slotLimit; dayOffset++) {
+    const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + dayOffset, 12, 0, 0));
+    const dateStr = epochToISTDate(targetDay.getTime());
+
+    if (targetDate && dateStr !== targetDate) {
+      if (dateStr > targetDate) break;
+      continue;
+    }
+
+    const dow = getDayOfWeekIST(dateStr);
+
+    // Skip non-working days
+    if (!schedule.workDays.includes(dow)) {
+      if (targetDate && dateStr === targetDate) break;
+      continue;
+    }
+
+    // Build slots grid for this day
+    const workStartMs = parseISTTime(dateStr, schedule.workStart);
+    const workEndMs   = parseISTTime(dateStr, schedule.workEnd);
+
+    let cursor = workStartMs;
+    while (cursor + SLOT_DURATION_MS <= workEndMs && slots.length < slotLimit) {
+      const slotEnd = cursor + SLOT_DURATION_MS;
+
+      // Skip if slot is in the past
+      if (slotEnd <= searchFromMs) {
+        cursor = slotEnd;
+        continue;
+      }
+
+      // Skip if slot falls within any break window
+      const inBreak = (schedule.breaks || []).some(b => {
+        const bStart = parseISTTime(dateStr, b.start);
+        const bEnd   = parseISTTime(dateStr, b.end);
+        return cursor < bEnd && slotEnd > bStart;
+      });
+      if (inBreak) {
+        cursor = slotEnd;
+        continue;
+      }
+
+      // Skip if slot is already booked/conflicting
+      if (isSlotConflicting(doctorId, dateStr, cursor, slotEnd)) {
+        cursor = slotEnd;
+        continue;
+      }
+
+      const slotStartTime = epochToISTTime(cursor);
+      const slotEndTime   = epochToISTTime(slotEnd);
+
+      slots.push({
+        slotId: `${doctorId}-${dateStr}-${slotStartTime.replace(":", "")}`,
+        doctorId,
+        doctorName: (db.doctors || []).find(d => d.id === doctorId)?.name || "Doctor",
+        specialty: (db.doctors || []).find(d => d.id === doctorId)?.specialty || "General Medicine",
+        date: dateStr,
+        startTime: slotStartTime,
+        endTime: slotEndTime,
+        durationMins: slotDurationMins,
+        status: "available"
+      });
+
+      cursor = slotEnd;
+    }
+
+    if (targetDate && dateStr === targetDate) break;
+  }
+
+  return slots;
+}
+
+/**
+ * Get all upcoming working dates for a doctor that have genuine available slots.
+ */
+function getAvailableDatesForDoctor(doctorId, maxDays = 14) {
+  const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
+    workStart: "09:00",
+    workEnd: "17:00",
+    breaks: [{ start: "13:00", end: "14:00" }],
+    workDays: [1,2,3,4,5,6],
+    slotDurationMins: 15
+  };
+
+  const dates = [];
+  const nowMs = Date.now();
+  const todayIST = epochToISTDate(nowMs);
+  const [y0, m0, d0] = todayIST.split("-").map(Number);
+
+  for (let offset = 0; offset < maxDays; offset++) {
+    const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + offset, 12, 0, 0));
+    const dateStr = epochToISTDate(targetDay.getTime());
+    const dow = getDayOfWeekIST(dateStr);
+
+    if (!schedule.workDays.includes(dow)) continue;
+
+    const openSlots = generateAvailableSlots(doctorId, 100, dateStr);
+    if (openSlots.length > 0) {
+      const [yy, mm, dd] = dateStr.split("-").map(Number);
+      const dateObj = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
+      const label = dateObj.toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        weekday: "short",
+        day: "numeric",
+        month: "short"
+      });
+      dates.push({
+        date: dateStr,
+        label,
+        openSlotCount: openSlots.length,
+        isToday: dateStr === todayIST,
+        isTomorrow: offset === 1
+      });
+    }
+  }
+
+  return dates;
+}
+
+/**
+ * AI Advisory: Uses historical appointment data to estimate demand level and wait time.
+ * Returns a purely advisory object — never used to fabricate slots or confirm a booking.
+ */
+function getAIAdvisory(doctorId, slotDate, slotStartTime) {
+  const history = (db.appointments || []).filter(a => a.assignedDoctorId === doctorId);
+  const effectiveDate = slotDate || epochToISTDate(Date.now());
+  const dow = getDayOfWeekIST(effectiveDate);
+  const slotHour = parseInt((slotStartTime || "09:00").split(":")[0], 10);
+
+  // Count appointments on same day-of-week and same hour (historical demand pattern)
+  const historicalDemand = history.filter(a => {
+    if (!a.scheduledDate) return false;
+    const aDow = getDayOfWeekIST(a.scheduledDate);
+    const aHour = a.scheduledStartTime ? parseInt(a.scheduledStartTime.split(":")[0], 10) : -1;
+    return aDow === dow && aHour === slotHour;
+  }).length;
+
+  // Current queue depth for this doctor (waiting / confirmed / active consultations)
+  const activeStatuses = ["Vitals Pending", "Waiting for Doctor Queue", "Waiting", "Active", "Confirmed", "Appointment Confirmed", "In Progress", "Queued"];
+  const currentQueueDepth = (db.appointments || []).filter(
+    a => a.assignedDoctorId === doctorId && activeStatuses.includes(a.status)
+  ).length;
+
+  const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {};
+  const slotDuration = Number(schedule.slotDurationMins) || 15;
+  const estimatedWaitMins = Math.max(5, currentQueueDepth * slotDuration);
+
+  // Demand level classification
+  let demandLevel = "Low";
+  let demandColor = "#10b981"; // green
+  if (historicalDemand >= 3 || currentQueueDepth >= 4) {
+    demandLevel = "High";
+    demandColor = "#ef4444"; // red
+  } else if (historicalDemand >= 1 || currentQueueDepth >= 2) {
+    demandLevel = "Moderate";
+    demandColor = "#f59e0b"; // amber
+  }
+
+  // Recommendation message
+  let recommendation = "Good availability — optimal time to consult.";
+  if (demandLevel === "High") {
+    recommendation = "Peak demand period. Book early to confirm your slot.";
+  } else if (demandLevel === "Moderate") {
+    recommendation = "Moderate demand. Your slot is likely available.";
+  }
+
+  return {
+    demandLevel,
+    demandColor,
+    estimatedWaitMins,
+    queueDepth: currentQueueDepth,
+    currentQueueDepth,
+    recommendation,
+    confidence: historicalDemand > 0 ? "data-driven" : "estimated"
+  };
+}
+
+// Mutex to prevent double-booking race conditions
+let slotBookingLock = false;
 
 // -------------------------------------------------------------
 // REST API ENDPOINTS FOR DATA PERSISTENCE & INITIAL STATE
@@ -507,7 +861,9 @@ app.get("/api/db", (req, res) => {
       consultations: db.consultations,
       villages: db.villages,
       failoverLogs: db.failoverLogs,
-      agoraConfig: db.agoraConfig
+      agoraConfig: db.agoraConfig,
+      doctorSchedules: db.doctorSchedules,
+      bookedSlots: db.bookedSlots
     }
   });
 });
@@ -571,6 +927,191 @@ app.post("/api/appointments", (req, res) => {
 
     res.status(201).json({ success: true, appointment: appData });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/consultations/request — Step 1: Patient requests consultation, sets status to "Vitals Pending"
+app.post("/api/consultations/request", (req, res) => {
+  try {
+    const { patientId, patientName, doctorId, symptoms, urgency, specialty } = req.body || {};
+    if (!patientId || !doctorId) {
+      return res.status(400).json({ success: false, error: "Missing required fields: patientId and doctorId." });
+    }
+
+    // Check if patient already has an active consultation request or appointment
+    const blockingStatuses = ["Vitals Pending", "Waiting for Doctor Queue", "Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"];
+    const existing = (db.appointments || []).find(
+      a => a.patientId === patientId && blockingStatuses.includes(a.status)
+    );
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: `You already have an active consultation request (Token: ${existing.token}, Status: ${existing.status}). Please complete or cancel it first.`,
+        appointment: existing
+      });
+    }
+
+    const doctor = (db.doctors || []).find(d => d.id === doctorId);
+    const patient = (db.patients || []).find(p => p.id === patientId);
+    const villagePrefix = (patient && patient.village)
+      ? (patient.village.includes("A") ? "VIL-A" : patient.village.includes("B") ? "VIL-B" : "VIL-C")
+      : "VIL-A";
+    const tokenNum = Math.floor(100 + Math.random() * 900);
+    const token = `${villagePrefix}-${tokenNum}`;
+
+    const newRequest = {
+      token,
+      consultationRequestId: token,
+      patientId,
+      patientName: patientName || (patient && patient.name) || "Patient",
+      patientAge: patient ? patient.age : undefined,
+      patientGender: patient ? patient.gender : undefined,
+      patientPhone: patient ? patient.phone : undefined,
+      patientVillage: patient ? patient.village : undefined,
+      assignedDoctorId: doctorId,
+      doctorName: doctor ? doctor.name : "Doctor",
+      specialty: specialty || (doctor && doctor.specialty) || "General Medicine",
+      symptoms: symptoms || "General Consultation",
+      urgency: urgency || "Normal",
+      status: "Vitals Pending",
+      vitals: null,
+      vitalsCompleted: false,
+      requestTime: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      bookingTime: new Date().toISOString()
+    };
+
+    if (!Array.isArray(db.appointments)) db.appointments = [];
+    db.appointments.push(newRequest);
+    saveDatabaseToFile();
+
+    // Broadcast consultation request to Health Worker and Doctor rooms
+    io.to("role:vhw").to("role:doctor").emit("consultation_requested", {
+      token,
+      appointment: newRequest,
+      timestamp: Date.now()
+    });
+    io.to("role:vhw").to("role:doctor").emit("token_requested", {
+      token,
+      appointment: newRequest,
+      timestamp: Date.now()
+    });
+    io.emit("appointments_updated", db.appointments);
+
+    console.log(`[Consultation] New request created: Token=${token}, Patient=${newRequest.patientName}, Status=Vitals Pending`);
+    res.status(201).json({ success: true, consultationRequest: newRequest, token, appointment: newRequest });
+  } catch (err) {
+    console.error("[Consultation] POST /api/consultations/request error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/vitals — Step 2: Health worker records and validates vitals, updates status to "Waiting for Doctor Queue"
+app.post("/api/vitals", (req, res) => {
+  try {
+    const { token, patientId, vitals, urgency, specialty } = req.body || {};
+    if (!vitals) {
+      return res.status(400).json({ success: false, error: "Vitals data is required." });
+    }
+
+    // Input validation & normalization
+    let bpSys = Number(vitals.bpSystolic);
+    let bpDia = Number(vitals.bpDiastolic);
+    if ((isNaN(bpSys) || isNaN(bpDia)) && typeof vitals.bp === "string" && vitals.bp.includes("/")) {
+      const parts = vitals.bp.split("/");
+      bpSys = Number(parts[0].trim());
+      bpDia = Number(parts[1].trim());
+    }
+    const temp  = Number(vitals.temp !== undefined ? vitals.temp : vitals.temperature);
+    const hr    = Number(vitals.hr !== undefined ? vitals.hr : (vitals.pulse !== undefined ? vitals.pulse : vitals.heartRate));
+    const spo2  = Number(vitals.spo2);
+
+    if (isNaN(bpSys) || bpSys < 50 || bpSys > 260) {
+      return res.status(400).json({ success: false, error: "Invalid Blood Pressure (Systolic must be 50-260 mmHg)." });
+    }
+    if (isNaN(bpDia) || bpDia < 30 || bpDia > 160) {
+      return res.status(400).json({ success: false, error: "Invalid Blood Pressure (Diastolic must be 30-160 mmHg)." });
+    }
+    if (isNaN(temp) || temp < 30 || temp > 45) {
+      return res.status(400).json({ success: false, error: "Invalid Temperature (must be 30.0-45.0 °C)." });
+    }
+    if (isNaN(hr) || hr < 30 || hr > 220) {
+      return res.status(400).json({ success: false, error: "Invalid Heart/Pulse Rate (must be 30-220 bpm)." });
+    }
+    if (isNaN(spo2) || spo2 < 50 || spo2 > 100) {
+      return res.status(400).json({ success: false, error: "Invalid SpO2 (must be 50-100%)." });
+    }
+
+    // Find appointment by token or patientId
+    let idx = -1;
+    if (token) {
+      idx = (db.appointments || []).findIndex(a => a.token === token);
+    }
+    if (idx === -1 && patientId) {
+      idx = (db.appointments || []).findIndex(a => a.patientId === patientId && (a.status === "Vitals Pending" || a.status === "Waiting"));
+    }
+    if (idx === -1 && patientId) {
+      idx = (db.appointments || []).findIndex(a => a.patientId === patientId && a.status !== "Completed" && a.status !== "Cancelled");
+    }
+
+    if (idx === -1) {
+      return res.status(404).json({ success: false, error: "Active consultation request not found for provided token or patient." });
+    }
+
+    const appRecord = db.appointments[idx];
+    appRecord.vitals = {
+      bpSystolic: bpSys,
+      bpDiastolic: bpDia,
+      bp: `${bpSys}/${bpDia}`,
+      temp: temp,
+      temperature: temp,
+      hr: hr,
+      pulse: hr,
+      spo2: spo2,
+      sugar: vitals.sugar !== undefined ? Number(vitals.sugar) : 110,
+      pain: vitals.pain !== undefined ? Number(vitals.pain) : 0,
+      photo: vitals.photo || null
+    };
+    appRecord.vitalsCompleted = true;
+    appRecord.vitalsRecordedAt = new Date().toISOString();
+    appRecord.status = "Waiting for Doctor Queue"; // <-- Transition status
+    if (urgency) appRecord.urgency = urgency;
+    if (specialty) appRecord.specialty = specialty;
+
+    saveDatabaseToFile();
+
+    console.log(`[Vitals] Vitals recorded for Token=${appRecord.token}, Status=Waiting for Doctor Queue`);
+
+    // Notify doctor queue and health workers
+    io.to("role:doctor").to("role:vhw").emit("patient_added_to_queue", {
+      token: appRecord.token,
+      urgency: appRecord.urgency,
+      appointment: appRecord,
+      status: "Waiting for Doctor Queue",
+      timestamp: Date.now()
+    });
+
+    // Notify the patient that vitals are recorded and consultation is ready for scheduling
+    const vitalsEventPayload = {
+      token: appRecord.token,
+      patientId: appRecord.patientId,
+      vitals: appRecord.vitals,
+      urgency: appRecord.urgency,
+      appointment: appRecord,
+      status: "Waiting for Doctor Queue",
+      timestamp: Date.now()
+    };
+    if (appRecord.patientId) {
+      io.to(`user:${appRecord.patientId}`).emit("vitals_recorded", vitalsEventPayload);
+    }
+    io.emit("vitals_recorded", vitalsEventPayload);
+
+    io.emit("appointments_updated", db.appointments);
+    res.json({ success: true, appointment: appRecord, token: appRecord.token });
+  } catch (err) {
+    console.error("[Vitals] POST /api/vitals error:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -671,6 +1212,473 @@ app.get("/api/doctors", (req, res) => {
   res.json({ success: true, doctors: db.doctors });
 });
 
+// ---------------------------------------------------------------
+// SMART CONSULTATION SLOT SCHEDULING ENDPOINTS
+// ---------------------------------------------------------------
+
+// GET /api/slots?doctorId=doc-1 — Returns available 15-min slots + AI advisory + available dates
+app.get("/api/slots", (req, res) => {
+  try {
+    const { doctorId, maxSlots, date, all } = req.query;
+    if (!doctorId) {
+      return res.status(400).json({ success: false, error: "Missing doctorId" });
+    }
+    let limit;
+    if (maxSlots !== undefined) {
+      limit = maxSlots === "all" ? 200 : (parseInt(maxSlots, 10) || 3);
+    } else if (all === "true" || date) {
+      limit = 200;
+    } else {
+      limit = 3; // Default 3 for backwards compatibility with tests expecting <= 3 slots by default
+    }
+
+    const slots = generateAvailableSlots(doctorId, limit, date || null);
+
+    // Attach AI advisory to each slot
+    const slotsWithAdvisory = slots.map(slot => ({
+      ...slot,
+      aiAdvisory: getAIAdvisory(doctorId, slot.date, slot.startTime)
+    }));
+
+    const topSlot = slotsWithAdvisory[0];
+    const aiAdvisory = getAIAdvisory(doctorId, topSlot ? topSlot.date : null, topSlot ? topSlot.startTime : null);
+    const doc = (db.doctors || []).find(d => d.id === doctorId);
+
+    // Available dates with open slot counts for date selector
+    const availableDates = getAvailableDatesForDoctor(doctorId, 14);
+
+    res.json({
+      success: true,
+      doctorId,
+      doctorName: doc ? doc.name : "Doctor",
+      specialty: doc ? doc.specialty : "General Medicine",
+      slots: slotsWithAdvisory,
+      aiAdvisory,
+      totalAvailable: slotsWithAdvisory.length,
+      selectedDate: date || (topSlot ? topSlot.date : null),
+      availableDates
+    });
+  } catch (err) {
+    console.error("[Slots] GET /api/slots error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/slots/book — Atomically books a slot (double-booking safe)
+app.post("/api/slots/book", async (req, res) => {
+  if (slotBookingLock) {
+    return res.status(409).json({
+      success: false,
+      conflict: true,
+      error: "Another booking is currently being processed. Please retry in a moment."
+    });
+  }
+  slotBookingLock = true;
+  try {
+    const { doctorId, date, startTime, endTime, patientId, patientName, symptoms, urgency, specialty, token: clientToken, consultationRequestId } = req.body || {};
+
+    if (!doctorId || !date || !startTime || !patientId) {
+      return res.status(400).json({ success: false, error: "Missing required booking fields (doctorId, date, startTime, patientId)." });
+    }
+
+    // Schedule check for doctor slot duration
+    const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {};
+    const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+    const startEpoch = parseISTTime(date, startTime);
+    const endEpoch   = endTime ? parseISTTime(date, endTime) : (startEpoch + slotDurationMins * 60 * 1000);
+    const realEndEpoch = endEpoch > startEpoch ? endEpoch : (startEpoch + slotDurationMins * 60 * 1000);
+
+    // Re-validate slot availability right before booking (Double-booking prevention)
+    if (isSlotConflicting(doctorId, date, startEpoch, realEndEpoch)) {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: "This slot was just booked by another patient. We have refreshed the available slots for you."
+      });
+    }
+
+    // Check for existing consultation request or appointment for this patient
+    const tokenToFind = clientToken || consultationRequestId;
+    let existingApp = null;
+    if (tokenToFind) {
+      existingApp = (db.appointments || []).find(a => a.token === tokenToFind);
+    }
+    if (!existingApp) {
+      existingApp = (db.appointments || []).find(
+        a => a.patientId === patientId && (a.status === "Waiting for Doctor Queue" || a.status === "Vitals Pending")
+      );
+    }
+
+    // REQUIREMENT: Patient cannot book before health worker has saved vitals!
+    if (existingApp && (existingApp.status === "Vitals Pending" || !existingApp.vitals)) {
+      return res.status(400).json({
+        success: false,
+        error: "Vitals must be recorded by a health worker before booking an appointment slot."
+      });
+    }
+
+    // Check patient doesn't already have another confirmed/active appointment
+    const blockingPatientStatuses = ["Appointment Confirmed", "Confirmed", "Active", "In Progress", "Rescheduled"];
+    const conflictingActiveApp = (db.appointments || []).find(
+      a => a.patientId === patientId && blockingPatientStatuses.includes(a.status) && a.token !== (existingApp ? existingApp.token : null)
+    );
+    if (conflictingActiveApp) {
+      return res.status(409).json({
+        success: false,
+        error: "You already have an active consultation booked (Token: " + conflictingActiveApp.token + "). Please complete, reschedule, or cancel it before booking a new slot."
+      });
+    }
+
+    // Generate unique token or reuse existing request token
+    const doctor = (db.doctors || []).find(d => d.id === doctorId);
+    const patient = (db.patients || []).find(p => p.id === patientId);
+    const villagePrefix = (patient && patient.village)
+      ? (patient.village.includes("A") ? "VIL-A" : patient.village.includes("B") ? "VIL-B" : "VIL-C")
+      : "VIL-A";
+    const token = existingApp ? existingApp.token : `${villagePrefix}-${Math.floor(100 + Math.random() * 900)}`;
+    const slotId = `${doctorId}-${date}-${startTime.replace(":", "")}-${Math.random().toString(36).slice(2, 6)}`;
+    const endTimeStr = epochToISTTime(realEndEpoch);
+
+    // Create the booked slot record
+    const bookedSlot = {
+      slotId,
+      doctorId,
+      date,
+      startTime,
+      endTime: endTimeStr,
+      token,
+      patientId,
+      patientName: patientName || (existingApp && existingApp.patientName) || (patient && patient.name) || "Patient",
+      status: "booked",
+      bookedAt: new Date().toISOString()
+    };
+    if (!Array.isArray(db.bookedSlots)) db.bookedSlots = [];
+    db.bookedSlots.push(bookedSlot);
+
+    let finalApp = null;
+    if (existingApp) {
+      // Update existing consultation request to "Appointment Confirmed"
+      existingApp.assignedDoctorId = doctorId;
+      existingApp.doctorName = doctor ? doctor.name : (existingApp.doctorName || "Doctor");
+      existingApp.specialty = specialty || (doctor && doctor.specialty) || existingApp.specialty || "General Medicine";
+      existingApp.scheduledDate = date;
+      existingApp.scheduledStartTime = startTime;
+      existingApp.scheduledEndTime = endTimeStr;
+      existingApp.slotDurationMins = slotDurationMins;
+      existingApp.slotId = slotId;
+      existingApp.status = "Appointment Confirmed";
+      existingApp.bookedAt = new Date().toISOString();
+      existingApp.bookingTime = new Date().toISOString();
+      finalApp = existingApp;
+    } else {
+      // Create new appointment record with standard confirmed status
+      finalApp = {
+        token,
+        consultationRequestId: token,
+        patientId,
+        patientName: patientName || (patient && patient.name) || "Patient",
+        patientAge: patient ? patient.age : undefined,
+        patientGender: patient ? patient.gender : undefined,
+        patientPhone: patient ? patient.phone : undefined,
+        patientVillage: patient ? patient.village : undefined,
+        symptoms: symptoms || "General Consultation",
+        urgency: urgency || "Normal",
+        specialty: specialty || (doctor && doctor.specialty) || "General Medicine",
+        assignedDoctorId: doctorId,
+        doctorName: doctor ? doctor.name : undefined,
+        status: "Appointment Confirmed",
+        scheduledDate: date,
+        scheduledStartTime: startTime,
+        scheduledEndTime: endTimeStr,
+        slotDurationMins: slotDurationMins,
+        slotId,
+        vitals: null,
+        bookingTime: new Date().toISOString(),
+        bookedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+      db.appointments.push(finalApp);
+    }
+    saveDatabaseToFile();
+
+    console.log(`[Slots] Slot booked: ${slotId} by ${patientId} on ${date} at ${startTime}, token=${token}, status=Appointment Confirmed`);
+
+    // Real-time broadcast to ALL clients (so other patients immediately see the slot removed!)
+    io.emit("slot_booked", {
+      slotId,
+      doctorId,
+      date,
+      startTime,
+      endTime: endTimeStr,
+      token,
+      patientId,
+      patientName: bookedSlot.patientName,
+      appointment: finalApp,
+      timestamp: Date.now()
+    });
+
+    // Broadcast appointment confirmation to patient, doctor, and health workers
+    io.emit("appointment_confirmed", {
+      appointment: finalApp,
+      timestamp: Date.now()
+    });
+
+    io.emit("appointments_updated", db.appointments);
+
+    res.status(201).json({ success: true, token, slotId, appointment: finalApp, bookedSlot });
+  } catch (err) {
+    console.error("[Slots] POST /api/slots/book error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    slotBookingLock = false;
+  }
+});
+
+// POST /api/appointments/:token/reschedule — Reschedule a confirmed appointment to a new slot
+app.post("/api/appointments/:token/reschedule", async (req, res) => {
+  if (slotBookingLock) {
+    return res.status(409).json({ success: false, conflict: true, error: "Another booking operation is in progress. Please retry in a moment." });
+  }
+  slotBookingLock = true;
+  try {
+    const { token } = req.params;
+    const newSlot = (req.body && req.body.newSlot) || {};
+    const newDate = (req.body && req.body.newDate) || newSlot.date;
+    const newStartTime = (req.body && req.body.newStartTime) || newSlot.startTime;
+    const newEndTime = (req.body && req.body.newEndTime) || newSlot.endTime;
+    const reason = (req.body && req.body.reason) || "";
+
+    if (!newDate || !newStartTime) {
+      return res.status(400).json({ success: false, error: "newDate (or newSlot.date) and newStartTime (or newSlot.startTime) are required." });
+    }
+
+    const appIdx = db.appointments.findIndex(a => a.token === token);
+    if (appIdx < 0) {
+      return res.status(404).json({ success: false, error: "Appointment not found." });
+    }
+    const app = db.appointments[appIdx];
+    const doctorId = app.assignedDoctorId || "doc-1";
+
+    const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {};
+    const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+    const startEpoch = parseISTTime(newDate, newStartTime);
+    const endEpoch = newEndTime ? parseISTTime(newDate, newEndTime) : (startEpoch + slotDurationMins * 60 * 1000);
+    const realEndEpoch = endEpoch > startEpoch ? endEpoch : (startEpoch + slotDurationMins * 60 * 1000);
+
+    // Re-check conflict for new slot
+    if (isSlotConflicting(doctorId, newDate, startEpoch, realEndEpoch)) {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: "The chosen reschedule slot is no longer available. Please select another slot."
+      });
+    }
+
+    // Release old slot in bookedSlots
+    if (Array.isArray(db.bookedSlots)) {
+      db.bookedSlots.forEach(s => {
+        if (s.token === token && s.status !== "cancelled") {
+          s.status = "rescheduled";
+          io.emit("slot_cancelled", { slotId: s.slotId, doctorId, timestamp: Date.now() });
+        }
+      });
+    }
+
+    // Record new booked slot
+    const newSlotId = `${doctorId}-${newDate}-${newStartTime.replace(":", "")}-${Math.random().toString(36).slice(2, 6)}`;
+    const endTimeStr = epochToISTTime(realEndEpoch);
+    const newBookedSlot = {
+      slotId: newSlotId,
+      doctorId,
+      date: newDate,
+      startTime: newStartTime,
+      endTime: endTimeStr,
+      token,
+      patientId: app.patientId,
+      patientName: app.patientName,
+      status: "booked",
+      bookedAt: new Date().toISOString()
+    };
+    if (!Array.isArray(db.bookedSlots)) db.bookedSlots = [];
+    db.bookedSlots.push(newBookedSlot);
+
+    // Update appointment record
+    app.scheduledDate = newDate;
+    app.scheduledStartTime = newStartTime;
+    app.scheduledEndTime = endTimeStr;
+    app.status = "Rescheduled";
+    app.slotId = newSlotId;
+    app.rescheduledAt = new Date().toISOString();
+    if (reason) app.rescheduleReason = reason;
+
+    saveDatabaseToFile();
+
+    io.emit("slot_booked", {
+      slotId: newSlotId,
+      doctorId,
+      date: newDate,
+      startTime: newStartTime,
+      endTime: endTimeStr,
+      token,
+      patientId: app.patientId,
+      appointment: app,
+      timestamp: Date.now()
+    });
+    io.emit("appointments_updated", db.appointments);
+
+    res.json({ success: true, message: "Appointment rescheduled successfully.", appointment: app });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    slotBookingLock = false;
+  }
+});
+
+// POST /api/appointments/:token/cancel — Cancel an appointment and free its slot
+app.post("/api/appointments/:token/cancel", (req, res) => {
+  try {
+    const { token } = req.params;
+    const { reason } = req.body || {};
+
+    const appIdx = db.appointments.findIndex(a => a.token === token);
+    if (appIdx < 0) {
+      return res.status(404).json({ success: false, error: "Appointment not found." });
+    }
+    const app = db.appointments[appIdx];
+    app.status = "Cancelled";
+    app.cancelledAt = new Date().toISOString();
+    if (reason) app.cancelReason = reason;
+
+    // Free the linked slot in bookedSlots
+    let freedSlotId = null;
+    if (Array.isArray(db.bookedSlots)) {
+      db.bookedSlots.forEach(s => {
+        if (s.token === token && s.status !== "cancelled") {
+          s.status = "cancelled";
+          freedSlotId = s.slotId;
+        }
+      });
+    }
+
+    saveDatabaseToFile();
+
+    if (freedSlotId) {
+      io.emit("slot_cancelled", { slotId: freedSlotId, doctorId: app.assignedDoctorId, timestamp: Date.now() });
+    }
+    io.emit("appointments_updated", db.appointments);
+
+    res.json({ success: true, message: `Appointment ${token} cancelled successfully.`, appointment: app });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/slots/:slotId — Cancel a booked slot
+app.delete("/api/slots/:slotId", (req, res) => {
+  try {
+    const { slotId } = req.params;
+    if (!Array.isArray(db.bookedSlots)) db.bookedSlots = [];
+    const idx = db.bookedSlots.findIndex(s => s.slotId === slotId);
+    if (idx < 0) {
+      return res.status(404).json({ success: false, error: "Slot not found." });
+    }
+    const slot = db.bookedSlots[idx];
+    db.bookedSlots[idx].status = "cancelled";
+
+    // Also cancel the linked appointment
+    const appIdx = db.appointments.findIndex(a => a.token === slot.token);
+    if (appIdx >= 0) {
+      db.appointments[appIdx].status = "Cancelled";
+      db.appointments[appIdx].cancelledAt = new Date().toISOString();
+    }
+    saveDatabaseToFile();
+
+    io.emit("slot_cancelled", { slotId, doctorId: slot.doctorId, timestamp: Date.now() });
+    io.emit("appointments_updated", db.appointments);
+    res.json({ success: true, message: "Slot cancelled successfully." });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/doctor/schedule/:doctorId — Retrieve a doctor's schedule config
+app.get("/api/doctor/schedule/:doctorId", (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
+      workStart: "09:00",
+      workEnd: "17:00",
+      breaks: [{ start: "13:00", end: "14:00" }],
+      workDays: [1,2,3,4,5,6],
+      slotDurationMins: 15
+    };
+    res.json({ success: true, doctorId, schedule });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/doctor/schedule/:doctorId — Doctor updates their working hours, breaks, and consultation duration
+app.put("/api/doctor/schedule/:doctorId", (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const { workStart, workEnd, breaks, workDays, slotDurationMins } = req.body || {};
+    if (!workStart || !workEnd) {
+      return res.status(400).json({ success: false, error: "workStart and workEnd are required." });
+    }
+    if (!db.doctorSchedules) db.doctorSchedules = {};
+    db.doctorSchedules[doctorId] = {
+      workStart,
+      workEnd,
+      breaks: Array.isArray(breaks) ? breaks : [{ start: "13:00", end: "14:00" }],
+      workDays: Array.isArray(workDays) ? workDays : [1,2,3,4,5,6],
+      slotDurationMins: Number(slotDurationMins) || 15
+    };
+    saveDatabaseToFile();
+    console.log(`[Schedule] ${doctorId} updated schedule:`, db.doctorSchedules[doctorId]);
+
+    // Broadcast schedule update to ALL patients, doctors, and health workers
+    io.emit("schedule_updated", {
+      doctorId,
+      schedule: db.doctorSchedules[doctorId],
+      timestamp: Date.now()
+    });
+    res.json({ success: true, schedule: db.doctorSchedules[doctorId] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/agora/token — Server-generated secure room token for Agora consultation session
+app.get("/api/agora/token", (req, res) => {
+  try {
+    const { channel, role, token: appToken, userId } = req.query;
+    const roomChannel = channel || (appToken ? `telehealth-${appToken}` : db.agoraConfig.channel || "telehealth-room");
+    const appid = db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
+
+    const crypto = require("crypto");
+    const secret = "vm-telehealth-dispensary-secure-key-2026";
+    const expireTimestamp = Math.floor(Date.now() / 1000) + 7200; // 2 hour validity
+    const uidStr = String(userId || `${role || "user"}_${Math.floor(Math.random() * 10000)}`);
+    const serverSignature = crypto.createHmac("sha256", secret)
+      .update(`${appid}:${roomChannel}:${uidStr}:${expireTimestamp}`)
+      .digest("hex");
+
+    res.json({
+      success: true,
+      appid,
+      channel: roomChannel,
+      token: db.agoraConfig.token || serverSignature,
+      uid: uidStr,
+      role: role || "patient",
+      consultationToken: appToken || null,
+      expiresAt: expireTimestamp
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Agora Configuration
 app.get("/api/agora/config", (req, res) => {
   res.json({ success: true, agoraConfig: db.agoraConfig });
@@ -714,11 +1722,28 @@ if (fs.existsSync(distPath)) {
 // -------------------------------------------------------------
 // START SERVER
 // -------------------------------------------------------------
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("=================================================================");
-  console.log(`  Smart Village Tele-Health Shared Server is RUNNING`);
-  console.log(`  Port: ${PORT}`);
-  console.log(`  Local: http://localhost:${PORT}`);
-  console.log(`  Network: Listening on 0.0.0.0:${PORT} for cross-device access`);
-  console.log("=================================================================");
-});
+if (require.main === module) {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log("=================================================================");
+    console.log(`  Smart Village Tele-Health Shared Server is RUNNING`);
+    console.log(`  Port: ${PORT}`);
+    console.log(`  Local: http://localhost:${PORT}`);
+    console.log(`  Network: Listening on 0.0.0.0:${PORT} for cross-device access`);
+    console.log("=================================================================");
+  });
+}
+
+module.exports = {
+  app,
+  server,
+  io,
+  db,
+  parseISTTime,
+  epochToISTDate,
+  getDayOfWeekIST,
+  isSlotConflicting,
+  generateAvailableSlots,
+  getAvailableDatesForDoctor,
+  getAIAdvisory,
+  DEFAULT_DOCTOR_SCHEDULES
+};
