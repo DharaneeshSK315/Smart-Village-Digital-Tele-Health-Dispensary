@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "server": "node server.js",
     "start": "node server.js",
-    "test": "node consultationChat.test.js && node authStateGuard.test.js && node crossDeviceCommunication.test.js && node smartQueueAllocation.test.js && node fullWorkflowVerification.test.js"
+    "test": "node consultationChat.test.js && node authStateGuard.test.js && node crossDeviceCommunication.test.js && node smartQueueAllocation.test.js && node fullWorkflowVerification.test.js && node consultationSlotSelection.test.js"
   },
   "devDependencies": {
     "rollup": "^4.63.1",

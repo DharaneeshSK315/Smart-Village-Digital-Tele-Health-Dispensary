@@ -7620,6 +7620,199 @@ var VillageMed = (function (exports, React, ReactDOM) {
     }
   };
 
+  // Client-side IST Time & Date Helpers
+  function getTodayISTDate() {
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  }
+
+  function parseClientISTTime(dateStr, timeStr) {
+    const [y, m, d] = (dateStr || getTodayISTDate()).split("-").map(Number);
+    const [h, min] = (timeStr || "09:00").split(":").map(Number);
+    return Date.UTC(y, m - 1, d, h - 5, min - 30, 0, 0);
+  }
+
+  function epochToClientISTTime(epochMs) {
+    return new Date(epochMs).toLocaleTimeString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+  }
+
+  function getClientDayOfWeekIST(dateStr) {
+    const parts = (dateStr || getTodayISTDate()).split("-").map(Number);
+    if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return 1;
+    return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0)).getUTCDay();
+  }
+
+  function isClientSlotConflicting(doctorId, dateStr, startTime, endTime) {
+    const startEpoch = parseClientISTTime(dateStr, startTime);
+    const endEpoch = parseClientISTTime(dateStr, endTime);
+
+    // 1. Check db.bookedSlots
+    const booked = (db.bookedSlots || []).filter(
+      s => s.doctorId === doctorId && s.date === dateStr && s.status !== "cancelled" && s.status !== "Cancelled" && s.status !== "rescheduled" && s.status !== "Rescheduled"
+    );
+    for (const s of booked) {
+      const sStart = parseClientISTTime(s.date, s.startTime);
+      const sEnd = parseClientISTTime(s.date, s.endTime);
+      if (startEpoch < sEnd && endEpoch > sStart) return true;
+    }
+
+    // 2. Check db.appointments
+    const blockingStatuses = ["Appointment Confirmed", "Confirmed", "In Progress", "Waiting", "Active", "Rescheduled"];
+    const activeApps = (db.appointments || []).filter(
+      a => a.assignedDoctorId === doctorId && blockingStatuses.includes(a.status) && a.scheduledDate === dateStr
+    );
+    for (const a of activeApps) {
+      if (a.scheduledStartTime) {
+        const aStart = parseClientISTTime(a.scheduledDate, a.scheduledStartTime);
+        const aEnd = a.scheduledEndTime ? parseClientISTTime(a.scheduledDate, a.scheduledEndTime) : (aStart + 15 * 60 * 1000);
+        if (startEpoch < aEnd && endEpoch > aStart) return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Client-side genuine 15-minute consultation slot generator (Offline, GitHub Pages & local fallback)
+  function generateClientAvailableSlots(doctorId = "doc-1", targetDate = null) {
+    const doc = (db.doctors || []).find(d => d.id === doctorId) || (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS.find(d => d.id === doctorId) : null) || { name: "Dr. Abinesh V", specialty: "General Medicine" };
+    const schedule = (db.doctorSchedules || {})[doctorId] || {
+      workStart: "09:00",
+      workEnd: "17:00",
+      breaks: [{ start: "13:00", end: "14:00" }],
+      workDays: [1, 2, 3, 4, 5, 6],
+      slotDurationMins: 15
+    };
+
+    const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+    const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
+    const nowMs = Date.now();
+    const searchFromMs = nowMs + 5 * 60 * 1000;
+    const todayIST = getTodayISTDate();
+
+    // Helper to generate slots for a single date
+    function getSlotsForDay(dateStr, limit = 100) {
+      if (!dateStr || dateStr < todayIST) return [];
+      const dow = getClientDayOfWeekIST(dateStr);
+      if (!schedule.workDays.includes(dow)) return [];
+
+      const workStartMs = parseClientISTTime(dateStr, schedule.workStart);
+      const workEndMs = parseClientISTTime(dateStr, schedule.workEnd);
+      const daySlots = [];
+
+      let cursor = workStartMs;
+      while (cursor + SLOT_DURATION_MS <= workEndMs && daySlots.length < limit) {
+        const slotEnd = cursor + SLOT_DURATION_MS;
+
+        // Skip past slots today
+        if (dateStr === todayIST && cursor < searchFromMs) {
+          cursor = slotEnd;
+          continue;
+        }
+
+        // Skip breaks
+        const inBreak = (schedule.breaks || []).some(b => {
+          const bStart = parseClientISTTime(dateStr, b.start);
+          const bEnd = parseClientISTTime(dateStr, b.end);
+          return cursor < bEnd && slotEnd > bStart;
+        });
+        if (inBreak) {
+          cursor = slotEnd;
+          continue;
+        }
+
+        const slotStartTime = epochToClientISTTime(cursor);
+        const slotEndTime = epochToClientISTTime(slotEnd);
+
+        // Skip conflicting / already-booked slots
+        if (isClientSlotConflicting(doctorId, dateStr, slotStartTime, slotEndTime)) {
+          cursor = slotEnd;
+          continue;
+        }
+
+        daySlots.push({
+          slotId: `${doctorId}-${dateStr}-${slotStartTime.replace(":", "")}`,
+          doctorId,
+          doctorName: doc.name || "Doctor",
+          specialty: doc.specialty || "General Medicine",
+          date: dateStr,
+          startTime: slotStartTime,
+          endTime: slotEndTime,
+          durationMins: slotDurationMins,
+          status: "available",
+          aiAdvisory: {
+            demandLevel: "Normal",
+            queueDepth: 1,
+            estimatedWaitMins: 5,
+            recommendation: "Optimal time to consult"
+          }
+        });
+
+        cursor = slotEnd;
+      }
+      return daySlots;
+    }
+
+    // Generate availableDates for the upcoming 14 days
+    const [y0, m0, d0] = todayIST.split("-").map(Number);
+    const availableDates = [];
+    for (let offset = 0; offset < 14; offset++) {
+      const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + offset, 12, 0, 0));
+      const dateStr = targetDay.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const dow = getClientDayOfWeekIST(dateStr);
+      if (!schedule.workDays.includes(dow)) continue;
+
+      const daySlots = getSlotsForDay(dateStr, 100);
+      const [yy, mm, dd] = dateStr.split("-").map(Number);
+      const dateObj = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
+      const label = dateObj.toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        weekday: "short",
+        day: "numeric",
+        month: "short"
+      });
+
+      if (daySlots.length > 0 || dateStr === todayIST) {
+        availableDates.push({
+          date: dateStr,
+          label,
+          openSlotCount: daySlots.length,
+          isToday: dateStr === todayIST,
+          isTomorrow: offset === 1
+        });
+      }
+    }
+
+    // Determine active date
+    let activeDate = targetDate;
+    if (!activeDate) {
+      const firstWithSlots = availableDates.find(d => d.openSlotCount > 0);
+      activeDate = firstWithSlots ? firstWithSlots.date : (availableDates[0] ? availableDates[0].date : todayIST);
+    }
+
+    const slots = getSlotsForDay(activeDate, 100);
+
+    return {
+      success: true,
+      doctorId,
+      doctorName: doc.name || "Doctor",
+      specialty: doc.specialty || "General Medicine",
+      slots,
+      aiAdvisory: {
+        demandLevel: slots.length > 5 ? "Low" : "Normal",
+        queueDepth: 1,
+        estimatedWaitMins: 5,
+        recommendation: "Optimal time to consult"
+      },
+      totalAvailable: slots.length,
+      selectedDate: activeDate,
+      availableDates
+    };
+  }
+
   let currentPatientSelectedDate = null;
   let currentPatientAvailableDates = [];
 
@@ -7631,41 +7824,27 @@ var VillageMed = (function (exports, React, ReactDOM) {
         window.activeConsultationRequestToken = consultationToken;
       }
 
-      const dateQuery = targetDate ? `&date=${encodeURIComponent(targetDate)}` : (currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '');
+      const selectedDate = targetDate || currentPatientSelectedDate;
+      const dateQuery = selectedDate ? `&date=${encodeURIComponent(selectedDate)}` : '';
       let data = null;
+
       try {
-        const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
-        if (res.ok) {
+        const backend = getBackendUrl();
+        const apiUrl = (backend && !window.location.hostname.includes("github.io"))
+          ? `${backend}/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`
+          : `/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`;
+
+        const res = await fetch(apiUrl);
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
           data = await res.json();
         }
       } catch (e) {
-        console.warn("[Slots] Remote slot fetch failed, using client-side fallback slots:", e.message);
+        console.warn("[Slots] Remote slot fetch failed, using client-side generator:", e.message);
       }
 
-      if (!data) {
-        // Offline fallback slots for GitHub Pages
-        const today = new Date();
-        const dateStr = targetDate || today.toISOString().split('T')[0];
-        const doc = (db.doctors || []).find(d => d.id === doctorId) || DEFAULT_DOCTORS.find(d => d.id === doctorId) || { name: "Dr. Abinesh V" };
-        data = {
-          slots: [
-            { id: `slot-${dateStr}-1415`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:15", endTime: "14:30", label: "14:15 – 14:30 IST", period: "Afternoon", isAvailable: true },
-            { id: `slot-${dateStr}-1430`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:30", endTime: "14:45", label: "14:30 – 14:45 IST", period: "Afternoon", isAvailable: true },
-            { id: `slot-${dateStr}-1500`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:00", endTime: "15:15", label: "15:00 – 15:15 IST", period: "Afternoon", isAvailable: true },
-            { id: `slot-${dateStr}-1530`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:30", endTime: "15:45", label: "15:30 – 15:45 IST", period: "Afternoon", isAvailable: true }
-          ],
-          availableDates: [
-            { date: dateStr, label: "Today", isToday: true, count: 4 }
-          ],
-          aiAdvisory: {
-            demandLevel: "Normal",
-            queueDepth: 1,
-            estimatedWaitMins: 10,
-            recommendation: "Early afternoon consultation slots available immediately"
-          },
-          doctorName: doc.name,
-          selectedDate: dateStr
-        };
+      if (!data || !data.success) {
+        data = generateClientAvailableSlots(doctorId, selectedDate);
       }
 
       const slots = data.slots || [];
@@ -7674,7 +7853,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       const availableDates = data.availableDates || [];
 
       currentPatientAvailableDates = availableDates;
-      currentPatientSelectedDate = data.selectedDate || targetDate || (availableDates[0] ? availableDates[0].date : null);
+      currentPatientSelectedDate = data.selectedDate || selectedDate || (availableDates[0] ? availableDates[0].date : getTodayISTDate());
 
       const docNameEl = document.getElementById("pat-slots-doctor-name");
       if (docNameEl) docNameEl.innerText = doctorName;
@@ -7695,19 +7874,15 @@ var VillageMed = (function (exports, React, ReactDOM) {
       const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
       const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
 
-      // Render Date Selector Tabs
+      // Keep slot allocation view visible so patient can select/switch dates
+      if (stateSlots) stateSlots.style.display = "block";
+      if (stateWaiting) stateWaiting.style.display = "none";
+
+      // Render Date Selector Tabs and Date Picker
       renderPatientDateSelector(availableDates, currentPatientSelectedDate, doctorId);
 
-      if (slots.length > 0 || availableDates.length > 0) {
-        if (stateSlots) stateSlots.style.display = "block";
-        if (stateWaiting) stateWaiting.style.display = "none";
-        renderPatientAvailableSlots(slots);
-      } else {
-        if (stateSlots) stateSlots.style.display = "none";
-        if (stateWaiting) stateWaiting.style.display = "block";
-        const waitDoc = document.getElementById("pat-queue-doctor-name");
-        if (waitDoc) waitDoc.innerText = doctorName;
-      }
+      // Render Slots (or "No available slots for this date." if none available)
+      renderPatientAvailableSlots(slots);
     } catch (e) {
       console.error("loadPatientAvailableSlotsForDoctor error:", e);
     }
@@ -7718,25 +7893,52 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const tabsContainer = document.getElementById("pat-date-tabs-container");
     const datePicker = document.getElementById("pat-slot-date-picker");
 
-    if (datePicker && activeDate) {
-      datePicker.value = activeDate;
+    if (datePicker) {
+      datePicker.min = getTodayISTDate();
+      if (activeDate) {
+        datePicker.value = activeDate;
+      }
     }
 
     if (!tabsContainer) return;
     tabsContainer.innerHTML = "";
 
-    if (!availableDates || availableDates.length === 0) {
+    const datesList = [...(availableDates || [])];
+    // If activeDate is not in availableDates (e.g., chosen via date picker), include it in tabs
+    if (activeDate && !datesList.some(d => d.date === activeDate)) {
+      const todayIST = getTodayISTDate();
+      const parts = activeDate.split("-").map(Number);
+      const dateObj = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+      const label = dateObj.toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        weekday: "short",
+        day: "numeric",
+        month: "short"
+      });
+      datesList.push({
+        date: activeDate,
+        label,
+        openSlotCount: (currentPatientAvailableSlots || []).length,
+        isToday: activeDate === todayIST,
+        isTomorrow: false
+      });
+      datesList.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    if (datesList.length === 0) {
       tabsContainer.innerHTML = `<span style="font-size:11.5px; color:#64748b;">Checking doctor calendar...</span>`;
       return;
     }
 
-    tabsContainer.innerHTML = availableDates.map(d => {
+    tabsContainer.innerHTML = datesList.map(d => {
       const isActive = d.date === activeDate;
       const dayTag = d.isToday ? ' (Today)' : d.isTomorrow ? ' (Tomorrow)' : '';
+      const dateLabel = (d.label && d.label !== "Today" && d.label !== "Tomorrow") ? d.label : formatSlotDate(d.date);
+      const count = (typeof d.openSlotCount === "number") ? d.openSlotCount : (typeof d.count === "number" ? d.count : 0);
       return `
-      <button type="button" class="slot-date-tab ${isActive ? 'active' : ''}" onclick="onPatientDatePick('${d.date}')" title="${d.openSlotCount} slots available">
-        <span>📅 ${d.label}${dayTag}</span>
-        <span class="date-count-pill">${d.openSlotCount}</span>
+      <button type="button" class="slot-date-tab ${isActive ? 'active' : ''}" onclick="onPatientDatePick('${d.date}')" title="${count} slots available">
+        <span>📅 ${dateLabel}${dayTag}</span>
+        <span class="date-count-pill">${count}</span>
       </button>
     `;
     }).join("");
@@ -7763,8 +7965,25 @@ var VillageMed = (function (exports, React, ReactDOM) {
     slotBroadcastChannel.onmessage = (evt) => {
       const data = evt.data;
       if (data && data.type === "SLOT_BOOKED") {
-        if (typeof loadPatientDashboard === "function" && currentRole === "patient") {
-          loadPatientDashboard();
+        if (data.appointment) {
+          const app = data.appointment;
+          const idx = (db.appointments || []).findIndex(a => a.token === app.token);
+          if (idx >= 0) db.appointments[idx] = app;
+          else (db.appointments = db.appointments || []).push(app);
+          saveDB();
+        }
+        if (currentRole === "patient") {
+          if (typeof loadPatientDashboard === "function") {
+            loadPatientDashboard();
+          }
+          if (typeof refreshPatientAvailableSlots === "function") {
+            refreshPatientAvailableSlots(true);
+          }
+        } else if (currentRole === "doctor") {
+          if (typeof renderDoctorAppointments === "function") renderDoctorAppointments();
+          if (typeof renderDoctorOverviewSummaries === "function") renderDoctorOverviewSummaries();
+          if (typeof renderDoctorQueue === "function") renderDoctorQueue();
+          if (typeof loadDoctorScheduleSettings === "function") loadDoctorScheduleSettings();
         }
       }
     };
@@ -7814,6 +8033,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       return React.createElement(
         "div",
         {
+          id: "pat-no-slots-message",
           style: {
             gridColumn: "1 / -1",
             textAlign: "center",
@@ -7825,9 +8045,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
           }
         },
         React.createElement("div", { style: { fontSize: "24px", marginBottom: "6px" } }, "⏱️"),
-        React.createElement("strong", null, "No consultation slots available for this date."),
+        React.createElement("strong", { style: { fontSize: "14px", color: "#334155" } }, "No available slots for this date."),
         React.createElement("br", null),
-        React.createElement("span", { style: { fontSize: "12px" } }, "Please select another upcoming date using the tabs above.")
+        React.createElement("span", { style: { fontSize: "12px", color: "#64748b" } }, "Please select another upcoming date using the tabs or date picker above.")
       );
     }
 
@@ -7939,7 +8159,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       }
     }
 
-    // 2. Requirement 6: Enable Confirm & Book button ONLY when a slot is selected
+    // 2. Requirement: Enable Confirm & Book button ONLY when a slot is selected
     const confirmBtn = document.getElementById("pat-confirm-slot-btn");
     if (confirmBtn) {
       confirmBtn.disabled = !slot;
@@ -8000,10 +8220,10 @@ var VillageMed = (function (exports, React, ReactDOM) {
   function renderVanillaSlotsFallback(container, slots, activeSlot) {
     if (!container) return;
     if (!slots || slots.length === 0) {
-      container.innerHTML = `<div style="grid-column: 1 / -1; text-align:center; padding:28px 16px; color:#64748b; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px;">
+      container.innerHTML = `<div id="pat-no-slots-message" style="grid-column: 1 / -1; text-align:center; padding:28px 16px; color:#64748b; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px;">
       <div style="font-size:24px; margin-bottom:6px;">⏱️</div>
-      <strong>No consultation slots available for this date.</strong><br>
-      <span style="font-size:12px;">Please select another upcoming date using the tabs above.</span>
+      <strong style="font-size: 14px; color: #334155;">No available slots for this date.</strong><br>
+      <span style="font-size:12px; color: #64748b;">Please select another upcoming date using the tabs or date picker above.</span>
     </div>`;
       return;
     }
@@ -8047,7 +8267,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
   function renderPatientAvailableSlots(slots) {
     currentPatientAvailableSlots = slots || [];
 
-    // CRITICAL FIX: Do not unconditionally wipe out selected slot during polling!
     if (selectedPatientSlot) {
       const stillValid = currentPatientAvailableSlots.find((s) => s.slotId === selectedPatientSlot.slotId);
       if (stillValid) {
@@ -8076,7 +8295,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const countInd = document.getElementById("pat-slots-count-indicator");
     if (countInd) {
       const dateLabel = currentPatientSelectedDate ? formatSlotDate(currentPatientSelectedDate) : "selected date";
-      countInd.innerText = `Showing ${currentPatientAvailableSlots.length} available 15-minute consultation slot${currentPatientAvailableSlots.length === 1 ? '' : 's'} on ${dateLabel}`;
+      if (currentPatientAvailableSlots.length > 0) {
+        countInd.innerText = `Showing ${currentPatientAvailableSlots.length} available 15-minute consultation slot${currentPatientAvailableSlots.length === 1 ? '' : 's'} on ${dateLabel}`;
+      } else {
+        countInd.innerText = `No available slots on ${dateLabel}`;
+      }
     }
 
     // Mount React Component
@@ -8140,6 +8363,22 @@ var VillageMed = (function (exports, React, ReactDOM) {
   window.confirmPatientSelectedSlot = async function() {
     if (!selectedPatientSlot) {
       showToast("Please select an available consultation slot first.", "warning");
+      return;
+    }
+
+    // Re-check slot is still in available slots list
+    const isStillValid = currentPatientAvailableSlots.some(s => s.slotId === selectedPatientSlot.slotId);
+    if (!isStillValid) {
+      const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+      if (conflictAlert) {
+        conflictAlert.innerText = "⚠️ Slot Conflict: That slot is no longer available. We've refreshed the available slots below.";
+        conflictAlert.style.display = "block";
+      }
+      showToast("Selected slot is no longer available! Refreshing available slots...", "warning");
+      selectedPatientSlot = null;
+      window.selectedPatientSlot = null;
+      updateSlotSelectionUI(null);
+      await refreshPatientAvailableSlots(true);
       return;
     }
 
@@ -8212,7 +8451,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
         // Broadcast to other tabs
         if (slotBroadcastChannel) {
           try {
-            slotBroadcastChannel.postMessage({ type: "SLOT_BOOKED", appointment: app });
+            slotBroadcastChannel.postMessage({ type: "SLOT_BOOKED", appointment: app, doctorId: payload.doctorId, slotId: payload.slotId });
           } catch (e) {}
         }
 
@@ -8226,7 +8465,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
         // Reload patient dashboard to immediately display the Confirmed Hero banner
         loadPatientDashboard();
-      } else if (res.status === 409) {
+      } else if (resStatus === 409 || (data && data.conflict)) {
         // Double-booking conflict detected!
         const conflictAlert = document.getElementById("pat-slot-conflict-alert");
         if (conflictAlert) {
@@ -8244,7 +8483,24 @@ var VillageMed = (function (exports, React, ReactDOM) {
         await refreshPatientAvailableSlots(true);
       }
     } catch (err) {
-      console.warn("Backend unavailable, confirming slot booking locally in browser DB:", err);
+      console.warn("Backend unavailable, verifying slot booking locally in browser DB:", err);
+
+      // Prevent double booking locally in client database
+      const isConflicting = isClientSlotConflicting(payload.doctorId, payload.date, payload.startTime, payload.endTime);
+      if (isConflicting) {
+        const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+        if (conflictAlert) {
+          conflictAlert.innerText = "⚠️ Slot Conflict: That slot was just booked by another patient. We've refreshed the available slots below.";
+          conflictAlert.style.display = "block";
+        }
+        showToast("Selected slot was just booked by another patient! Refreshing available slots...", "warning");
+        selectedPatientSlot = null;
+        window.selectedPatientSlot = null;
+        updateSlotSelectionUI(null);
+        await refreshPatientAvailableSlots(true);
+        return;
+      }
+
       // Client-side fallback booking for GitHub Pages & offline operation:
       const consultationToken = payload.token || `VIL-${Date.now().toString().slice(-4)}`;
       const bookedAppointment = {
@@ -8252,14 +8508,29 @@ var VillageMed = (function (exports, React, ReactDOM) {
         patientId: curPatientId || (currentUser ? currentUser.id : "pat-1"),
         patientName: payload.patientName || (currentUser ? currentUser.name : "Sarah Mitchell"),
         assignedDoctorId: payload.doctorId || patientQueueDoctorId || "doc-1",
-        scheduledDate: payload.date || new Date().toISOString().split('T')[0],
-        scheduledStartTime: payload.startTime || "14:15",
-        scheduledEndTime: payload.endTime || "14:30",
+        scheduledDate: payload.date || getTodayISTDate(),
+        scheduledStartTime: payload.startTime || "09:00",
+        scheduledEndTime: payload.endTime || "09:15",
         status: "Appointment Confirmed",
         symptoms: payload.symptoms || "General Tele-Health Consultation",
         urgency: payload.urgency || "Normal",
         bookedAt: new Date().toISOString()
       };
+
+      const bookedSlot = {
+        slotId: payload.slotId,
+        doctorId: payload.doctorId,
+        date: payload.date,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+        token: consultationToken,
+        patientId: curPatientId,
+        patientName: payload.patientName || "Patient",
+        status: "booked",
+        bookedAt: new Date().toISOString()
+      };
+      if (!Array.isArray(db.bookedSlots)) db.bookedSlots = [];
+      db.bookedSlots.push(bookedSlot);
 
       const idx = (db.appointments || []).findIndex(a => a.token === bookedAppointment.token);
       if (idx >= 0) db.appointments[idx] = { ...db.appointments[idx], ...bookedAppointment };
@@ -8269,6 +8540,18 @@ var VillageMed = (function (exports, React, ReactDOM) {
       selectedPatientSlot = null;
       window.selectedPatientSlot = null;
       updateSlotSelectionUI(null);
+
+      if (slotBroadcastChannel) {
+        try {
+          slotBroadcastChannel.postMessage({ type: "SLOT_BOOKED", appointment: bookedAppointment, doctorId: payload.doctorId, slotId: payload.slotId });
+        } catch (e) {}
+      }
+
+      if (currentRole === "doctor") {
+        renderDoctorAppointments();
+        renderDoctorOverviewSummaries();
+        renderDoctorQueue();
+      }
 
       sendBrowserAndAppNotification(
         "Consultation Confirmed!",
@@ -8292,34 +8575,27 @@ var VillageMed = (function (exports, React, ReactDOM) {
   // Refresh available slots for patient
   window.refreshPatientAvailableSlots = async function(silent = false) {
     const doctorId = patientQueueDoctorId || "doc-1";
+    const dateToRefresh = currentPatientSelectedDate || getTodayISTDate();
     try {
-      const dateQuery = currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '';
+      const dateQuery = dateToRefresh ? `&date=${encodeURIComponent(dateToRefresh)}` : '';
       let data = null;
       try {
-        const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
-        if (res.ok) {
+        const backend = getBackendUrl();
+        const apiUrl = (backend && !window.location.hostname.includes("github.io"))
+          ? `${backend}/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`
+          : `/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`;
+
+        const res = await fetch(apiUrl);
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
           data = await res.json();
         }
       } catch (e) {
         console.warn("[Slots] Remote slot refresh failed, using client-side fallback:", e.message);
       }
 
-      if (!data) {
-        const today = new Date();
-        const dateStr = currentPatientSelectedDate || today.toISOString().split('T')[0];
-        const doc = (db.doctors || []).find(d => d.id === doctorId) || DEFAULT_DOCTORS.find(d => d.id === doctorId) || { name: "Dr. Abinesh V" };
-        data = {
-          slots: [
-            { id: `slot-${dateStr}-1415`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:15", endTime: "14:30", label: "14:15 – 14:30 IST", period: "Afternoon", isAvailable: true },
-            { id: `slot-${dateStr}-1430`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:30", endTime: "14:45", label: "14:30 – 14:45 IST", period: "Afternoon", isAvailable: true },
-            { id: `slot-${dateStr}-1500`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:00", endTime: "15:15", label: "15:00 – 15:15 IST", period: "Afternoon", isAvailable: true },
-            { id: `slot-${dateStr}-1530`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:30", endTime: "15:45", label: "15:30 – 15:45 IST", period: "Afternoon", isAvailable: true }
-          ],
-          availableDates: [
-            { date: dateStr, label: "Today", isToday: true, count: 4 }
-          ],
-          doctorName: doc.name
-        };
+      if (!data || !data.success) {
+        data = generateClientAvailableSlots(doctorId, dateToRefresh);
       }
 
       const slots = data.slots || [];
@@ -8327,31 +8603,24 @@ var VillageMed = (function (exports, React, ReactDOM) {
       const doctorName = data.doctorName || "Doctor";
 
       currentPatientAvailableDates = availableDates;
-      if (!currentPatientSelectedDate && availableDates.length > 0) {
-        currentPatientSelectedDate = availableDates[0].date;
-      }
+      currentPatientSelectedDate = data.selectedDate || dateToRefresh;
 
       renderPatientDateSelector(availableDates, currentPatientSelectedDate, doctorId);
 
       const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
       const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
 
-      if (slots.length > 0 || availableDates.length > 0) {
-        if (stateWaiting && stateWaiting.style.display !== "none") {
-          stateWaiting.style.display = "none";
-          if (stateSlots) stateSlots.style.display = "block";
-          sendBrowserAndAppNotification("Slots Available!", `A consultation slot just opened up for ${doctorName}!`, "info");
-        } else if (stateSlots) {
-          stateSlots.style.display = "block";
+      // Always keep stateSlots visible so patient can view slots or select another date
+      if (stateSlots) stateSlots.style.display = "block";
+      if (stateWaiting) stateWaiting.style.display = "none";
+
+      renderPatientAvailableSlots(slots);
+      if (!silent) {
+        if (slots.length > 0) {
+          showToast("Refreshed latest available slots.", "info");
+        } else {
+          showToast("No slots currently available for this date.", "info");
         }
-        renderPatientAvailableSlots(slots);
-        if (!silent) showToast("Refreshed latest available slots.", "info");
-      } else {
-        if (stateSlots && stateSlots.style.display !== "none") {
-          stateSlots.style.display = "none";
-          if (stateWaiting) stateWaiting.style.display = "block";
-        }
-        if (!silent) showToast("No slots currently available. Remaining in priority queue.", "warning");
       }
     } catch (e) {
       console.warn("Refresh slots error:", e);
@@ -8884,6 +9153,14 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
   // 6. Real-time Socket Event Handlers & Doctor Synchronization
   function handleRealtimeSlotBooked(payload) {
+    if (payload && payload.appointment) {
+      const app = payload.appointment;
+      const idx = (db.appointments || []).findIndex(a => a.token === app.token);
+      if (idx >= 0) db.appointments[idx] = app;
+      else (db.appointments = db.appointments || []).push(app);
+      saveDB();
+    }
+
     // If viewing slots for the doctor that just got booked:
     if (patientQueueDoctorId === payload.doctorId) {
       if (selectedPatientSlot && selectedPatientSlot.slotId === payload.slotId) {
@@ -8908,6 +9185,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
       renderDoctorAppointments();
       renderDoctorOverviewSummaries();
       renderDoctorQueue();
+      if (typeof loadDoctorScheduleSettings === "function") {
+        loadDoctorScheduleSettings();
+      }
     }
   }
 

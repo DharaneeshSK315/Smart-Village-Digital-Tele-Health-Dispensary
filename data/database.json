@@ -329,8 +329,82 @@
       "isHomeVisit": false
     },
     {
-      "token": "VIL-A-853",
-      "consultationRequestId": "VIL-A-853",
+      "token": "VIL-T-681",
+      "patientId": "pat-slot-test-1792775150489",
+      "patientName": "Slot Tester",
+      "assignedDoctorId": "doc-1",
+      "status": "Appointment Confirmed",
+      "vitals": {
+        "bpSys": 120,
+        "bpDia": 80,
+        "hr": 72,
+        "spo2": 98,
+        "temp": 98.6
+      },
+      "doctorName": "Dr. Vikram",
+      "specialty": "General Medicine",
+      "scheduledDate": "2026-10-24",
+      "scheduledStartTime": "09:15",
+      "scheduledEndTime": "09:30",
+      "slotDurationMins": 15,
+      "slotId": "doc-1-2026-10-24-0915-2etn",
+      "bookedAt": "2026-10-23T17:05:50.499Z",
+      "bookingTime": "2026-10-23T17:05:50.499Z"
+    },
+    {
+      "token": "VIL-T-884",
+      "patientId": "pat-slot-test-2-1792775150501",
+      "patientName": "Second Tester",
+      "assignedDoctorId": "doc-1",
+      "status": "Waiting for Doctor Queue",
+      "vitals": {
+        "bpSys": 118,
+        "bpDia": 78,
+        "hr": 70,
+        "spo2": 99,
+        "temp": 98.4
+      }
+    },
+    {
+      "token": "VIL-T-179",
+      "patientId": "pat-slot-test-1792775202821",
+      "patientName": "Slot Tester",
+      "assignedDoctorId": "doc-1",
+      "status": "Appointment Confirmed",
+      "vitals": {
+        "bpSys": 120,
+        "bpDia": 80,
+        "hr": 72,
+        "spo2": 98,
+        "temp": 98.6
+      },
+      "doctorName": "Dr. Vikram",
+      "specialty": "General Medicine",
+      "scheduledDate": "2026-10-24",
+      "scheduledStartTime": "09:30",
+      "scheduledEndTime": "09:45",
+      "slotDurationMins": 15,
+      "slotId": "doc-1-2026-10-24-0930-yn0n",
+      "bookedAt": "2026-10-23T17:06:42.832Z",
+      "bookingTime": "2026-10-23T17:06:42.832Z"
+    },
+    {
+      "token": "VIL-T-453",
+      "patientId": "pat-slot-test-2-1792775202834",
+      "patientName": "Second Tester",
+      "assignedDoctorId": "doc-1",
+      "status": "Waiting for Doctor Queue",
+      "vitals": {
+        "bpSys": 118,
+        "bpDia": 78,
+        "hr": 70,
+        "spo2": 99,
+        "temp": 98.4
+      }
+    },
+    {
+      "token": "VIL-A-974",
+      "consultationRequestId": "VIL-A-974",
       "patientId": "pat-resched-1",
       "patientName": "Kavita Reddy",
       "symptoms": "Migraine",
@@ -340,19 +414,19 @@
       "doctorName": "Dr. Vikram",
       "status": "Rescheduled",
       "scheduledDate": "2026-10-24",
-      "scheduledStartTime": "09:45",
-      "scheduledEndTime": "10:00",
+      "scheduledStartTime": "10:15",
+      "scheduledEndTime": "10:30",
       "slotDurationMins": 15,
-      "slotId": "doc-1-2026-10-24-0945-y4rz",
+      "slotId": "doc-1-2026-10-24-1015-sqgy",
       "vitals": null,
-      "bookingTime": "2026-10-23T16:55:05.425Z",
-      "bookedAt": "2026-10-23T16:55:05.425Z",
-      "createdAt": "2026-10-23T16:55:05.425Z",
-      "rescheduledAt": "2026-10-23T16:55:05.427Z"
+      "bookingTime": "2026-10-23T17:07:59.683Z",
+      "bookedAt": "2026-10-23T17:07:59.683Z",
+      "createdAt": "2026-10-23T17:07:59.683Z",
+      "rescheduledAt": "2026-10-23T17:07:59.685Z"
     },
     {
-      "token": "VIL-A-372",
-      "consultationRequestId": "VIL-A-372",
+      "token": "VIL-A-684",
+      "consultationRequestId": "VIL-A-684",
       "patientId": "pat-cancel-test",
       "patientName": "Sunil Verma",
       "symptoms": "Allergy follow-up",
@@ -362,19 +436,19 @@
       "doctorName": "Dr. Vikram",
       "status": "Cancelled",
       "scheduledDate": "2026-10-24",
-      "scheduledStartTime": "09:30",
-      "scheduledEndTime": "09:45",
+      "scheduledStartTime": "10:00",
+      "scheduledEndTime": "10:15",
       "slotDurationMins": 15,
-      "slotId": "doc-1-2026-10-24-0930-h4qy",
+      "slotId": "doc-1-2026-10-24-1000-u87n",
       "vitals": null,
-      "bookingTime": "2026-10-23T16:55:05.472Z",
-      "bookedAt": "2026-10-23T16:55:05.472Z",
-      "createdAt": "2026-10-23T16:55:05.472Z",
-      "cancelledAt": "2026-10-23T16:55:05.474Z"
+      "bookingTime": "2026-10-23T17:07:59.748Z",
+      "bookedAt": "2026-10-23T17:07:59.748Z",
+      "createdAt": "2026-10-23T17:07:59.748Z",
+      "cancelledAt": "2026-10-23T17:07:59.750Z"
     },
     {
-      "token": "VIL-A-641",
-      "consultationRequestId": "VIL-A-641",
+      "token": "VIL-A-404",
+      "consultationRequestId": "VIL-A-404",
       "patientId": "pat-e2e-workflow",
       "patientName": "Ananya Roy",
       "assignedDoctorId": "doc-1",
@@ -397,17 +471,54 @@
         "photo": null
       },
       "vitalsCompleted": true,
-      "requestTime": "2026-10-23T16:55:06.146Z",
-      "createdAt": "2026-10-23T16:55:06.146Z",
-      "bookingTime": "2026-10-23T16:55:06.267Z",
-      "vitalsRecordedAt": "2026-10-23T16:55:06.218Z",
+      "requestTime": "2026-10-23T17:08:00.370Z",
+      "createdAt": "2026-10-23T17:08:00.370Z",
+      "bookingTime": "2026-10-23T17:08:00.491Z",
+      "vitalsRecordedAt": "2026-10-23T17:08:00.444Z",
       "scheduledDate": "2026-10-24",
       "scheduledStartTime": "09:00",
       "scheduledEndTime": "09:15",
       "slotDurationMins": 15,
-      "slotId": "doc-1-2026-10-24-0900-ykoq",
-      "bookedAt": "2026-10-23T16:55:06.267Z",
-      "completedAt": "2026-10-23T16:55:06.275Z"
+      "slotId": "doc-1-2026-10-24-0900-ck00",
+      "bookedAt": "2026-10-23T17:08:00.491Z",
+      "completedAt": "2026-10-23T17:08:00.500Z"
+    },
+    {
+      "token": "VIL-T-638",
+      "patientId": "pat-slot-test-1792775281802",
+      "patientName": "Slot Tester",
+      "assignedDoctorId": "doc-1",
+      "status": "Appointment Confirmed",
+      "vitals": {
+        "bpSys": 120,
+        "bpDia": 80,
+        "hr": 72,
+        "spo2": 98,
+        "temp": 98.6
+      },
+      "doctorName": "Dr. Vikram",
+      "specialty": "General Medicine",
+      "scheduledDate": "2026-10-24",
+      "scheduledStartTime": "09:45",
+      "scheduledEndTime": "10:00",
+      "slotDurationMins": 15,
+      "slotId": "doc-1-2026-10-24-0945-bifh",
+      "bookedAt": "2026-10-23T17:08:01.811Z",
+      "bookingTime": "2026-10-23T17:08:01.811Z"
+    },
+    {
+      "token": "VIL-T-921",
+      "patientId": "pat-slot-test-2-1792775281813",
+      "patientName": "Second Tester",
+      "assignedDoctorId": "doc-1",
+      "status": "Waiting for Doctor Queue",
+      "vitals": {
+        "bpSys": 118,
+        "bpDia": 78,
+        "hr": 70,
+        "spo2": 99,
+        "temp": 98.4
+      }
     }
   ],
   "consultations": [
@@ -593,6 +704,42 @@
       "diagnosis": "Mild tension headache and dehydration",
       "prescription": "Hydration and Rest",
       "completedAt": "2026-10-23T16:55:06.274Z"
+    },
+    {
+      "id": "cons-VIL-A-515",
+      "token": "VIL-A-515",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T16:57:54.394Z"
+    },
+    {
+      "id": "cons-VIL-A-263",
+      "token": "VIL-A-263",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T17:04:43.845Z"
+    },
+    {
+      "id": "cons-VIL-A-842",
+      "token": "VIL-A-842",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T17:06:41.523Z"
+    },
+    {
+      "id": "cons-VIL-A-404",
+      "token": "VIL-A-404",
+      "doctorId": "doc-1",
+      "patientId": "pat-e2e-workflow",
+      "diagnosis": "Mild tension headache and dehydration",
+      "prescription": "Hydration and Rest",
+      "completedAt": "2026-10-23T17:08:00.499Z"
     }
   ],
   "villages": [
@@ -746,52 +893,88 @@
       "bookedAt": "2026-10-23T08:42:23.168Z"
     },
     {
-      "slotId": "doc-1-2026-10-24-0930-ktv7",
+      "slotId": "doc-1-2026-10-24-0915-2etn",
+      "doctorId": "doc-1",
+      "date": "2026-10-24",
+      "startTime": "09:15",
+      "endTime": "09:30",
+      "token": "VIL-T-681",
+      "patientId": "pat-slot-test-1792775150489",
+      "patientName": "Slot Tester",
+      "status": "booked",
+      "bookedAt": "2026-10-23T17:05:50.499Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-24-0930-yn0n",
       "doctorId": "doc-1",
       "date": "2026-10-24",
       "startTime": "09:30",
       "endTime": "09:45",
-      "token": "VIL-A-853",
+      "token": "VIL-T-179",
+      "patientId": "pat-slot-test-1792775202821",
+      "patientName": "Slot Tester",
+      "status": "booked",
+      "bookedAt": "2026-10-23T17:06:42.832Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-24-1000-c198",
+      "doctorId": "doc-1",
+      "date": "2026-10-24",
+      "startTime": "10:00",
+      "endTime": "10:15",
+      "token": "VIL-A-974",
       "patientId": "pat-resched-1",
       "patientName": "Kavita Reddy",
       "status": "rescheduled",
-      "bookedAt": "2026-10-23T16:55:05.425Z"
+      "bookedAt": "2026-10-23T17:07:59.683Z"
     },
     {
-      "slotId": "doc-1-2026-10-24-0945-y4rz",
+      "slotId": "doc-1-2026-10-24-1015-sqgy",
       "doctorId": "doc-1",
       "date": "2026-10-24",
-      "startTime": "09:45",
-      "endTime": "10:00",
-      "token": "VIL-A-853",
+      "startTime": "10:15",
+      "endTime": "10:30",
+      "token": "VIL-A-974",
       "patientId": "pat-resched-1",
       "patientName": "Kavita Reddy",
       "status": "booked",
-      "bookedAt": "2026-10-23T16:55:05.427Z"
+      "bookedAt": "2026-10-23T17:07:59.685Z"
     },
     {
-      "slotId": "doc-1-2026-10-24-0930-h4qy",
+      "slotId": "doc-1-2026-10-24-1000-u87n",
       "doctorId": "doc-1",
       "date": "2026-10-24",
-      "startTime": "09:30",
-      "endTime": "09:45",
-      "token": "VIL-A-372",
+      "startTime": "10:00",
+      "endTime": "10:15",
+      "token": "VIL-A-684",
       "patientId": "pat-cancel-test",
       "patientName": "Sunil Verma",
       "status": "cancelled",
-      "bookedAt": "2026-10-23T16:55:05.472Z"
+      "bookedAt": "2026-10-23T17:07:59.748Z"
     },
     {
-      "slotId": "doc-1-2026-10-24-0900-ykoq",
+      "slotId": "doc-1-2026-10-24-0900-ck00",
       "doctorId": "doc-1",
       "date": "2026-10-24",
       "startTime": "09:00",
       "endTime": "09:15",
-      "token": "VIL-A-641",
+      "token": "VIL-A-404",
       "patientId": "pat-e2e-workflow",
       "patientName": "Ananya Roy",
       "status": "booked",
-      "bookedAt": "2026-10-23T16:55:06.266Z"
+      "bookedAt": "2026-10-23T17:08:00.491Z"
+    },
+    {
+      "slotId": "doc-1-2026-10-24-0945-bifh",
+      "doctorId": "doc-1",
+      "date": "2026-10-24",
+      "startTime": "09:45",
+      "endTime": "10:00",
+      "token": "VIL-T-638",
+      "patientId": "pat-slot-test-1792775281802",
+      "patientName": "Slot Tester",
+      "status": "booked",
+      "bookedAt": "2026-10-23T17:08:01.811Z"
     }
   ],
   "currentUser": {

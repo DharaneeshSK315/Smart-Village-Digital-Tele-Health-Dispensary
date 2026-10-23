@@ -643,34 +643,86 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
   const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
   const slots = [];
   const nowMs = Date.now();
-  // Start looking from 5 minutes from now so no immediate-past slots are offered
+  // Buffer of 5 minutes from now so slots that have started or are immediately starting are excluded
   const searchFromMs = nowMs + 5 * 60 * 1000;
 
   const todayIST = epochToISTDate(nowMs);
+
+  // If a specific targetDate is requested:
+  if (targetDate) {
+    // If target date is in the past, return empty slots
+    if (targetDate < todayIST) {
+      return [];
+    }
+
+    const dow = getDayOfWeekIST(targetDate);
+    // If target date is a non-working day for this doctor, return empty slots
+    if (!schedule.workDays.includes(dow)) {
+      return [];
+    }
+
+    const workStartMs = parseISTTime(targetDate, schedule.workStart);
+    const workEndMs   = parseISTTime(targetDate, schedule.workEnd);
+
+    let cursor = workStartMs;
+    while (cursor + SLOT_DURATION_MS <= workEndMs && slots.length < slotLimit) {
+      const slotEnd = cursor + SLOT_DURATION_MS;
+
+      // Skip if slot has already started or begins within the 5-minute buffer today
+      if (targetDate === todayIST && cursor < searchFromMs) {
+        cursor = slotEnd;
+        continue;
+      }
+
+      // Skip if slot falls within any break window
+      const inBreak = (schedule.breaks || []).some(b => {
+        const bStart = parseISTTime(targetDate, b.start);
+        const bEnd   = parseISTTime(targetDate, b.end);
+        return cursor < bEnd && slotEnd > bStart;
+      });
+      if (inBreak) {
+        cursor = slotEnd;
+        continue;
+      }
+
+      // Skip if slot is already booked/conflicting
+      if (isSlotConflicting(doctorId, targetDate, cursor, slotEnd)) {
+        cursor = slotEnd;
+        continue;
+      }
+
+      const slotStartTime = epochToISTTime(cursor);
+      const slotEndTime   = epochToISTTime(slotEnd);
+
+      slots.push({
+        slotId: `${doctorId}-${targetDate}-${slotStartTime.replace(":", "")}`,
+        doctorId,
+        doctorName: (db.doctors || []).find(d => d.id === doctorId)?.name || "Doctor",
+        specialty: (db.doctors || []).find(d => d.id === doctorId)?.specialty || "General Medicine",
+        date: targetDate,
+        startTime: slotStartTime,
+        endTime: slotEndTime,
+        durationMins: slotDurationMins,
+        status: "available"
+      });
+
+      cursor = slotEnd;
+    }
+
+    return slots;
+  }
+
+  // If targetDate is NOT provided, search starting from todayIST across upcoming working days
   const [y0, m0, d0] = todayIST.split("-").map(Number);
+  const maxDayOffset = 14;
 
-  // If a specific date is requested, search specifically for that date (up to 30 days ahead)
-  const maxDayOffset = targetDate ? 30 : 7;
-
-  // Iterate over calendar days
   for (let dayOffset = 0; dayOffset <= maxDayOffset && slots.length < slotLimit; dayOffset++) {
     const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + dayOffset, 12, 0, 0));
     const dateStr = epochToISTDate(targetDay.getTime());
-
-    if (targetDate && dateStr !== targetDate) {
-      if (dateStr > targetDate) break;
-      continue;
-    }
-
     const dow = getDayOfWeekIST(dateStr);
 
-    // Skip non-working days
-    if (!schedule.workDays.includes(dow)) {
-      if (targetDate && dateStr === targetDate) break;
-      continue;
-    }
+    if (!schedule.workDays.includes(dow)) continue;
 
-    // Build slots grid for this day
     const workStartMs = parseISTTime(dateStr, schedule.workStart);
     const workEndMs   = parseISTTime(dateStr, schedule.workEnd);
 
@@ -679,7 +731,7 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
       const slotEnd = cursor + SLOT_DURATION_MS;
 
       // Skip if slot is in the past
-      if (slotEnd <= searchFromMs) {
+      if (dateStr === todayIST && cursor < searchFromMs) {
         cursor = slotEnd;
         continue;
       }
@@ -718,15 +770,13 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
 
       cursor = slotEnd;
     }
-
-    if (targetDate && dateStr === targetDate) break;
   }
 
   return slots;
 }
 
 /**
- * Get all upcoming working dates for a doctor that have genuine available slots.
+ * Get all upcoming working dates for a doctor with their open slot counts.
  */
 function getAvailableDatesForDoctor(doctorId, maxDays = 14) {
   const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
@@ -750,15 +800,17 @@ function getAvailableDatesForDoctor(doctorId, maxDays = 14) {
     if (!schedule.workDays.includes(dow)) continue;
 
     const openSlots = generateAvailableSlots(doctorId, 100, dateStr);
-    if (openSlots.length > 0) {
-      const [yy, mm, dd] = dateStr.split("-").map(Number);
-      const dateObj = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
-      const label = dateObj.toLocaleDateString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        weekday: "short",
-        day: "numeric",
-        month: "short"
-      });
+    const [yy, mm, dd] = dateStr.split("-").map(Number);
+    const dateObj = new Date(Date.UTC(yy, mm - 1, dd, 12, 0, 0));
+    const label = dateObj.toLocaleDateString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    });
+
+    // Always include today if it's a working day, and include days with open slots
+    if (openSlots.length > 0 || dateStr === todayIST) {
       dates.push({
         date: dateStr,
         label,
@@ -1740,6 +1792,7 @@ module.exports = {
   db,
   parseISTTime,
   epochToISTDate,
+  epochToISTTime,
   getDayOfWeekIST,
   isSlotConflicting,
   generateAvailableSlots,

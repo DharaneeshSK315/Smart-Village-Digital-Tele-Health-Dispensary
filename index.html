@@ -443,7 +443,7 @@
                     <span style="font-size: 12px; font-weight: 700; color: #1e293b;">📅 Select Consultation Date:</span>
                     <div style="display: flex; align-items: center; gap: 6px;">
                       <label for="pat-slot-date-picker" style="font-size: 11px; color: #64748b; cursor: pointer; font-weight: 500;">Pick Date:</label>
-                      <input type="date" id="pat-slot-date-picker" style="font-size: 11px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: white;" onchange="onPatientDatePick(this.value)">
+                      <input type="date" id="pat-slot-date-picker" style="font-size: 11px; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: white;" onchange="onPatientDatePick(this.value)" oninput="onPatientDatePick(this.value)">
                     </div>
                   </div>
                   <div id="pat-date-tabs-container" class="slot-date-tabs-bar" style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;">
