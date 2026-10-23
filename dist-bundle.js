@@ -2123,6 +2123,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
     if (devBtn) devBtn.classList.add("active");
 
     currentRole = roleName;
+    window.currentUser = currentUser;
+    window.currentRole = currentRole;
+
     if (roleName !== "login" && currentUser) {
       saveSessionState(currentUser, currentRole);
     } else if (roleName === "login") {
@@ -2150,14 +2153,17 @@ var VillageMed = (function (exports, React, ReactDOM) {
     if (role === "patient") {
       currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [] };
     } else if (role === "vhw") {
-      currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
+      currentUser = { id: "vhw-1", name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email: "nurse@villagemed.in" };
     } else if (role === "doctor") {
       currentUser = (db.doctors && db.doctors.length > 0) ? db.doctors[0] : { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true };
     } else if (role === "admin") {
-      currentUser = { name: "System Admin", role: "Admin" };
+      currentUser = { id: "admin-1", name: "System Admin", role: "Admin", email: "admin@villagemed.in" };
     }
+    window.currentUser = currentUser;
+    window.currentRole = role;
     saveSessionState(currentUser, role);
     switchView(`view-${role}`, role);
+    showToast(`Switched view to ${role.toUpperCase()}: ${currentUser ? currentUser.name : ''}`, "success");
   };
 
   window.logout = function() {
@@ -2208,7 +2214,16 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
   // Authentication
   window.handleLogin = async function(e, isQuickDemo = false) {
-    if (e) e.preventDefault();
+    if (e) {
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+    }
+    // Strip any stray '?' from URL from previous form submissions
+    if (typeof window !== "undefined" && window.location.search === "?") {
+      try {
+        window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+      } catch (err) {}
+    }
     const emailInput = document.getElementById("login-email");
     const passwordInput = document.getElementById("login-password");
     const roleSelect = document.getElementById("login-role");
@@ -6000,21 +6015,35 @@ var VillageMed = (function (exports, React, ReactDOM) {
   }
 
   // --- INITIALIZE APPLICATION ---
-  window.onload = function() {
+  function initializeApplication() {
     initDB();
     startClock();
     
+    // Clean up any stray '?' in URL from prior GET form submissions
+    if (typeof window !== "undefined" && window.location.search === "?") {
+      try {
+        window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+      } catch (e) {}
+    }
+
     // Check if returning from a Google OAuth redirect
-    const hasOAuthCallback = window.location.hash.includes("access_token=") || 
+    const hasOAuthCallback = (typeof window !== "undefined") && (
+                             window.location.hash.includes("access_token=") || 
                              window.location.search.includes("code=") || 
-                             window.location.hash.includes("error=");
+                             window.location.hash.includes("error="));
                              
     // Restore tab-isolated session from this tab's sessionStorage
     const restored = loadSessionState();
     if (restored && restored.user && restored.role) {
       currentUser = restored.user;
       currentRole = restored.role;
+      window.currentUser = currentUser;
+      window.currentRole = currentRole;
       switchView(`view-${restored.role}`, restored.role);
+    } else if (typeof window !== "undefined" && window._pendingRole) {
+      const p = window._pendingRole;
+      window._pendingRole = null;
+      window.quickLogin(p);
     } else if (!hasOAuthCallback) {
       switchView("view-login", "login");
     }
@@ -6025,7 +6054,18 @@ var VillageMed = (function (exports, React, ReactDOM) {
         loadPatientDashboard();
       }
     }, 3000);
-  };
+  }
+
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initializeApplication);
+    } else {
+      initializeApplication();
+    }
+  }
+  if (typeof window !== "undefined") {
+    window.onload = initializeApplication;
+  }
 
   window.saveAgoraConfig = function() {
     const appid = document.getElementById("agora-appid").value.trim();
