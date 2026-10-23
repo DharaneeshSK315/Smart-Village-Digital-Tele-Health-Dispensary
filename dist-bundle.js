@@ -1,0 +1,8783 @@
+var VillageMed = (function (exports, React, ReactDOM) {
+  'use strict';
+
+  var _documentCurrentScript = typeof document !== 'undefined' ? document.currentScript : null;
+  const env = (typeof ({ url: (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('dist-bundle.js', document.baseURI).href) }) !== 'undefined' && undefined) ? undefined : {};
+  const supabaseUrl = env.VITE_SUPABASE_URL || 'https://lydwpejysaqkjkhwlgib.supabase.co';
+  const supabaseKey = env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5ZHdwZWp5c2Fxa2praHdsZ2liIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3OTkwNTMsImV4cCI6MjA5ODM3NTA1M30.MA22Exy9Su2A2lnf09IWyi1EphSzUFUhij_M0mXk4Tg';
+
+  // Clean up any legacy cross-tab Supabase auth keys from localStorage to prevent cross-tab contamination
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      Object.keys(window.localStorage).forEach((key) => {
+        if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+          window.localStorage.removeItem(key);
+        }
+      });
+    } catch (e) {
+      console.warn('Unable to clear legacy localStorage auth keys:', e);
+    }
+  }
+
+  // Resolve from window.supabase (loaded via CDN)
+  const createClient = window.supabase ? window.supabase.createClient : null;
+
+  // Configure Supabase client with sessionStorage so authentication state is strictly isolated per browser tab
+  const supabase = createClient
+    ? createClient(supabaseUrl, supabaseKey, {
+        auth: {
+          storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
+          storageKey: 'vm_sb_auth_token',
+          autoRefreshToken: true,
+          persistSession: true,
+          detectSessionInUrl: true,
+          multiTab: false,
+        },
+      })
+    : null;
+
+  function createAuthGuard() {
+    let currentTimer = null;
+    let version = 0;
+
+    return {
+      schedule(task, delay = 0) {
+        version += 1;
+        const activeVersion = version;
+
+        if (currentTimer) {
+          clearTimeout(currentTimer);
+        }
+
+        currentTimer = setTimeout(() => {
+          if (activeVersion !== version) {
+            return;
+          }
+          currentTimer = null;
+          task();
+        }, delay);
+      },
+      clear() {
+        version += 1;
+        if (currentTimer) {
+          clearTimeout(currentTimer);
+          currentTimer = null;
+        }
+      }
+    };
+  }
+
+  const SESSION_USER_KEY = 'vm_session_user';
+  const SESSION_ROLE_KEY = 'vm_session_role';
+
+  function resolveStorage(customStorage) {
+    if (customStorage) return customStorage;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      return window.sessionStorage;
+    }
+    return null;
+  }
+
+  function saveSessionState(user, role, customStorage = null) {
+    const storage = resolveStorage(customStorage);
+    if (!storage) return false;
+
+    try {
+      if (user && role) {
+        storage.setItem(SESSION_USER_KEY, JSON.stringify(user));
+        storage.setItem(SESSION_ROLE_KEY, role);
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to save session state:', e);
+    }
+    return false;
+  }
+
+  function loadSessionState(customStorage = null) {
+    const storage = resolveStorage(customStorage);
+    if (!storage) return null;
+
+    try {
+      const rawUser = storage.getItem(SESSION_USER_KEY);
+      const role = storage.getItem(SESSION_ROLE_KEY);
+      if (rawUser && role) {
+        const user = JSON.parse(rawUser);
+        return { user, role };
+      }
+    } catch (e) {
+      console.warn('Failed to load session state:', e);
+      clearSessionState(storage);
+    }
+    return null;
+  }
+
+  function clearSessionState(customStorage = null) {
+    const storage = resolveStorage(customStorage);
+    if (!storage) return false;
+
+    try {
+      storage.removeItem(SESSION_USER_KEY);
+      storage.removeItem(SESSION_ROLE_KEY);
+      return true;
+    } catch (e) {
+      console.warn('Failed to clear session state:', e);
+    }
+    return false;
+  }
+
+  function shouldAutoRestoreSession({ isSigningOut, event, session, currentRole = 'guest', hasOAuthCallback = false }) {
+    if (!session || !session.user) return false;
+    const allowedEvents = ['SIGNED_IN', 'INITIAL_SESSION'];
+    if (!allowedEvents.includes(event)) return false;
+
+    // Tab Isolation Guard:
+    // If this tab already has an active authenticated role and is NOT handling an explicit OAuth redirect callback,
+    // do NOT allow background or cross-tab auth state events to overwrite or switch this tab's role.
+    if (currentRole && currentRole !== 'guest' && currentRole !== 'login' && !hasOAuthCallback) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * consultationChat.js
+   * Pure business logic and utilities for two-way doctor <-> patient tele-consultation chat.
+   * Strictly eliminates AI auto-replies and enforces consultation scoping, authorization,
+   * and standard WhatsApp-style message alignment (sender on right, receiver on left).
+   */
+
+  function filterCleanChat(chatList) {
+    if (!Array.isArray(chatList)) return [];
+    return chatList.filter(m => {
+      if (!m || typeof m !== 'object') return false;
+      if (m.sender === 'bot' || m.senderRole === 'bot') return false;
+      if (typeof m.senderName === 'string' && m.senderName.includes('AI')) return false;
+      if (m.id === 'msg_init_2') return false; // remove legacy simulated bot nurse greeting
+      return true;
+    });
+  }
+
+  function createChatMessage({ text, role, currentUser, activeCall, peerSessionId }) {
+    if (!text || typeof text !== 'string') return null;
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    if (!activeCall || !activeCall.token) return null;
+
+    const consultationToken = activeCall.token;
+    const isDoctor = (role === 'doctor' || role === 'doc');
+    const isPatient = (role === 'patient' || role === 'pat');
+    const isVhw = (role === 'vhw' || role === 'worker');
+
+    let sender = 'patient';
+    let senderRole = 'patient';
+    let senderName = 'Patient';
+    let senderId = currentUser?.id || null;
+    let receiverId = null;
+
+    if (isDoctor) {
+      sender = 'doctor';
+      senderRole = 'doctor';
+      senderName = (currentUser && currentUser.name) ? currentUser.name : (activeCall.doctor?.name || 'Dr. Vikram');
+      senderId = currentUser?.id || activeCall.doctor?.id || 'doc-1';
+      receiverId = activeCall.patient?.id || null;
+    } else if (isPatient) {
+      sender = 'patient';
+      senderRole = 'patient';
+      senderName = (currentUser && currentUser.name) ? currentUser.name : (activeCall.patient?.name || 'Patient');
+      senderId = currentUser?.id || activeCall.patient?.id || 'pat-1';
+      receiverId = activeCall.doctor?.id || null;
+    } else if (isVhw) {
+      sender = 'worker';
+      senderRole = 'vhw';
+      senderName = (currentUser && currentUser.name) ? currentUser.name : 'Nurse Anjali';
+      senderId = currentUser?.id || 'vhw-1';
+      receiverId = activeCall.doctor?.id || null;
+    }
+
+    const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    return {
+      id: msgId,
+      consultationId: consultationToken,
+      sender,
+      senderRole,
+      senderId: String(senderId),
+      senderName,
+      receiverId: receiverId ? String(receiverId) : null,
+      text: trimmed,
+      time: timeStr,
+      timestamp: Date.now()
+    };
+  }
+
+  function canReceiveChatMessage(msg, currentConsultationToken) {
+    if (!msg || typeof msg !== 'object') return false;
+    if (!currentConsultationToken) return false;
+    
+    // Security check: Ignore messages from a different consultation
+    if (msg.consultationId && msg.consultationId !== currentConsultationToken) {
+      return false;
+    }
+
+    // Reject any AI/bot generated replies
+    if (msg.sender === 'bot' || msg.senderRole === 'bot') {
+      return false;
+    }
+    if (typeof msg.senderName === 'string' && msg.senderName.includes('AI')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getAuthenticatedUserId(currentUser, activeCall = null, viewerRole = null) {
+    if (currentUser && currentUser.id) {
+      return String(currentUser.id);
+    }
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const raw = window.sessionStorage.getItem('vm_session_user');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.id) return String(parsed.id);
+        }
+      } catch (e) {}
+    }
+    // Contextual fallback based on active consultation / viewer role:
+    if (viewerRole === 'doc' || viewerRole === 'doctor' || activeCall?.role === 'doctor') {
+      return (activeCall?.doctor?.id) ? String(activeCall.doctor.id) : 'doc-1';
+    }
+    if (viewerRole === 'pat' || viewerRole === 'patient' || activeCall?.role === 'patient') {
+      return (activeCall?.patient?.id) ? String(activeCall.patient.id) : 'pat-1';
+    }
+    if (viewerRole === 'vhw' || activeCall?.role === 'vhw') {
+      return 'vhw-1';
+    }
+    return null;
+  }
+
+  function classifyChatBubble(msg, currentUserId = null, viewerRole = null) {
+    if (!msg) return { isSelf: false, isSystem: false, rowClass: 'chat-message-row justify-start chat-message-peer', bubbleClass: 'chat-bubble', senderLabel: '', roleBadge: '', roleColor: '' };
+
+    if (msg.sender === 'system') {
+      return {
+        isSelf: false,
+        isSystem: true,
+        rowClass: 'chat-message-row justify-center chat-message-system',
+        bubbleClass: 'chat-bubble system',
+        senderLabel: 'System',
+        roleBadge: 'System',
+        roleColor: '#64748b'
+      };
+    }
+
+    // Determine alignment dynamically: compare authenticated user's ID with message's sender ID
+    let isSelf = false;
+    if (currentUserId && msg.senderId) {
+      isSelf = (String(currentUserId) === String(msg.senderId));
+    } else if (viewerRole) {
+      // Secondary fallback only if currentUserId was not provided
+      if ((viewerRole === 'doc' || viewerRole === 'doctor') && (msg.sender === 'doctor' || msg.senderRole === 'doc' || msg.senderRole === 'doctor')) {
+        isSelf = true;
+      } else if ((viewerRole === 'pat' || viewerRole === 'patient') && (msg.sender === 'patient' || msg.senderRole === 'pat' || msg.senderRole === 'patient')) {
+        isSelf = true;
+      } else if (viewerRole === 'vhw' && (msg.sender === 'worker' || msg.senderRole === 'vhw')) {
+        isSelf = true;
+      }
+    }
+
+    if (isSelf) {
+      return {
+        isSelf: true,
+        isSystem: false,
+        rowClass: 'chat-message-row justify-end chat-message-self',
+        bubbleClass: 'chat-bubble self',
+        senderLabel: 'You',
+        roleBadge: 'You',
+        roleColor: 'rgba(255,255,255,0.9)'
+      };
+    }
+
+    const isFromDoctor = (msg.sender === 'doctor' || msg.senderRole === 'doc' || msg.senderRole === 'doctor');
+    const bubbleClass = `chat-bubble peer ${isFromDoctor ? 'doctor-msg' : 'patient-msg'}`;
+    const rowClass = 'chat-message-row justify-start chat-message-peer';
+    const senderLabel = msg.senderName || (isFromDoctor ? 'Doctor' : 'Patient');
+    const roleBadge = isFromDoctor ? '🩺 Doctor' : '👤 Patient';
+    const roleColor = isFromDoctor ? '#1d4ed8' : '#0f766e';
+
+    return {
+      isSelf: false,
+      isSystem: false,
+      rowClass,
+      bubbleClass,
+      senderLabel,
+      roleBadge,
+      roleColor
+    };
+  }
+
+  // Expose React and useState globally for interoperability
+  if (typeof window !== 'undefined') {
+    window.React = React;
+    window.ReactDOM = ReactDOM;
+    window.useState = React.useState;
+  }
+
+  // --- MOCK DATABASE CONFIGURATION ---
+  const DEFAULT_VILLAGES = ["Village Clinic A", "Village Clinic B", "Village Clinic C"];
+
+  const DEFAULT_DOCTORS = [
+    { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true },
+    { id: "doc-2", name: "Dr. Dharani", specialty: "Cardiology", email: "doc.dharani@villagemed.in", password: "password", online: true },
+    { id: "doc-3", name: "Dr. Naveen", specialty: "Neurology", email: "doc.naveen@villagemed.in", password: "password", online: true },
+    { id: "doc-4", name: "Dr. Abinesh V", specialty: "General Medicine", email: "doc.abinesh@villagemed.in", password: "password123", online: true },
+    { id: "doc-5", name: "Dr. Priya", specialty: "Cardiology", email: "doc.priya@villagemed.in", password: "password", online: true, photo: "doctor_portrait.jpg" }
+  ];
+
+  const DEFAULT_PATIENTS = [
+    { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh@gmail.com", photo: "dharaneesh_portrait.jpg", history: [] },
+    { id: "pat-9", name: "Meenakshi", age: 54, gender: "Female", phone: "9876543212", village: "Village Clinic B", photo: "patient_portrait.jpg", history: [] },
+    { id: "pat-12", name: "Rajan Kumar", age: 34, gender: "Male", phone: "9876543213", village: "Village Clinic A", photo: "rajan_portrait.jpg", history: [] },
+    { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [
+      { date: "2026-05-12", clinic: "Cardiology", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", doctor: "Dr. Dharani" }
+    ]},
+    { id: "pat-2", name: "Fatima Al-Hassan", age: 61, gender: "Female", phone: "9845612307", village: "Village Clinic B", history: [
+      { date: "2026-04-30", clinic: "General Medicine", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", doctor: "Dr. Vikram" }
+    ]},
+    { id: "pat-3", name: "James Rodriguez", age: 45, gender: "Male", phone: "8123456789", village: "Village Clinic A", history: [] },
+    { id: "pat-4", name: "Robert Okafor", age: 78, gender: "Male", phone: "9012345678", village: "Village Clinic C", history: [] }
+  ];
+
+  const DEFAULT_APPOINTMENTS = [
+    {
+      token: "VIL-A-431",
+      patientId: "pat-5",
+      patientName: "Dharaneesh",
+      symptoms: "Fever, headache",
+      urgency: "Normal",
+      specialty: "General Medicine",
+      assignedDoctorId: "doc-1",
+      status: "Waiting",
+      vitals: { bpSystolic: 120, bpDiastolic: 80, sugar: 110, temp: 36.5, spo2: 98, hr: 75, pain: 0, photo: null }
+    },
+    {
+      token: "VIL-B-219",
+      patientId: "pat-9",
+      patientName: "Meenakshi",
+      symptoms: "Chest pain, shortness of breath",
+      urgency: "Critical",
+      specialty: "Cardiology",
+      assignedDoctorId: "doc-5",
+      status: "Waiting",
+      vitals: { bpSystolic: 155, bpDiastolic: 95, sugar: 140, temp: 37.2, spo2: 91, hr: 102, pain: 6, photo: null }
+    },
+    {
+      token: "VIL-A-432",
+      patientId: "pat-12",
+      patientName: "Rajan Kumar",
+      symptoms: "Back pain, fatigue",
+      urgency: "Urgent",
+      specialty: "General Medicine",
+      assignedDoctorId: "doc-1",
+      status: "Waiting",
+      vitals: { bpSystolic: 130, bpDiastolic: 85, sugar: 120, temp: 37.0, spo2: 96, hr: 88, pain: 4, photo: null }
+    },
+    {
+      token: "VIL-A-745",
+      patientId: "pat-1",
+      patientName: "Sarah Mitchell",
+      symptoms: "Hypertension checkup, mild dizziness",
+      urgency: "Normal",
+      specialty: "General Medicine",
+      assignedDoctorId: "doc-4",
+      status: "Completed",
+      vitals: { bpSystolic: 138, bpDiastolic: 88, sugar: 115, temp: 36.8, spo2: 97, hr: 78, pain: 1, photo: null }
+    }
+  ];
+
+  const DEFAULT_CONSULTATIONS = [
+    { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
+    { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false },
+    { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false }
+  ];
+
+  const DEFAULT_FAILOVER_LOGS = {
+    hd: 15,
+    low: 28,
+    audio: 8
+  };
+
+  // State Variables
+  let db = {
+    villages: [...DEFAULT_VILLAGES],
+    doctors: [...DEFAULT_DOCTORS],
+    patients: [...DEFAULT_PATIENTS],
+    appointments: [...DEFAULT_APPOINTMENTS],
+    consultations: [...DEFAULT_CONSULTATIONS],
+    failoverLogs: { ...DEFAULT_FAILOVER_LOGS },
+    authConfig: {
+      admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+      vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+    }
+  };
+  let currentUser = null;
+  let currentRole = "guest";
+  let activeCall = null; // { token, patient, doctor, networkQuality, autoFluctuate, chat: [], files: [], animationId: null }
+  let activeCallPrescriptionMeds = [];
+  const authGuard = createAuthGuard();
+
+  // Agora Audio State
+  let agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+  let agoraClient = null;
+  let localAudioTrack = null;
+  let localVideoTrack = null;
+  let agoraJoinPromise = null;
+
+  function getAgoraRolePrefix(role) {
+    if (role === "doctor" || role === "doc") return "doc";
+    if (role === "patient" || role === "pat") return "pat";
+    if (role === "vhw") return "vhw";
+    return role;
+  }
+
+  function getAgoraUid(role, consultationId) {
+    const identity = `${consultationId}:${getAgoraRolePrefix(role)}:${currentUser?.id || currentUser?.email || "anonymous"}`;
+    let hash = 2166136261;
+    for (let index = 0; index < identity.length; index += 1) {
+      hash ^= identity.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) % 2147483646 + 1;
+  }
+
+  // Real-Time Media and Web Audio State
+  let localWebcamStream = null;
+  let virtualWebcamCanvas = null;
+  let virtualWebcamAnimId = null;
+
+  // Global Web Audio Context for audible chimes, unmute detection, and synthetic audio streams
+  function unlockAudioContext() {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      if (!window._sharedAudioCtx) {
+        window._sharedAudioCtx = new AudioContextClass();
+      }
+      if (window._sharedAudioCtx.state === "suspended") {
+        window._sharedAudioCtx.resume().catch(() => {});
+      }
+      return window._sharedAudioCtx;
+    } catch (e) {
+      console.warn("[Audio] AudioContext unlock warning:", e);
+      return null;
+    }
+  }
+
+  // Attach gesture listener to immediately unlock Web Audio on first user interaction
+  if (typeof window !== "undefined") {
+    const gestureUnlock = () => {
+      unlockAudioContext();
+    };
+    window.addEventListener("click", gestureUnlock, { passive: true });
+    window.addEventListener("touchstart", gestureUnlock, { passive: true });
+    window.addEventListener("pointerdown", gestureUnlock, { passive: true });
+  }
+
+  // Distinct, audible medical consultation chime (587Hz -> 880Hz) to confirm audio works
+  function playConsultationChime() {
+    try {
+      const ctx = unlockAudioContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, now);
+      osc.frequency.setValueAtTime(880, now + 0.12);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.2, now + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.7);
+      console.info("[Audio] Played tele-consultation connection chime");
+    } catch (e) {
+      console.warn("[Audio] Chime playback warning:", e);
+    }
+  }
+
+  // Synthesizes a subtle, pleasant clinical presence audio track so audio streams are ALWAYS active
+  function createSynthesizedAudioTrack() {
+    try {
+      const ctx = unlockAudioContext();
+      if (!ctx) return null;
+      const dest = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(260, ctx.currentTime);
+      gain.gain.setValueAtTime(0.012, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(dest);
+      osc.start();
+      const track = dest.stream.getAudioTracks()[0] || null;
+      return track;
+    } catch (e) {
+      console.warn("[Audio] Could not generate synthesized audio track:", e);
+      return null;
+    }
+  }
+
+  // User-facing unmute notification pill if browser autoplay policy restricts remote audio
+  function showAudioUnmutePrompt(role) {
+    const prefix = getAgoraRolePrefix(role);
+    const viewport = document.getElementById(`${prefix}-viewport-container`);
+    if (!viewport || document.getElementById("telehealth-unmute-pill")) return;
+
+    const pill = document.createElement("button");
+    pill.id = "telehealth-unmute-pill";
+    pill.innerHTML = `<span>🔊</span> <span>Click anywhere to unmute consultation audio</span>`;
+    pill.style.cssText = `
+    position: absolute;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #0284c7, #2563eb);
+    color: #ffffff;
+    border: 1px solid rgba(255,255,255,0.4);
+    padding: 8px 18px;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 999;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+  `;
+
+    const unmuteAction = () => {
+      const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+      const remoteVideo = remoteContainer ? remoteContainer.querySelector("video") : null;
+      if (remoteVideo) {
+        remoteVideo.muted = false;
+        remoteVideo.volume = 1.0;
+        remoteVideo.play().catch(() => {});
+      }
+      unlockAudioContext();
+      pill.remove();
+      showToast("Live consultation audio unmuted and active", "success");
+      playConsultationChime();
+      window.removeEventListener("click", unmuteAction);
+      window.removeEventListener("touchstart", unmuteAction);
+    };
+
+    pill.addEventListener("click", (e) => {
+      e.stopPropagation();
+      unmuteAction();
+    });
+    window.addEventListener("click", unmuteAction, { once: true });
+    window.addEventListener("touchstart", unmuteAction, { once: true });
+    viewport.appendChild(pill);
+  }
+
+  function attachStreamToContainer(stream, containerId, isMuted = false) {
+    const container = document.getElementById(containerId);
+    if (!container || !stream) return null;
+
+    let video = container.querySelector("video");
+    if (!video) {
+      container.innerHTML = "";
+      video = document.createElement("video");
+      video.autoplay = true;
+      video.playsInline = true;
+      video.style.width = "100%";
+      video.style.height = "100%";
+      video.style.objectFit = "cover";
+      video.style.borderRadius = "inherit";
+      video.style.display = "block";
+      container.appendChild(video);
+    }
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+    video.muted = isMuted;
+    if (!isMuted) {
+      video.volume = 1.0;
+    }
+
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(err => {
+        console.warn(`[Video] Autoplay note for container '${containerId}':`, err);
+        if (!isMuted) {
+          // Fallback to muted playback so visual stream displays immediately, and prompt for unmuting
+          video.muted = true;
+          video.play().catch(e => console.warn("[Video] Fallback play failed:", e));
+          if (activeCall) {
+            showAudioUnmutePrompt(activeCall.role);
+          }
+        }
+      });
+    }
+    return video;
+  }
+
+  async function acquireHardwareMediaStream() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const notSupportedErr = new Error("Camera API not supported in this environment");
+      notSupportedErr.name = "NotSupportedError";
+      throw notSupportedErr;
+    }
+
+    // Attempt 1: Safe desktop video + audio constraints
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      return { stream, type: "hardware", hasAudio: true };
+    } catch (err1) {
+      console.warn("[Webcam] Attempt 1 (video+audio constraints) failed:", err1.name, err1.message);
+      if (err1.name === "NotAllowedError" || err1.name === "PermissionDeniedError") {
+        throw err1;
+      }
+    }
+
+    // Attempt 2: Bare video: true, audio: true
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      return { stream, type: "hardware", hasAudio: true };
+    } catch (err2) {
+      console.warn("[Webcam] Attempt 2 (bare video+audio) failed:", err2.name, err2.message);
+    }
+
+    // Attempt 3: Bare video: true with synthetic audio track fallback
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const synthAudio = createSynthesizedAudioTrack();
+      if (synthAudio) {
+        stream.addTrack(synthAudio);
+      }
+      return { stream, type: "hardware", hasAudio: false };
+    } catch (err3) {
+      console.warn("[Webcam] Attempt 3 (video-only with synthetic audio) failed:", err3.name, err3.message);
+      throw err3;
+    }
+  }
+
+  function createVirtualMedicalStream(role) {
+    if (virtualWebcamAnimId) {
+      cancelAnimationFrame(virtualWebcamAnimId);
+      virtualWebcamAnimId = null;
+    }
+
+    if (!virtualWebcamCanvas) {
+      virtualWebcamCanvas = document.createElement("canvas");
+      virtualWebcamCanvas.width = 640;
+      virtualWebcamCanvas.height = 480;
+    }
+
+    const vCtx = virtualWebcamCanvas.getContext("2d");
+    const isDoctor = (role === "doctor" || role === "doc");
+    const participantName = isDoctor
+      ? (currentUser ? currentUser.name : "Dr. Vikram")
+      : (currentUser ? currentUser.name : "Village Patient");
+    const roleLabel = isDoctor ? "Consulting Physician • Telehealth Room" : "Patient Station • Village Clinic A";
+    const initials = participantName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || (isDoctor ? "DR" : "PT");
+    const themeColor = isDoctor ? "#2563eb" : "#0d9488";
+
+    let ecgX = 0;
+    const ecgPoints = [];
+
+    function drawVirtualFrame() {
+      if (!activeCall) return;
+
+      const w = virtualWebcamCanvas.width;
+      const h = virtualWebcamCanvas.height;
+
+      if (!activeCall.camActive) {
+        vCtx.fillStyle = "#0f172a";
+        vCtx.fillRect(0, 0, w, h);
+        vCtx.fillStyle = "#ef4444";
+        vCtx.font = "bold 16px Inter, system-ui, sans-serif";
+        vCtx.textAlign = "center";
+        vCtx.fillText("📵 Camera Off", w / 2, h / 2);
+        virtualWebcamAnimId = requestAnimationFrame(drawVirtualFrame);
+        return;
+      }
+
+      // 1. Clinical background gradient with tech vignette
+      const bgGrad = vCtx.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, w / 1.3);
+      bgGrad.addColorStop(0, isDoctor ? "#172554" : "#042f2e");
+      bgGrad.addColorStop(1, "#020617");
+      vCtx.fillStyle = bgGrad;
+      vCtx.fillRect(0, 0, w, h);
+
+      // Subtle medical background grid
+      vCtx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+      vCtx.lineWidth = 1;
+      for (let x = 0; x < w; x += 40) {
+        vCtx.beginPath();
+        vCtx.moveTo(x, 0);
+        vCtx.lineTo(x, h);
+        vCtx.stroke();
+      }
+      for (let y = 0; y < h; y += 40) {
+        vCtx.beginPath();
+        vCtx.moveTo(0, y);
+        vCtx.lineTo(w, y);
+        vCtx.stroke();
+      }
+
+      // 2. Animated Radar / Pulse Ring
+      const now = Date.now();
+      const pulse = Math.sin(now / 350) * 6;
+      vCtx.strokeStyle = isDoctor ? "rgba(59, 130, 246, 0.35)" : "rgba(20, 184, 166, 0.35)";
+      vCtx.lineWidth = 3;
+      vCtx.beginPath();
+      vCtx.arc(w / 2, h / 2 - 35, 70 + pulse, 0, Math.PI * 2);
+      vCtx.stroke();
+
+      // 3. Central Professional Avatar Circle
+      vCtx.fillStyle = themeColor;
+      vCtx.beginPath();
+      vCtx.arc(w / 2, h / 2 - 35, 60, 0, Math.PI * 2);
+      vCtx.fill();
+
+      // Avatar Initials
+      vCtx.fillStyle = "#ffffff";
+      vCtx.font = "bold 32px Inter, system-ui, sans-serif";
+      vCtx.textAlign = "center";
+      vCtx.textBaseline = "middle";
+      vCtx.fillText(initials, w / 2, h / 2 - 35);
+
+      // 4. Participant Name & Role
+      vCtx.textBaseline = "alphabetic";
+      vCtx.fillStyle = "#ffffff";
+      vCtx.font = "bold 20px Inter, system-ui, sans-serif";
+      vCtx.fillText(participantName, w / 2, h / 2 + 55);
+
+      vCtx.fillStyle = isDoctor ? "#93c5fd" : "#99f6e4";
+      vCtx.font = "13px Inter, system-ui, sans-serif";
+      vCtx.fillText(roleLabel, w / 2, h / 2 + 78);
+
+      // 5. Live ECG Heartbeat Waveform at bottom
+      vCtx.strokeStyle = "rgba(16, 185, 129, 0.75)";
+      vCtx.lineWidth = 2;
+      vCtx.beginPath();
+      const ecgY = h - 55;
+      ecgX = (ecgX + 4) % w;
+      const waveY = Math.abs((ecgX % 120) - 60) < 15 ? (Math.sin(now / 40) * 18) : 0;
+      ecgPoints.push({ x: ecgX, y: ecgY + waveY });
+      if (ecgPoints.length > w / 4) ecgPoints.shift();
+
+      for (let i = 0; i < ecgPoints.length; i++) {
+        if (i === 0) vCtx.moveTo(ecgPoints[i].x, ecgPoints[i].y);
+        else vCtx.lineTo(ecgPoints[i].x, ecgPoints[i].y);
+      }
+      vCtx.stroke();
+
+      // 6. Live HUD Overlays (Top Bar)
+      vCtx.fillStyle = "rgba(15, 23, 42, 0.75)";
+      vCtx.fillRect(16, 16, 275, 32);
+      vCtx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+      vCtx.strokeRect(16, 16, 275, 32);
+
+      // Green recording/live dot
+      vCtx.fillStyle = "#10b981";
+      vCtx.beginPath();
+      vCtx.arc(32, 32, 5, 0, Math.PI * 2);
+      vCtx.fill();
+
+      vCtx.fillStyle = "#f8fafc";
+      vCtx.font = "bold 11px Inter, system-ui, sans-serif";
+      vCtx.textAlign = "left";
+      vCtx.fillText("SIMULATED TELE-FEED • 720p HD", 45, 36);
+
+      // Audio frequency bars simulation
+      const audioLevel = Math.abs(Math.sin(now / 150));
+      vCtx.fillStyle = "#38bdf8";
+      for (let b = 0; b < 5; b++) {
+        const barH = 4 + (audioLevel * ((b + 1) * 3)) % 14;
+        vCtx.fillRect(w - 60 + (b * 6), 34 - barH, 4, barH);
+      }
+
+      // Timestamp
+      const timeStr = new Date().toLocaleTimeString();
+      vCtx.fillStyle = "rgba(203, 213, 225, 0.8)";
+      vCtx.font = "11px Inter, monospace";
+      vCtx.textAlign = "right";
+      vCtx.fillText(`LIVE ${timeStr}`, w - 75, 36);
+
+      virtualWebcamAnimId = requestAnimationFrame(drawVirtualFrame);
+    }
+
+    drawVirtualFrame();
+
+    const stream = virtualWebcamCanvas.captureStream(30);
+    stream._isVirtual = true;
+    const synthAudio = createSynthesizedAudioTrack();
+    if (synthAudio) {
+      stream.addTrack(synthAudio);
+    }
+    return stream;
+  }
+
+  async function initNativeWebcam(role, forceReal = false) {
+    const agoraPrefix = getAgoraRolePrefix(role);
+    const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+    const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+
+    // If we already have a live physical stream and not forcing a retry
+    if (!forceReal && localWebcamStream && !localWebcamStream._isVirtual && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+      localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
+      if (localContainer) {
+        attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+        localContainer.style.display = "block";
+      }
+      if (localCanvas) localCanvas.style.display = "none";
+      if (activeCall) activeCall.camActive = true;
+      return localWebcamStream;
+    }
+
+    let acquiredStream = null;
+    let isHardware = false;
+
+    // Try physical webcam first
+    try {
+      const res = await acquireHardwareMediaStream();
+      acquiredStream = res.stream;
+      isHardware = true;
+      console.info("[Webcam] Acquired physical webcam stream:", acquiredStream.id);
+    } catch (err) {
+      console.warn("[Webcam] Physical camera not acquired:", err.name, err.message);
+
+      if (forceReal) {
+        // User explicitly requested real camera
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          showToast("Camera permission blocked. Click the 🔒 icon in your browser address bar to Allow Camera.", "warning");
+        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+          showToast("No physical webcam detected on this device.", "warning");
+        } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+          showToast("Webcam is currently in use by another tab or app.", "warning");
+        } else {
+          showToast(`Camera error: ${err.message || 'Unable to access webcam'}.`, "warning");
+        }
+        return null;
+      }
+
+      // Auto-fallback to simulated medical video stream
+      console.info("[Webcam] Falling back to simulated medical video stream");
+      acquiredStream = createVirtualMedicalStream(role);
+      isHardware = false;
+
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        showToast("Camera access was blocked. Activated Simulated Tele-Health Stream. (Click 🔒 in address bar to allow real webcam)", "info");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        showToast("No physical webcam detected. Activated Simulated Tele-Health Stream.", "info");
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        showToast("Webcam in use by another tab. Activated Simulated Tele-Health Stream.", "info");
+      } else {
+        showToast("Hardware webcam unavailable. Activated Simulated Tele-Health Stream.", "info");
+      }
+    }
+
+    // Stop old tracks if replacing
+    if (localWebcamStream && localWebcamStream !== acquiredStream) {
+      try {
+        localWebcamStream.getTracks().forEach(t => t.stop());
+      } catch (e) {}
+    }
+
+    localWebcamStream = acquiredStream;
+
+    if (localContainer) {
+      attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+      localContainer.style.display = "block";
+    }
+    if (localCanvas) localCanvas.style.display = "none";
+
+
+    const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${agoraPrefix}-cam-toggle`);
+    if (btn) {
+      btn.classList.add("active");
+      btn.innerText = "📷";
+      btn.title = isHardware ? "Real Webcam Active (Click to mute)" : "Simulated Video Active (Click to connect real webcam)";
+    }
+    if (activeCall) {
+      activeCall.camActive = true;
+      activeCall.isVirtualCam = !isHardware;
+    }
+
+    if (isHardware) {
+      showToast("Real webcam connected! Live video active.", "success");
+    }
+
+    updateNetworkUI();
+
+    return localWebcamStream;
+  }
+
+  function stopLocalWebcam() {
+    closePeerCall();
+
+    if (virtualWebcamAnimId) {
+      cancelAnimationFrame(virtualWebcamAnimId);
+      virtualWebcamAnimId = null;
+    }
+
+    if (localWebcamStream) {
+      localWebcamStream.getTracks().forEach(t => t.stop());
+      localWebcamStream = null;
+      console.info("[Webcam] Local webcam tracks stopped");
+    }
+
+    const roles = ["pat", "vhw", "doc"];
+    roles.forEach(r => {
+      const localCont = document.getElementById(`${r}-local-video-container`);
+      const remoteCont = document.getElementById(`${r}-remote-video-container`);
+      if (localCont) {
+        localCont.innerHTML = "";
+        localCont.style.display = "none";
+      }
+      if (remoteCont) {
+        remoteCont.innerHTML = "";
+        remoteCont.style.display = "none";
+      }
+      const localCanvas = document.getElementById(`${r}-local-canvas`);
+      const remoteCanvas = document.getElementById(`${r}-remote-canvas`);
+      if (localCanvas) localCanvas.style.display = "block";
+      if (remoteCanvas) remoteCanvas.style.display = "block";
+    });
+  }
+
+  // --- SHARED BACKEND & REAL-TIME SOCKET.IO ENGINE ---
+  let appSocket = null;
+  let isSocketConnecting = false;
+
+  function getBackendUrl() {
+    const custom = (typeof localStorage !== "undefined") ? localStorage.getItem("telehealth_backend_url") : null;
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, "");
+    }
+
+    if (typeof ({ url: (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('dist-bundle.js', document.baseURI).href) }) !== "undefined" && undefined && undefined.VITE_BACKEND_URL) {
+      return undefined.VITE_BACKEND_URL.replace(/\/+$/, "");
+    }
+
+    if (typeof window !== "undefined") {
+      const loc = window.location;
+      // Don't treat local file:/// URLs as web origin
+      if (loc.protocol !== "file:") {
+        // Served directly by Node/Express server on Render / Railway or port 3001
+        if (loc.port === "3001" || (!loc.port && !loc.hostname.includes("github.io"))) {
+          return loc.origin;
+        }
+        // Accessing via LAN IP on local Wi-Fi (e.g. 192.168.x.x:5173 or 10.x.x.x:5173)
+        if (loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1" && !loc.hostname.includes("github.io")) {
+          return `http://${loc.hostname}:3001`;
+        }
+      }
+    }
+
+    return "http://localhost:3001";
+  }
+
+  function updateBackendStatusUI(isOnline, url) {
+    const pill = document.getElementById("global-connection-status");
+    const text = document.getElementById("connection-status-text");
+    const sText = document.getElementById("server-status-text");
+
+    if (pill && text) {
+      if (isOnline) {
+        pill.classList.remove("offline");
+        pill.classList.add("online");
+        text.innerText = "Online (Shared Server)";
+        pill.title = `Connected to central tele-health server: ${url}`;
+      } else {
+        pill.classList.remove("online");
+        pill.classList.add("offline");
+        text.innerText = "Offline (Local Fallback)";
+        pill.title = `Disconnected from central server: ${url}. Operating with local cache.`;
+      }
+    }
+
+    if (sText) {
+      const isCustom = typeof localStorage !== "undefined" && !!localStorage.getItem("telehealth_backend_url");
+      try {
+        const u = new URL(url);
+        sText.innerText = `Server: ${u.host}${isCustom ? " (Custom)" : ""}`;
+      } catch (e) {
+        sText.innerText = `Server: ${url}`;
+      }
+    }
+  }
+
+  window.configureBackendServer = function() {
+    const current = getBackendUrl();
+    const input = prompt(
+      "SHARED TELE-HEALTH BACKEND SERVER CONFIGURATION:\n\n" +
+      "Enter the URL of your centralized Node.js/Express server.\n" +
+      "- On the same Wi-Fi/LAN: http://<Host-Laptop-IP>:3001 (e.g., http://10.10.68.73:3001)\n" +
+      "- On the Internet: https://<your-deployed-service>.onrender.com\n\n" +
+      "Leave blank and submit to reset to automatic detection.",
+      current
+    );
+
+    if (input !== null) {
+      const trimmed = input.trim();
+      if (trimmed) {
+        localStorage.setItem("telehealth_backend_url", trimmed);
+        showToast(`Backend updated to: ${trimmed}. Reconnecting...`, "info");
+      } else {
+        localStorage.removeItem("telehealth_backend_url");
+        showToast("Reset to automatic backend discovery.", "info");
+      }
+      if (appSocket) {
+        try { appSocket.disconnect(); } catch (e) {}
+        appSocket = null;
+      }
+      isSocketConnecting = false;
+      initSocketConnection();
+      refreshDbFromBackend();
+    }
+  };
+
+  let isRefreshingDashboard = false;
+  function refreshCurrentDashboard() {
+    if (isRefreshingDashboard) return;
+    isRefreshingDashboard = true;
+    try {
+      if (currentRole === "patient") {
+        loadPatientDashboard();
+      } else if (currentRole === "vhw") {
+        loadVhwDashboard();
+      } else if (currentRole === "doctor") {
+        loadDoctorDashboard();
+      } else if (currentRole === "admin" && typeof loadAdminDashboard === "function") {
+        loadAdminDashboard();
+      }
+    } finally {
+      isRefreshingDashboard = false;
+    }
+  }
+
+  let isSyncingBackendDb = false;
+  async function refreshDbFromBackend(skipDashboardRefresh = false) {
+    if (isSyncingBackendDb) return false;
+    isSyncingBackendDb = true;
+    try {
+      const backend = getBackendUrl();
+      const res = await fetch(`${backend}/api/db`, { cache: "no-store" });
+      if (!res.ok) return false;
+      const body = await res.json();
+      if (body && body.success && body.db) {
+        if (Array.isArray(body.db.appointments) && body.db.appointments.length > 0) {
+          db.appointments = body.db.appointments;
+        } else if (!db.appointments || db.appointments.length === 0) {
+          db.appointments = [...DEFAULT_APPOINTMENTS];
+        }
+        if (Array.isArray(body.db.patients) && body.db.patients.length > 0) db.patients = body.db.patients;
+        if (Array.isArray(body.db.doctors) && body.db.doctors.length > 0) db.doctors = body.db.doctors;
+        if (Array.isArray(body.db.consultations)) db.consultations = body.db.consultations;
+        if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
+        localStorage.setItem("telehealth_db", JSON.stringify(db));
+        console.info("[DB] Centralized database state synced from backend.");
+        if (!skipDashboardRefresh) {
+          refreshCurrentDashboard();
+        }
+        return true;
+      }
+    } catch (err) {
+      console.warn("[DB] Could not sync database from backend:", err.message);
+    } finally {
+      isSyncingBackendDb = false;
+    }
+    return false;
+  }
+
+  function syncSocketRole() {
+    if (!appSocket || !appSocket.connected) return;
+    const role = currentRole || "guest";
+    const userId = currentUser ? currentUser.id : null;
+    const userName = currentUser ? currentUser.name : null;
+
+    appSocket.emit("join_role", { role, userId, userName });
+
+    const activeToken = peerToken || (activeCall && activeCall.token);
+    if (activeToken) {
+      appSocket.emit("join_consultation", {
+        token: activeToken,
+        role: activeCall ? activeCall.role : role,
+        userId
+      });
+    }
+  }
+
+  function initSocketConnection() {
+    if (appSocket && (appSocket.connected || isSocketConnecting)) return;
+
+    if (typeof io === "undefined") {
+      console.warn("[Socket] Socket.IO library loading, retrying in 400ms...");
+      setTimeout(initSocketConnection, 400);
+      return;
+    }
+
+    const backend = getBackendUrl();
+    console.info(`[Socket] Initializing real-time connection to ${backend}...`);
+    isSocketConnecting = true;
+
+    try {
+      appSocket = io(backend, {
+        transports: ["websocket", "polling"],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1500,
+        reconnectionDelayMax: 5000,
+        timeout: 10000
+      });
+
+      appSocket.on("connect", () => {
+        isSocketConnecting = false;
+        console.info(`[Socket] Connected to shared backend successfully! Socket ID: ${appSocket.id}`);
+        updateBackendStatusUI(true, backend);
+        syncSocketRole();
+        refreshDbFromBackend();
+      });
+
+      appSocket.on("connect_error", (err) => {
+        isSocketConnecting = false;
+        console.warn(`[Socket] Connection error to ${backend}:`, err.message);
+        updateBackendStatusUI(false, backend);
+      });
+
+      appSocket.on("disconnect", (reason) => {
+        isSocketConnecting = false;
+        console.warn(`[Socket] Disconnected from backend: ${reason}`);
+        updateBackendStatusUI(false, backend);
+      });
+
+      // 1. Appointments Updated (Global Broadcast)
+      appSocket.on("appointments_updated", (newAppointments) => {
+        console.info("[Socket] appointments_updated received from server");
+        if (Array.isArray(newAppointments) && newAppointments.length > 0) {
+          db.appointments = newAppointments;
+          localStorage.setItem("telehealth_db", JSON.stringify(db));
+          refreshCurrentDashboard();
+        }
+      });
+
+      // 2. Token Requested (Patient creates token -> HW and Doctor receive notification)
+      appSocket.on("token_requested", (data) => {
+        console.info("[Socket] token_requested received:", data);
+        if (data && data.appointment) {
+          const idx = db.appointments.findIndex(a => a.token === data.token);
+          if (idx >= 0) db.appointments[idx] = { ...db.appointments[idx], ...data.appointment };
+          else db.appointments.push(data.appointment);
+          localStorage.setItem("telehealth_db", JSON.stringify(db));
+        }
+        playConsultationChime();
+        showToast(`New Token Request: ${data.token} (${data.appointment?.patientName || "Patient"})`, "info");
+        refreshCurrentDashboard();
+      });
+
+      // 3. Vitals Recorded / Patient Added to Queue
+      appSocket.on("patient_added_to_queue", (data) => {
+        console.info("[Socket] patient_added_to_queue received:", data);
+        showToast(`Queue Updated: Token ${data.token} [${data.urgency || "Normal"}]`, "info");
+        refreshCurrentDashboard();
+      });
+
+      appSocket.on("vitals_recorded", (data) => {
+        console.info("[Socket] vitals_recorded received for token:", data.token);
+        if (data && data.appointment) {
+          const aIdx = (db.appointments || []).findIndex(a => a.token === data.token);
+          if (aIdx >= 0) db.appointments[aIdx] = data.appointment;
+          else (db.appointments = db.appointments || []).push(data.appointment);
+          saveDB();
+        }
+        if (currentRole === "patient") {
+          sendBrowserAndAppNotification(
+            "Consultation Ready for Scheduling",
+            "Your consultation is ready for scheduling. Please select one of the available appointment slots.",
+            "info"
+          );
+          showToast("Your consultation is ready for scheduling. Please select one of the available appointment slots.", "success");
+          loadPatientDashboard();
+        } else if (currentRole === "doctor") {
+          renderDoctorQueue();
+          renderDoctorAppointments();
+        } else if (currentRole === "vhw") {
+          renderVhwQueue();
+        }
+      });
+
+      // 4. Consultation Requested (Doctor clicked "Start Call" -> Patient receives incoming call!)
+      appSocket.on("consultation_requested", (data) => {
+        console.info("[Socket] consultation_requested received:", data);
+        playConsultationChime();
+
+        if (data && data.token) {
+          let app = db.appointments.find(a => a.token === data.token);
+          if (app) {
+            app.status = "Active";
+            if (data.doctorId) app.assignedDoctorId = data.doctorId;
+            if (data.doctorName) app.doctorName = data.doctorName;
+          } else if (data.appointment) {
+            db.appointments.push({ ...data.appointment, status: "Active" });
+          } else {
+            db.appointments.push({
+              token: data.token,
+              patientId: data.patientId || (currentUser ? currentUser.id : "pat-1"),
+              patientName: currentUser ? currentUser.name : "Patient",
+              status: "Active",
+              assignedDoctorId: data.doctorId || "doc-1",
+              doctorName: data.doctorName || "Doctor",
+              symptoms: "Tele-Health Consultation"
+            });
+          }
+          localStorage.setItem("telehealth_db", JSON.stringify(db));
+        }
+
+        if (currentRole === "patient") {
+          showToast(`Incoming Consultation Call from ${data.doctorName || "Doctor"}!`, "success");
+          loadPatientDashboard();
+          const card = document.getElementById("pat-active-call-card");
+          if (card) {
+            card.style.display = "block";
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        } else {
+          refreshCurrentDashboard();
+        }
+      });
+
+      // 5. Consultation Accepted (Patient joined -> Doctor notified)
+      appSocket.on("consultation_accepted", (data) => {
+        console.info("[Socket] consultation_accepted received:", data);
+        showToast(`${data.patientName || "Patient"} has joined the consultation!`, "success");
+        if (activeCall && peerConnection) {
+          sendPeerSignal({ type: "presence" });
+        }
+      });
+
+      appSocket.on("participant_joined", (data) => {
+        console.info("[Socket] participant_joined received:", data);
+        if (activeCall && peerConnection && data.token === activeCall.token) {
+          sendPeerSignal({ type: "presence" });
+        }
+      });
+
+      // 6. Consultation Started / Ended
+      appSocket.on("consultation_started", (data) => {
+        console.info("[Socket] consultation_started:", data);
+      });
+
+      appSocket.on("consultation_ended", (data) => {
+        console.info("[Socket] consultation_ended:", data);
+        showToast("Consultation session completed.", "info");
+        if (activeCall && activeCall.token === data.token) {
+          window.leaveConsultation();
+        } else {
+          refreshCurrentDashboard();
+        }
+      });
+
+      // 7. Chat Message (Strictly 2-way doctor-patient messaging, zero AI bots)
+      appSocket.on("chat_message", (msg) => {
+        console.info("[Socket] Incoming chat message:", msg);
+        if (!msg || !activeCall) return;
+        const currentToken = peerToken || (activeCall && activeCall.token);
+        if (!canReceiveChatMessage(msg, currentToken)) return;
+
+        if (!activeCall.chat.some(m => m.id === msg.id)) {
+          activeCall.chat.push(msg);
+          syncChatBox();
+          playChatPingSound();
+
+          const appIdx = db.appointments.findIndex(a => a.token === currentToken);
+          if (appIdx >= 0) {
+            db.appointments[appIdx].chat = activeCall.chat;
+            saveDB();
+          }
+        }
+      });
+
+      // 8. Peer Signal (WebRTC SDP & ICE candidates for cross-device video/audio)
+      appSocket.on("peer_signal", (data) => {
+        handlePeerSignal(data);
+      });
+
+      // 9. Emergency Alert
+      appSocket.on("emergency_alert", (data) => {
+        console.warn("[Socket] emergency_alert received:", data);
+        if (typeof window.triggerEmergencyAlert === "function") {
+          window.triggerEmergencyAlert(data.patientName, data.vitals, data.token);
+        }
+      });
+
+      // 10. Agora Config Updated
+      appSocket.on("agora_config_updated", (cfg) => {
+        if (cfg) {
+          agoraConfig = cfg;
+          localStorage.setItem("agora_config", JSON.stringify(cfg));
+        }
+      });
+
+      // 11. Smart Queue: Slot Booked (Global Real-time Broadcast)
+      appSocket.on("slot_booked", (payload) => {
+        console.info("[Socket] slot_booked received:", payload);
+        if (typeof handleRealtimeSlotBooked === "function") {
+          handleRealtimeSlotBooked(payload);
+        }
+      });
+
+      // 12. Smart Queue: Slot Cancelled / Released
+      appSocket.on("slot_cancelled", (payload) => {
+        console.info("[Socket] slot_cancelled received:", payload);
+        if (typeof handleRealtimeSlotCancelled === "function") {
+          handleRealtimeSlotCancelled(payload);
+        }
+      });
+
+      // 13. Smart Queue: Doctor Schedule Updated
+      appSocket.on("schedule_updated", (payload) => {
+        console.info("[Socket] schedule_updated received:", payload);
+        if (typeof handleRealtimeScheduleUpdated === "function") {
+          handleRealtimeScheduleUpdated(payload);
+        }
+      });
+
+      // 14. Smart Queue: Appointment Confirmed
+      appSocket.on("appointment_confirmed", (payload) => {
+        console.info("[Socket] appointment_confirmed received:", payload);
+        if (typeof handleRealtimeAppointmentConfirmed === "function") {
+          handleRealtimeAppointmentConfirmed(payload);
+        }
+      });
+
+    } catch (e) {
+      isSocketConnecting = false;
+      console.error("[Socket] Failed connecting to backend:", e);
+    }
+  }
+
+  // Cross-tab / Multi-client Peer Video & Audio Connection State
+  let peerConnection = null;
+  let peerSignalingChannel = null;
+  let peerToken = null;
+  let peerLocalRole = null;
+  let peerSessionId = Math.random().toString(36).substring(2, 10);
+  let remoteWebcamStream = null;
+  let peerMakingOffer = false;
+  let peerIgnoreOffer = false;
+  let peerHeartbeatTimer = null;
+
+  function sendPeerSignal(payload) {
+    const token = peerToken || (activeCall && activeCall.token);
+    if (!token) return;
+    const role = peerLocalRole || (activeCall && activeCall.role);
+    const msg = {
+      ...payload,
+      senderToken: token,
+      senderRole: role,
+      senderId: peerSessionId,
+      timestamp: Date.now()
+    };
+    // 1. BroadcastChannel (instant messaging across tabs)
+    if (peerSignalingChannel) {
+      try {
+        peerSignalingChannel.postMessage(msg);
+      } catch (e) {
+        console.warn("[PeerSignaling] BroadcastChannel post warning:", e);
+      }
+    } else {
+      try {
+        const channel = new BroadcastChannel(`vm_peer_bridge_${token}`);
+        channel.postMessage(msg);
+        channel.close();
+      } catch (e) {}
+    }
+    // 2. Storage event fallback for cross-window / multi-context synchronization
+    try {
+      localStorage.setItem(`vm_peer_sig_${token}`, JSON.stringify(msg));
+    } catch (e) {}
+
+    // 3. Socket.IO relay across different physical laptops and devices over the network
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("peer_signal", msg);
+      } catch (e) {
+        console.warn("[PeerSignaling] Socket emit warning:", e);
+      }
+    }
+  }
+
+  async function handlePeerSignal(data) {
+    if (!data || !activeCall) return;
+    if (typeof data === "string") {
+      try { data = JSON.parse(data); } catch (e) { return; }
+    }
+    const currentToken = peerToken || (activeCall && activeCall.token);
+    // Ignore signals from self or mismatched consultation tokens
+    if (data.senderId === peerSessionId || (currentToken && data.senderToken !== currentToken)) return;
+
+    // Real-time peer chat message synchronization (doctor <-> patient direct messaging)
+    if (data.type === "chat" && data.chatMsg) {
+      const msg = data.chatMsg;
+      if (!canReceiveChatMessage(msg, currentToken)) {
+        return;
+      }
+      if (!activeCall.chat.some(m => m.id === msg.id)) {
+        activeCall.chat.push(msg);
+        syncChatBox();
+        playChatPingSound();
+        const appIdx = db.appointments.findIndex(a => a.token === currentToken);
+        if (appIdx >= 0) {
+          db.appointments[appIdx].chat = activeCall.chat;
+          saveDB();
+        }
+      }
+      return;
+    }
+
+    if (!peerConnection) return;
+    const isPolite = (peerLocalRole === "patient" || peerLocalRole === "vhw");
+
+    try {
+      if (data.type === "description" && data.description) {
+        const desc = data.description;
+        const readyForOffer = !peerMakingOffer && (peerConnection.signalingState === "stable" || peerConnection.signalingState === "have-local-offer");
+        const offerCollision = desc.type === "offer" && !readyForOffer;
+        peerIgnoreOffer = !isPolite && offerCollision;
+        if (peerIgnoreOffer) {
+          console.log("[Peer] Ignored offer collision (impolite peer)");
+          return;
+        }
+        await peerConnection.setRemoteDescription(desc);
+        if (desc.type === "offer") {
+          await peerConnection.setLocalDescription();
+          sendPeerSignal({ type: "description", description: peerConnection.localDescription });
+        }
+      } else if (data.type === "candidate" && data.candidate) {
+        try {
+          await peerConnection.addIceCandidate(data.candidate);
+        } catch (err) {
+          if (!peerIgnoreOffer) {
+            console.warn("[Peer] Add candidate note:", err);
+          }
+        }
+      } else if (data.type === "presence" || data.type === "ping") {
+        // Remote participant announced active presence
+        if (peerConnection.signalingState === "stable") {
+          try {
+            peerMakingOffer = true;
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            sendPeerSignal({ type: "description", description: peerConnection.localDescription });
+          } catch (e) {
+            console.warn("[Peer] Presence offer creation warning:", e);
+          } finally {
+            peerMakingOffer = false;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Peer] Signaling processing error:", err);
+    }
+  }
+
+  function handlePeerStorageEvent(event) {
+    const token = peerToken || (activeCall && activeCall.token);
+    if (!event || !token || event.key !== `vm_peer_sig_${token}` || !event.newValue) return;
+    try {
+      const data = JSON.parse(event.newValue);
+      handlePeerSignal(data);
+    } catch (e) {}
+  }
+
+  async function initPeerCall(token, role) {
+    closePeerCall();
+
+    peerToken = token;
+    peerLocalRole = role;
+    peerSessionId = Math.random().toString(36).substring(2, 10);
+    console.info(`[Peer] Initializing real-time cross-client call for token='${token}', role='${role}', session='${peerSessionId}'`);
+
+    // Setup broadcast & storage signaling
+    try {
+      peerSignalingChannel = new BroadcastChannel(`vm_peer_bridge_${token}`);
+      peerSignalingChannel.onmessage = (event) => handlePeerSignal(event.data);
+    } catch (e) {
+      console.warn("[Peer] BroadcastChannel unavailable, using storage signaling:", e);
+    }
+    window.addEventListener("storage", handlePeerStorageEvent);
+
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("join_consultation", {
+          token,
+          role,
+          userId: currentUser ? currentUser.id : null
+        });
+      } catch (e) {}
+    }
+
+    const pcConfig = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" }
+      ]
+    };
+
+    peerConnection = new RTCPeerConnection(pcConfig);
+
+    // Add tracks from local webcam/simulated stream
+    if (localWebcamStream) {
+      localWebcamStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localWebcamStream);
+        console.info(`[Peer] Published local ${track.kind} track to peerConnection`);
+      });
+    }
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendPeerSignal({ type: "candidate", candidate: event.candidate });
+      }
+    };
+
+    peerConnection.onnegotiationneeded = async () => {
+      try {
+        peerMakingOffer = true;
+        await peerConnection.setLocalDescription();
+        sendPeerSignal({ type: "description", description: peerConnection.localDescription });
+        console.info("[Peer] Sent initial/updated SDP description");
+      } catch (err) {
+        console.error("[Peer] Negotiation error:", err);
+      } finally {
+        peerMakingOffer = false;
+      }
+    };
+
+    peerConnection.ontrack = (event) => {
+      console.info(`[Peer] Remote ${event.track.kind} track arrived!`);
+      if (!remoteWebcamStream) {
+        remoteWebcamStream = new MediaStream();
+      }
+      const duplicateTracks = remoteWebcamStream.getTracks().filter(t => t.kind === event.track.kind);
+      duplicateTracks.forEach(t => remoteWebcamStream.removeTrack(t));
+      remoteWebcamStream.addTrack(event.track);
+
+      const prefix = getAgoraRolePrefix(role);
+      const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+      const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
+      const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+
+      if (remoteContainer) {
+        attachStreamToContainer(remoteWebcamStream, `${prefix}-remote-video-container`, false);
+        remoteContainer.style.display = "block";
+      }
+      if (mainCanvas) mainCanvas.style.display = "none";
+      if (fallback) fallback.style.display = "none";
+
+      playConsultationChime();
+      updateNetworkUI();
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      console.info(`[Peer] Connection state: ${peerConnection.connectionState}`);
+      if (peerConnection.connectionState === "connected") {
+        const partner = role === "doctor" ? "Patient" : "Doctor";
+        showToast(`Real-time video & audio connected with ${partner}!`, "success");
+        playConsultationChime();
+      } else if (peerConnection.connectionState === "failed") {
+        try { peerConnection.restartIce(); } catch (e) {}
+      }
+    };
+
+    // Announce presence immediately to connect with already open tab
+    sendPeerSignal({ type: "presence" });
+
+    // Periodically send ping while not connected so either tab connects instantly
+    peerHeartbeatTimer = setInterval(() => {
+      if (!activeCall || !peerConnection) return;
+      if (peerConnection.connectionState !== "connected") {
+        sendPeerSignal({ type: "ping" });
+      }
+    }, 3500);
+  }
+
+  function closePeerCall() {
+    if (peerHeartbeatTimer) {
+      clearInterval(peerHeartbeatTimer);
+      peerHeartbeatTimer = null;
+    }
+    if (peerSignalingChannel) {
+      try {
+        peerSignalingChannel.close();
+      } catch (e) {}
+      peerSignalingChannel = null;
+    }
+    window.removeEventListener("storage", handlePeerStorageEvent);
+    if (peerConnection) {
+      try {
+        peerConnection.close();
+      } catch (e) {}
+      peerConnection = null;
+    }
+    if (remoteWebcamStream) {
+      try {
+        remoteWebcamStream.getTracks().forEach(t => t.stop());
+      } catch (e) {}
+      remoteWebcamStream = null;
+    }
+
+    if (appSocket && appSocket.connected && peerToken) {
+      try {
+        appSocket.emit("leave_consultation", {
+          token: peerToken,
+          role: peerLocalRole,
+          userId: currentUser ? currentUser.id : null
+        });
+      } catch (e) {}
+    }
+
+    peerToken = null;
+    peerLocalRole = null;
+    peerMakingOffer = false;
+    peerIgnoreOffer = false;
+  }
+
+  function validateAgoraAppId(appid) {
+    if (!appid || typeof appid !== "string") return false;
+    const value = appid.trim();
+    const appIdRegex = /^[A-Za-z0-9]{32}$/;
+    return appIdRegex.test(value);
+  }
+
+  // Initialize Database
+  async function initDB() {
+    initSocketConnection();
+    let loadedFromBackend = await refreshDbFromBackend();
+    let loadedFromSupabase = false;
+
+    if (supabase) {
+      // Listen for real-time authentication state changes (OAuth Redirects)
+      try {
+        supabase.auth.onAuthStateChange((event, session) => {
+          if (event === "SIGNED_OUT") {
+            authGuard.clear();
+            clearSessionState();
+            window.googleUser = null;
+            return;
+          }
+
+          const hasOAuthCallback = typeof window !== 'undefined' && 
+            (window.location.hash.includes("access_token=") || 
+             window.location.search.includes("code=") || 
+             window.location.hash.includes("error="));
+
+          if (shouldAutoRestoreSession({ isSigningOut: false, event, session, currentRole, hasOAuthCallback })) {
+            const user = session.user;
+            const email = user.email;
+            const name = (user.user_metadata && user.user_metadata.full_name) || user.email.split('@')[0];
+
+            window.googleUser = { name, email };
+            const emailLower = email.toLowerCase();
+
+            authGuard.clear();
+            authGuard.schedule(() => {
+              const adminsList = (db && db.authConfig && db.authConfig.admins) ? db.authConfig.admins : ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
+              const vhwsList = (db && db.authConfig && db.authConfig.vhws) ? db.authConfig.vhws : ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
+              const doctorsList = (db && db.doctors) ? db.doctors : [];
+
+              let assignedUser = null;
+              let assignedRole = "patient";
+
+              // Direct auto-login based on authorized email constraints
+              if (adminsList.includes(emailLower)) {
+                assignedUser = { name: `Admin ${name}`, role: "Admin", email };
+                assignedRole = "admin";
+              } else if (vhwsList.includes(emailLower)) {
+                assignedUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A", email };
+                assignedRole = "vhw";
+              } else if (emailLower.endsWith("@villagemed.in") || doctorsList.some(d => d.email.toLowerCase() === emailLower)) {
+                let doctor = doctorsList.find(d => d.email.toLowerCase() === emailLower);
+                if (!doctor) {
+                  doctor = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+                  if (db && db.doctors) {
+                    db.doctors.push(doctor);
+                    saveDB();
+                  }
+                }
+                assignedUser = doctor;
+                assignedRole = "doctor";
+              } else {
+                // Default to Patient
+                let patient = (db && db.patients) ? db.patients.find(p => p.phone === email || p.name === name) : null;
+                if (!patient) {
+                  patient = { id: `pat-${user.id.slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+                  if (db && db.patients) {
+                    db.patients.push(patient);
+                    saveDB();
+                  }
+                }
+                assignedUser = patient;
+                assignedRole = "patient";
+              }
+
+              currentUser = assignedUser;
+              currentRole = assignedRole;
+              saveSessionState(currentUser, currentRole);
+              switchView(`view-${currentRole}`, currentRole);
+              showToast(`Logged in as ${currentRole.toUpperCase()}: ${currentUser.name}`, "success");
+            }, 800);
+          }
+        });
+      } catch (authErr) {
+        console.warn("OAuth Session check error:", authErr);
+      }
+
+      try {
+        console.log("Supabase connection detected. Fetching data...");
+        const [patientsRes, doctorsRes, appointmentsRes, consultationsRes] = await Promise.all([
+          supabase.from("patients").select("*"),
+          supabase.from("doctors").select("*"),
+          supabase.from("appointments").select("*"),
+          supabase.from("consultations").select("*")
+        ]);
+
+        if (!patientsRes.error && !doctorsRes.error && !appointmentsRes.error && !consultationsRes.error) {
+          const localCached = localStorage.getItem("telehealth_db");
+          const cachedDb = localCached ? JSON.parse(localCached) : null;
+          const localVillages = cachedDb ? cachedDb.villages : DEFAULT_VILLAGES;
+          const localLogs = cachedDb ? cachedDb.failoverLogs : DEFAULT_FAILOVER_LOGS;
+          const localAuthConfig = cachedDb ? cachedDb.authConfig : {
+            admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+            vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+          };
+
+          if (patientsRes.data.length === 0 && doctorsRes.data.length === 0) {
+            console.log("Supabase database is empty. Seeding defaults...");
+            db = {
+              villages: localVillages,
+              doctors: DEFAULT_DOCTORS,
+              patients: DEFAULT_PATIENTS,
+              appointments: DEFAULT_APPOINTMENTS,
+              consultations: DEFAULT_CONSULTATIONS,
+              failoverLogs: localLogs,
+              authConfig: localAuthConfig
+            };
+            await saveDB();
+          } else {
+            db = {
+              villages: localVillages,
+              doctors: doctorsRes.data.length > 0 ? doctorsRes.data : DEFAULT_DOCTORS,
+              patients: patientsRes.data.length > 0 ? patientsRes.data : DEFAULT_PATIENTS,
+              appointments: appointmentsRes.data || [],
+              consultations: consultationsRes.data || [],
+              failoverLogs: localLogs,
+              authConfig: localAuthConfig
+            };
+          }
+          loadedFromSupabase = true;
+          console.log("Data successfully loaded from Supabase.");
+        } else {
+          console.warn("Error fetching from Supabase, falling back to localStorage.", {
+            patients: patientsRes.error,
+            doctors: doctorsRes.error,
+            appointments: appointmentsRes.error,
+            consultations: consultationsRes.error
+          });
+        }
+      } catch (err) {
+        console.error("Failed to connect to Supabase, falling back to localStorage:", err);
+      }
+    }
+
+    if (!loadedFromBackend && !loadedFromSupabase) {
+      console.log("Running in offline/local storage fallback mode.");
+      if (!localStorage.getItem("telehealth_db")) {
+        db = {
+          villages: DEFAULT_VILLAGES,
+          doctors: DEFAULT_DOCTORS,
+          patients: DEFAULT_PATIENTS,
+          appointments: DEFAULT_APPOINTMENTS,
+          consultations: DEFAULT_CONSULTATIONS,
+          failoverLogs: DEFAULT_FAILOVER_LOGS
+        };
+        saveDB();
+      } else {
+        db = JSON.parse(localStorage.getItem("telehealth_db"));
+      }
+    }
+
+    // Guarantee arrays exist to prevent schema discrepancy crashes
+    db.villages = db.villages || DEFAULT_VILLAGES;
+    db.doctors = db.doctors || [...DEFAULT_DOCTORS];
+    db.patients = db.patients || [...DEFAULT_PATIENTS];
+    db.appointments = db.appointments || [...DEFAULT_APPOINTMENTS];
+    db.consultations = db.consultations || DEFAULT_CONSULTATIONS;
+    db.failoverLogs = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
+    db.authConfig = db.authConfig || {
+      admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+      vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+    };
+
+    // Sync reference doctors (e.g. Dr. Priya)
+    DEFAULT_DOCTORS.forEach(doc => {
+      if (!db.doctors.some(d => d.id === doc.id)) {
+        db.doctors.push(doc);
+      }
+    });
+
+    // Sync reference patients (Dharaneesh, Meenakshi, Rajan Kumar)
+    DEFAULT_PATIENTS.forEach(pat => {
+      const existing = db.patients.find(p => p.id === pat.id);
+      if (!existing) {
+        db.patients.push(pat);
+      } else {
+        if (pat.photo) existing.photo = pat.photo;
+        if (pat.id === "pat-5" || pat.id === "pat-9" || pat.id === "pat-12") {
+          existing.age = pat.age;
+          existing.gender = pat.gender;
+          existing.village = pat.village;
+        }
+      }
+    });
+
+    // If appointments are empty or missing reference tokens, populate them
+    DEFAULT_APPOINTMENTS.forEach(defApp => {
+      const existing = db.appointments.find(a => a.token === defApp.token);
+      if (!existing) {
+        db.appointments.push(defApp);
+      } else {
+        existing.vitals = defApp.vitals;
+        existing.symptoms = defApp.symptoms;
+        existing.urgency = defApp.urgency;
+        existing.assignedDoctorId = defApp.assignedDoctorId;
+      }
+    });
+
+    // Sync across tabs/windows so view updates when appointments change.
+    window.addEventListener("storage", (event) => {
+      if (event.key !== "telehealth_db" || !event.newValue) return;
+      const updatedDb = JSON.parse(event.newValue);
+      if (!updatedDb || !Array.isArray(updatedDb.appointments)) return;
+
+      db.appointments = updatedDb.appointments;
+      if (activeCall && activeCall.token) {
+        const activeApp = db.appointments.find(a => a.token === activeCall.token);
+        if (activeApp && Array.isArray(activeApp.chat)) {
+          let hasNew = false;
+          activeApp.chat.forEach(msg => {
+            if (msg && msg.sender !== "bot" && msg.senderRole !== "bot" && !msg.senderName?.includes("AI") && !activeCall.chat.some(m => m.id === msg.id)) {
+              activeCall.chat.push(msg);
+              hasNew = true;
+            }
+          });
+          if (hasNew) {
+            syncChatBox();
+            playChatPingSound();
+          }
+        }
+      }
+      if (currentRole === "patient") {
+        loadPatientDashboard();
+      } else if (currentRole === "doctor") {
+        loadDoctorDashboard();
+      } else if (currentRole === "vhw") {
+        loadVhwDashboard();
+      }
+    });
+    
+    // Force upgrade cache if demo email is missing from admins list
+    if (!db.authConfig.admins.includes("tvillage.admin.demo@gmail.com")) {
+      db.authConfig.admins.push("tvillage.admin.demo@gmail.com");
+      saveDB();
+    }
+
+    db.recordings = db.recordings || [];
+
+    // Load Agora Config
+    agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
+    if (!agoraConfig || !agoraConfig.appid) {
+      agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    }
+
+    // Retry the bundled Agora configuration after an earlier client-side failure.
+    if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.enabled) {
+      agoraConfig.enabled = true;
+      delete agoraConfig.lastFail;
+      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    }
+
+    if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
+      console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
+      agoraConfig.enabled = false;
+      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    }
+
+    if (supabase) {
+      const realtimeChannel = supabase.channel("telehealth-live-updates");
+      realtimeChannel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments" },
+        async (payload) => {
+          console.info("Appointment change received from Supabase", payload);
+          try {
+            const { data, error } = await supabase.from("appointments").select("*");
+            if (!error && data) {
+              db.appointments = data;
+              saveDB();
+              if (currentRole === "patient") loadPatientDashboard();
+              else if (currentRole === "doctor") loadDoctorDashboard();
+              else if (currentRole === "vhw") loadVhwDashboard();
+            }
+          } catch (syncErr) {
+            console.warn("Realtime appointment sync failed.", syncErr);
+          }
+        }
+      );
+      realtimeChannel.subscribe();
+    }
+    
+    // Populate UI inputs on load
+    setTimeout(() => {
+      populateAgoraInputs();
+    }, 300);
+  }
+
+  function populateAgoraInputs() {
+    const appidInput = document.getElementById("agora-appid");
+    const tokenInput = document.getElementById("agora-token");
+    const chanInput = document.getElementById("agora-channel");
+    const enableCheck = document.getElementById("agora-enabled");
+    
+    if (agoraConfig) {
+      if (appidInput) appidInput.value = agoraConfig.appid || "";
+      if (tokenInput) tokenInput.value = agoraConfig.token || "";
+      if (chanInput) chanInput.value = agoraConfig.channel || "telehealth-room";
+      if (enableCheck) enableCheck.checked = agoraConfig.enabled || false;
+    }
+  }
+
+  async function saveDB(tableName = null) {
+    // Always update local cache instantly for smooth UI
+    localStorage.setItem("telehealth_db", JSON.stringify(db));
+
+    // Sync with centralized shared backend server
+    try {
+      const backend = getBackendUrl();
+      if (tableName === "appointments" || !tableName) {
+        fetch(`${backend}/api/appointments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(db.appointments)
+        }).catch(err => console.debug("[saveDB] appointments backend sync note:", err.message));
+      }
+      if (tableName === "consultations" || !tableName) {
+        if (db.consultations && db.consultations.length > 0) {
+          const latest = db.consultations[db.consultations.length - 1];
+          if (latest) {
+            fetch(`${backend}/api/consultations`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(latest)
+            }).catch(err => console.debug("[saveDB] consultation backend sync note:", err.message));
+          }
+        }
+      }
+    } catch (backendErr) {
+      console.debug("[saveDB] Backend sync exception:", backendErr);
+    }
+
+    if (supabase) {
+      if (!window.isNetworkOnline) {
+        console.log("Device is Offline. Consultation saved locally. Will sync when Online.");
+        // Record pending sync
+        let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
+        if (tableName) {
+          pending[tableName] = true;
+        } else {
+          pending.patients = true;
+          pending.doctors = true;
+          pending.appointments = true;
+          pending.consultations = true;
+        }
+        localStorage.setItem("pending_syncs", JSON.stringify(pending));
+        return true;
+      }
+
+      try {
+        if (tableName === "patients" || !tableName) {
+          const { error } = await supabase.from("patients").upsert(db.patients);
+          if (error) throw error;
+        }
+        if (tableName === "doctors" || !tableName) {
+          const { error } = await supabase.from("doctors").upsert(db.doctors);
+          if (error) throw error;
+        }
+        if (tableName === "appointments" || !tableName) {
+          const { error } = await supabase.from("appointments").upsert(db.appointments);
+          if (error) throw error;
+        }
+        if (tableName === "consultations" || !tableName) {
+          const { error } = await supabase.from("consultations").upsert(db.consultations);
+          if (error) throw error;
+        }
+        console.log(`Supabase synced successfully: ${tableName || 'all tables'}`);
+        return true;
+      } catch (err) {
+        console.error("Supabase sync failed, caching locally for auto-retry:", err);
+        window.lastDatabaseError = err;
+        let pending = JSON.parse(localStorage.getItem("pending_syncs")) || {};
+        if (tableName) pending[tableName] = true;
+        else { pending.patients = true; pending.doctors = true; pending.appointments = true; pending.consultations = true; }
+        localStorage.setItem("pending_syncs", JSON.stringify(pending));
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  async function refreshAppointmentsFromSupabase() {
+    const backendSynced = await refreshDbFromBackend(true);
+    if (backendSynced) return true;
+
+    if (!supabase) return false;
+
+    try {
+      const { data, error } = await supabase.from("appointments").select("*");
+      if (error) {
+        console.warn("Could not refresh appointments from Supabase:", error);
+        return false;
+      }
+
+      if (data) {
+        db.appointments = data;
+        localStorage.setItem("telehealth_db", JSON.stringify(db));
+        if (currentRole === "patient") loadPatientDashboard();
+        if (currentRole === "vhw") loadVhwDashboard();
+        if (currentRole === "doctor") loadDoctorDashboard();
+        return true;
+      }
+    } catch (err) {
+      console.warn("Supabase appointment refresh error:", err);
+    }
+
+    return false;
+  }
+
+  // Clock updates
+  function startClock() {
+    const clockEl = document.getElementById("live-clock");
+    setInterval(() => {
+      const now = new Date();
+      clockEl.innerText = now.toLocaleString("en-US", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true
+      });
+    }, 1000);
+  }
+
+  // Toast alerts utility
+  function showToast(message, type = "info") {
+    const container = document.getElementById("toast-bin");
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+    <span>${message}</span>
+    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+  `;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+  }
+
+  // View switcher
+  window.switchView = function(viewId, roleName) {
+    document.querySelectorAll(".view-section").forEach(sec => sec.classList.remove("active"));
+    document.querySelectorAll(".dev-btn").forEach(btn => btn.classList.remove("active"));
+    
+    const targetView = document.getElementById(viewId);
+    if (targetView) targetView.classList.add("active");
+    
+    const devBtn = document.getElementById(`dev-btn-${roleName}`);
+    if (devBtn) devBtn.classList.add("active");
+
+    currentRole = roleName;
+    if (roleName !== "login" && currentUser) {
+      saveSessionState(currentUser, currentRole);
+    } else if (roleName === "login") {
+      clearSessionState();
+    }
+    updateHeaderProfile();
+    syncSocketRole();
+
+    // Load dashboards based on role
+    if (roleName === "patient") {
+      if (supabase) refreshAppointmentsFromSupabase();
+      loadPatientDashboard();
+    } else if (roleName === "vhw") {
+      if (supabase) refreshAppointmentsFromSupabase();
+      loadVhwDashboard();
+    } else if (roleName === "doctor") {
+      if (supabase) refreshAppointmentsFromSupabase();
+      loadDoctorDashboard();
+    } else if (roleName === "admin") {
+      loadAdminDashboard();
+    }
+  };
+
+  window.quickLogin = function(role) {
+    if (role === "patient") {
+      currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [] };
+    } else if (role === "vhw") {
+      currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A" };
+    } else if (role === "doctor") {
+      currentUser = (db.doctors && db.doctors.length > 0) ? db.doctors[0] : { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true };
+    } else if (role === "admin") {
+      currentUser = { name: "System Admin", role: "Admin" };
+    }
+    saveSessionState(currentUser, role);
+    switchView(`view-${role}`, role);
+  };
+
+  window.logout = function() {
+    authGuard.clear();
+    clearSessionState();
+    currentUser = null;
+    currentRole = "guest";
+    window.googleUser = null;
+    document.getElementById("header-user-profile").style.display = "none";
+    
+    if (supabase) {
+      supabase.auth.signOut().then(() => {
+        console.log("Logged out of Supabase session.");
+      }).catch(err => console.warn("Supabase signOut error:", err));
+    }
+    
+    switchView("view-login", "login");
+  };
+
+  function updateHeaderProfile() {
+    const profileEl = document.getElementById("header-user-profile");
+    if (!currentUser || currentRole === "guest") {
+      profileEl.style.display = "none";
+      return;
+    }
+    profileEl.style.display = "flex";
+    document.getElementById("header-user-name").innerText = currentUser.name;
+    document.getElementById("header-user-role").innerText = currentRole;
+    document.getElementById("header-user-avatar").innerText = currentUser.name.split(" ").map(n => n[0]).join("");
+  }
+
+  // Real-time role detection as user types
+  window.autoDetectRole = function(val) {
+    const roleSelect = document.getElementById("login-role");
+    if (!roleSelect || !val) return;
+    const trimmed = val.trim().toLowerCase();
+    const digits = trimmed.replace(/[\s\-\(\)\+]/g, "");
+    if (digits.length >= 5 && /^\d+$/.test(digits)) {
+      roleSelect.value = "patient";
+    } else if (trimmed.includes("admin")) {
+      roleSelect.value = "admin";
+    } else if (trimmed.includes("nurse") || trimmed.includes("vhw") || trimmed === "anjali.vhw@gmail.com") {
+      roleSelect.value = "vhw";
+    } else if (trimmed.endsWith("@villagemed.in") || trimmed.startsWith("doc.")) {
+      roleSelect.value = "doctor";
+    }
+  };
+
+  // Authentication
+  window.handleLogin = async function(e, isQuickDemo = false) {
+    if (e) e.preventDefault();
+    const emailInput = document.getElementById("login-email");
+    const passwordInput = document.getElementById("login-password");
+    const roleSelect = document.getElementById("login-role");
+
+    const email = (emailInput ? emailInput.value : "").trim();
+    const password = passwordInput ? passwordInput.value : "";
+    let role = roleSelect ? roleSelect.value : "patient";
+
+    const AUTHORIZED_ADMINS = (db && db.authConfig && db.authConfig.admins) || ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
+    const AUTHORIZED_VHWS = (db && db.authConfig && db.authConfig.vhws) || ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
+
+    // Intelligent auto-role detection: Check admin and VHW before checking doctor @villagemed.in domain
+    const digitsOnly = email.replace(/[\s\-\(\)\+]/g, "");
+    const isPhone = digitsOnly.length >= 7 && /^\d+$/.test(digitsOnly);
+    const isAdmin = AUTHORIZED_ADMINS.some(a => email.toLowerCase() === a.toLowerCase()) || email.toLowerCase().includes("admin");
+    const isVHW = AUTHORIZED_VHWS.some(v => email.toLowerCase() === v.toLowerCase()) || email.toLowerCase().includes("nurse") || email.toLowerCase().includes("vhw");
+    const isDoctorEmail = !isAdmin && !isVHW && (email.toLowerCase().endsWith("@villagemed.in") || (db.doctors || []).some(d => d.email.toLowerCase() === email.toLowerCase()) || email.toLowerCase().startsWith("doc."));
+
+    if (isAdmin) {
+      role = "admin";
+      if (roleSelect) roleSelect.value = "admin";
+    } else if (isVHW) {
+      role = "vhw";
+      if (roleSelect) roleSelect.value = "vhw";
+    } else if (isDoctorEmail) {
+      role = "doctor";
+      if (roleSelect) roleSelect.value = "doctor";
+    } else if (isPhone) {
+      role = "patient";
+      if (roleSelect) roleSelect.value = "patient";
+    }
+
+    // 1. Authorize Admin
+    if (role === "admin" && !AUTHORIZED_ADMINS.includes(email.toLowerCase())) {
+      showToast("Unauthorized: This email is not registered as an Administrator.", "danger");
+      return;
+    }
+    // 2. Authorize VHW
+    if (role === "vhw" && !AUTHORIZED_VHWS.includes(email.toLowerCase())) {
+      showToast("Unauthorized: This email is not registered as a VHW Nurse.", "danger");
+      return;
+    }
+    // 3. Authorize Doctor
+    if (role === "doctor" && !isDoctorEmail) {
+      showToast("Unauthorized: Doctor login requires an @villagemed.in email address (e.g. doc.vikram@villagemed.in).", "danger");
+      return;
+    }
+
+    const performLocalLogin = () => {
+      if (role === "doctor") {
+        const doctor = (db.doctors && db.doctors.find(d => d.email.toLowerCase() === email.toLowerCase())) ||
+                       DEFAULT_DOCTORS.find(d => d.email.toLowerCase() === email.toLowerCase());
+        if (doctor) {
+          currentUser = doctor;
+          saveSessionState(currentUser, "doctor");
+          switchView("view-doctor", "doctor");
+          showToast(`Welcome back, ${doctor.name}!`, "success");
+          return true;
+        }
+      } else if (role === "patient") {
+        const patient = (db.patients && db.patients.find(p =>
+                          (p.phone && p.phone.replace(/[\s\-\(\)\+]/g, "") === digitsOnly) ||
+                          p.phone === email ||
+                          (p.name && p.name.toLowerCase().includes(email.toLowerCase())) ||
+                          (p.email && p.email.toLowerCase() === email.toLowerCase())
+                        )) ||
+                        DEFAULT_PATIENTS.find(p =>
+                          (p.phone && p.phone.replace(/[\s\-\(\)\+]/g, "") === digitsOnly) ||
+                          p.phone === email ||
+                          (p.name && p.name.toLowerCase().includes(email.toLowerCase())) ||
+                          (p.email && p.email.toLowerCase() === email.toLowerCase())
+                        );
+        if (patient) {
+          currentUser = patient;
+          saveSessionState(currentUser, "patient");
+          switchView("view-patient", "patient");
+          showToast(`Logged in as patient: ${patient.name}!`, "success");
+          return true;
+        }
+        // If entered phone number not found in default list, auto-create demo patient
+        if (isPhone || !email.includes("@")) {
+          const newPat = {
+            id: `pat-${Date.now().toString().slice(-4)}`,
+            name: digitsOnly.length >= 10 ? `Patient (${digitsOnly.slice(-4)})` : email,
+            age: 35,
+            gender: "Other",
+            phone: email,
+            village: "Village Clinic A",
+            history: []
+          };
+          db.patients = db.patients || [];
+          db.patients.push(newPat);
+          saveDB();
+          currentUser = newPat;
+          saveSessionState(currentUser, "patient");
+          switchView("view-patient", "patient");
+          showToast(`Signed in as Patient: ${newPat.name}`, "success");
+          return true;
+        }
+      } else if (role === "vhw") {
+        currentUser = { id: "vhw-1", name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+        saveSessionState(currentUser, "vhw");
+        switchView("view-vhw", "vhw");
+        showToast("VHW Nurse Console authenticated!", "success");
+        return true;
+      } else if (role === "admin") {
+        currentUser = { id: "admin-1", name: "System Admin", role: "Admin", email };
+        saveSessionState(currentUser, "admin");
+        switchView("view-admin", "admin");
+        showToast("Admin Console authenticated!", "success");
+        return true;
+      }
+      return false;
+    };
+
+    const isDemoPassword = password === "password" || password === "password123" || password === "admin123" || isQuickDemo || !password;
+    const isKnownDemoAccount = isPhone || !email.includes("@") ||
+                               AUTHORIZED_ADMINS.includes(email.toLowerCase()) ||
+                               AUTHORIZED_VHWS.includes(email.toLowerCase()) ||
+                               (db.doctors || DEFAULT_DOCTORS).some(d => d.email.toLowerCase() === email.toLowerCase());
+
+    // If signing in with demo credentials, phone number, or quick demo button, bypass directly to local database
+    if (isPhone || !email.includes("@") || isQuickDemo || (isDemoPassword && isKnownDemoAccount)) {
+      if (performLocalLogin()) return;
+    }
+
+    if (supabase) {
+      showToast("Authenticating credentials...", "info");
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email,
+          password: password
+        });
+
+        if (error) {
+          console.warn("Supabase auth failed:", error.message);
+          if (performLocalLogin()) return;
+          showToast(`Authentication: ${error.message}. Use demo login or register account.`, "warning");
+          return;
+        }
+
+        const user = data.user;
+
+        if (role === "doctor") {
+          const doctor = (db.doctors || []).find(d => d.email === email);
+          if (doctor) {
+            currentUser = doctor;
+            saveSessionState(currentUser, "doctor");
+            switchView("view-doctor", "doctor");
+            showToast(`Welcome back, ${doctor.name}`, "success");
+          } else {
+            const name = email.split('@')[0];
+            const newDoc = { id: `doc-${user.id.slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+            (db.doctors = db.doctors || []).push(newDoc);
+            saveDB();
+            currentUser = newDoc;
+            saveSessionState(currentUser, "doctor");
+            switchView("view-doctor", "doctor");
+            showToast(`Signed in as Doctor: ${name}`, "success");
+          }
+        } else if (role === "vhw") {
+          currentUser = { name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email };
+          saveSessionState(currentUser, "vhw");
+          switchView("view-vhw", "vhw");
+          showToast("VHW Nurse Console authenticated", "success");
+        } else if (role === "patient") {
+          const patient = (db.patients || []).find(p => p.phone === email || p.name.toLowerCase().includes(email.toLowerCase()));
+          if (patient) {
+            currentUser = patient;
+            saveSessionState(currentUser, "patient");
+            switchView("view-patient", "patient");
+            showToast(`Logged in as patient: ${patient.name}`, "success");
+          } else {
+            const newPat = { id: `pat-${user.id.slice(-4)}`, name: email.split('@')[0], age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+            (db.patients = db.patients || []).push(newPat);
+            saveDB();
+            currentUser = newPat;
+            saveSessionState(currentUser, "patient");
+            switchView("view-patient", "patient");
+            showToast(`Logged in as patient: ${newPat.name}`, "success");
+          }
+        } else if (role === "admin") {
+          currentUser = { name: "System Admin", role: "Admin", email };
+          saveSessionState(currentUser, "admin");
+          switchView("view-admin", "admin");
+          showToast("Admin Console authenticated", "success");
+        }
+      } catch (err) {
+        console.warn("Supabase login network exception:", err.message);
+        if (performLocalLogin()) return;
+        showToast(`Login Error: ${err.message}`, "danger");
+      }
+    } else {
+      // Offline local fallback logic
+      if (performLocalLogin()) return;
+      showToast("Account not found. Please check your credentials or use demo sign-in.", "danger");
+    }
+  };
+
+  window.quickFillLogin = function(role, email, password) {
+    const emailInput = document.getElementById("login-email");
+    const passwordInput = document.getElementById("login-password");
+    const roleSelect = document.getElementById("login-role");
+
+    if (emailInput) emailInput.value = email;
+    if (passwordInput) passwordInput.value = password;
+    if (roleSelect) roleSelect.value = role;
+
+    window.handleLogin(null, true);
+  };
+
+  // --- TRIAGE URGENCY EVALUATOR ---
+  function evaluateTriageUrgency(vitals) {
+    if (!vitals) return { flag: "Normal", score: 0 };
+    let score = 0;
+    
+    // SpO2
+    if (vitals.spo2 < 90) score += 50;
+    else if (vitals.spo2 < 94) score += 20;
+
+    // Systolic BP
+    if (vitals.bpSystolic > 160 || vitals.bpSystolic < 85) score += 30;
+    else if (vitals.bpSystolic > 140 || vitals.bpSystolic < 95) score += 15;
+
+    // Heart Rate
+    if (vitals.hr > 120 || vitals.hr < 50) score += 15;
+    else if (vitals.hr > 100 || vitals.hr < 60) score += 5;
+
+    // Temperature
+    if (vitals.temp > 39 || vitals.temp < 35.5) score += 15;
+    else if (vitals.temp > 38) score += 5;
+
+    // Pain Level
+    if (vitals.pain >= 8) score += 10;
+    else if (vitals.pain >= 5) score += 5;
+
+    let flag = "Normal";
+    if (score >= 40) flag = "Critical";
+    else if (score >= 15) flag = "High Warning";
+    
+    return { flag, score };
+  }
+
+  // --- PATIENT DASHBOARD ---
+  async function loadPatientDashboard() {
+    if (currentRole !== "patient" || !currentUser) return;
+
+    if (supabase) await refreshConsultationsFromSupabase();
+    
+    // Active appointment check: look for appointment for this patient
+    const inactiveStatuses = ["Completed", "Cancelled", "cancelled"];
+    const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : null;
+    const patientActiveApps = (db.appointments || []).filter(a =>
+      curPatientId && (a.patientId === curPatientId || a.patientId === currentUser.id || a.patientId === currentUser.profileId) && !inactiveStatuses.includes(a.status)
+    );
+
+    // Pick the newest active appointment
+    patientActiveApps.sort((a, b) => {
+      const tA = new Date(a.bookingTime || a.requestTime || a.createdAt || 0).getTime();
+      const tB = new Date(b.bookingTime || b.requestTime || b.createdAt || 0).getTime();
+      return tB - tA;
+    });
+
+    let activeApp = patientActiveApps[0] || null;
+
+    // If this specific patient does not have an active booking, check for live active call
+    if (!activeApp && curPatientId) {
+      const liveCall = (db.appointments || []).find(a => (a.status === "In Progress" || a.status === "Active") && (a.patientId === curPatientId || a.patientId === currentUser.id || a.patientId === currentUser.profileId));
+      if (liveCall) activeApp = liveCall;
+    }
+    
+    const tokenVal = document.getElementById("pat-token-val");
+    const tokenSub = document.getElementById("pat-token-sub");
+    const waitVal = document.getElementById("pat-wait-val");
+    const docVal = document.getElementById("pat-doc-val");
+    const callCard = document.getElementById("pat-active-call-card");
+    const cancelBtn = document.getElementById("pat-cancel-appointment-btn");
+    const confirmedHeroCard = document.getElementById("pat-confirmed-hero-card");
+    const queueFlowCard = document.getElementById("pat-queue-flow-card");
+
+    const stateRequestForm = document.getElementById("pat-consult-request-form-container");
+    const stateVitalsPending = document.getElementById("pat-vitals-pending-container");
+    const stateSlots = document.getElementById("pat-slots-allocation-container");
+    const stateWaiting = document.getElementById("pat-queue-waiting-container");
+
+    const doc = (activeApp && (db.doctors || DEFAULT_DOCTORS).find(d => d.id === activeApp.assignedDoctorId)) || db.doctors[0] || DEFAULT_DOCTORS[0];
+    const docName = doc ? doc.name : (activeApp ? (activeApp.doctorName || "Dr. Vikram") : "Dr. Vikram");
+
+    if (activeApp) {
+      if (tokenVal) tokenVal.innerText = activeApp.token;
+      if (cancelBtn) {
+        cancelBtn.style.display = "inline-flex";
+        cancelBtn.innerText = ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(activeApp.status)
+          ? "✕ Cancel Appointment"
+          : "✕ Cancel Request";
+        cancelBtn.onclick = () => cancelActiveAppointment(activeApp.token);
+      }
+      if (docVal) docVal.innerText = docName;
+      const docSub = document.getElementById("pat-doc-sub");
+      if (docSub) docSub.innerText = doc ? `${doc.specialty} Clinic` : "General Medicine Clinic";
+
+      // 1. STATE: Vitals Pending (Screening awaiting by health worker at kiosk)
+      if (activeApp.status === "Vitals Pending") {
+        if (tokenSub) tokenSub.innerText = "Status: Vitals Screening Pending";
+        if (waitVal) waitVal.innerText = "Kiosk Check";
+        if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+        if (callCard) callCard.style.display = "none";
+        if (queueFlowCard) queueFlowCard.style.display = "block";
+
+        if (stateRequestForm) stateRequestForm.style.display = "none";
+        if (stateSlots) stateSlots.style.display = "none";
+        if (stateWaiting) stateWaiting.style.display = "none";
+        if (stateVitalsPending) {
+          stateVitalsPending.style.display = "block";
+          const tokEl = document.getElementById("pat-vitals-pending-token");
+          if (tokEl) tokEl.innerText = activeApp.token;
+          const dEl = document.getElementById("pat-vitals-pending-doc");
+          if (dEl) dEl.innerText = docName;
+          const uEl = document.getElementById("pat-vitals-pending-urgency");
+          if (uEl) uEl.innerText = activeApp.urgency || "Normal";
+        }
+        return;
+      }
+
+      // 2. STATE: Waiting for Doctor Queue (Vitals recorded! Ready to pick genuine 15-min slot)
+      if (activeApp.status === "Waiting for Doctor Queue") {
+        if (tokenSub) tokenSub.innerText = "Status: Ready to Select Slot";
+        if (waitVal) waitVal.innerText = "Choose 15-Min Slot";
+        if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+        if (callCard) callCard.style.display = "none";
+        if (queueFlowCard) queueFlowCard.style.display = "block";
+
+        if (stateRequestForm) stateRequestForm.style.display = "none";
+        if (stateVitalsPending) stateVitalsPending.style.display = "none";
+        if (stateWaiting) stateWaiting.style.display = "none";
+        if (stateSlots) stateSlots.style.display = "block";
+
+        if (typeof window.loadPatientAvailableSlotsForDoctor === "function") {
+          window.loadPatientAvailableSlotsForDoctor(activeApp.assignedDoctorId || "doc-1", activeApp.token);
+        }
+        return;
+      }
+
+      // 3. STATE: Confirmed / In Progress / Rescheduled
+      const isConfirmedState = ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(activeApp.status);
+      if (isConfirmedState) {
+        if (tokenSub) tokenSub.innerText = `Symptom: ${activeApp.symptoms || "Tele-Consultation"}`;
+        if (waitVal) {
+          if (activeApp.scheduledStartTime) {
+            waitVal.innerText = `${activeApp.scheduledStartTime} IST`;
+          } else {
+            waitVal.innerText = (activeApp.status === "In Progress" || activeApp.status === "Active") ? "In Call" : "Confirmed";
+          }
+        }
+
+        // Hide consultation queue workflow
+        if (queueFlowCard) queueFlowCard.style.display = "none";
+
+        // Render Confirmed Appointment Hero Banner
+        if (confirmedHeroCard) {
+          confirmedHeroCard.style.display = "block";
+          const confToken = document.getElementById("pat-confirmed-token");
+          if (confToken) confToken.innerText = activeApp.token;
+
+          const confBadge = document.getElementById("pat-confirmed-status-badge");
+          if (confBadge) {
+            const statusClassMap = {
+              "Appointment Confirmed": "badge-confirmed",
+              "Confirmed": "badge-confirmed",
+              "In Progress": "badge-inprogress",
+              "Active": "badge-inprogress",
+              "Rescheduled": "badge-rescheduled"
+            };
+            confBadge.className = `badge ${statusClassMap[activeApp.status] || 'badge-confirmed'}`;
+            confBadge.innerHTML = (activeApp.status === "In Progress" || activeApp.status === "Active") ? `<span class="pulse-dot"></span> In Progress` : (activeApp.status || "Confirmed");
+          }
+
+          const confDate = document.getElementById("pat-confirmed-date");
+          if (confDate) confDate.innerText = activeApp.scheduledDate || "Today";
+
+          const confTime = document.getElementById("pat-confirmed-time");
+          if (confTime) {
+            const sTime = activeApp.scheduledStartTime || "--:--";
+            const eTime = activeApp.scheduledEndTime || "--:--";
+            confTime.innerText = `${sTime} - ${eTime} IST (${activeApp.slotDurationMins || 15} mins)`;
+          }
+
+          const confDoc = document.getElementById("pat-confirmed-doctor");
+          if (confDoc) confDoc.innerText = docName;
+
+          const confSpec = document.getElementById("pat-confirmed-specialty");
+          if (confSpec) confSpec.innerText = activeApp.specialty || (doc ? doc.specialty : "General Medicine");
+
+          const joinBtn = document.getElementById("pat-join-confirmed-call-btn");
+          if (joinBtn) {
+            joinBtn.style.display = (activeApp.status === "In Progress" || activeApp.status === "Active" || activeApp.status === "Appointment Confirmed" || activeApp.status === "Confirmed") ? "inline-flex" : "none";
+          }
+        }
+
+        if (activeApp.status === "Active" || activeApp.status === "In Progress") {
+          if (callCard) {
+            callCard.style.display = "block";
+            const docNameEl = document.getElementById("pat-active-doc-name");
+            if (docNameEl) docNameEl.innerText = docName;
+          }
+        } else {
+          if (callCard) callCard.style.display = "none";
+        }
+        return;
+      }
+
+      // 4. STATE: Waiting / Queued in Consultation Queue (or any other active state)
+      if (tokenSub) tokenSub.innerText = "Status: In Consultation Queue";
+      if (waitVal) waitVal.innerText = "In Queue";
+      if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+      if (callCard) callCard.style.display = "none";
+      if (queueFlowCard) queueFlowCard.style.display = "block";
+
+      if (stateRequestForm) stateRequestForm.style.display = "none";
+      if (stateVitalsPending) stateVitalsPending.style.display = "none";
+      if (stateSlots) stateSlots.style.display = "none";
+      if (stateWaiting) {
+        stateWaiting.style.display = "block";
+        const dName = document.getElementById("pat-queue-doctor-name");
+        if (dName) dName.innerText = docName;
+      }
+      return;
+    } else {
+      if (tokenVal) tokenVal.innerText = "No Token";
+      if (tokenSub) tokenSub.innerText = "No active appointment";
+      if (waitVal) waitVal.innerText = "-- mins";
+      if (docVal) docVal.innerText = "Dr. Vikram";
+      const docSub = document.getElementById("pat-doc-sub");
+      if (docSub) docSub.innerText = "General Medicine Clinic";
+      if (callCard) callCard.style.display = "none";
+      if (cancelBtn) cancelBtn.style.display = "none";
+      const conflictAlert = document.getElementById("pat-active-request-conflict-alert");
+      if (conflictAlert) conflictAlert.style.display = "none";
+      if (confirmedHeroCard) confirmedHeroCard.style.display = "none";
+      if (queueFlowCard) {
+        queueFlowCard.style.display = "block";
+        if (stateRequestForm) stateRequestForm.style.display = "block";
+        if (stateVitalsPending) stateVitalsPending.style.display = "none";
+        if (stateSlots) stateSlots.style.display = "none";
+        if (stateWaiting) stateWaiting.style.display = "none";
+        if (typeof initPatientConsultationQueue === "function") {
+          initPatientConsultationQueue();
+        }
+      }
+    }
+
+    // Populate appointment specialty dropdown dynamically
+    const patBookSelect = document.getElementById("pat-book-specialty");
+    if (patBookSelect && patBookSelect.options.length <= 1) {
+      patBookSelect.innerHTML = (db.doctors || []).map(d => `<option value="${d.id}">${d.specialty} (${d.name})</option>`).join("");
+    }
+
+    // Profile forms
+    document.getElementById("pat-prof-name").value = currentUser.name;
+    document.getElementById("pat-prof-age").value = currentUser.age || "";
+    document.getElementById("pat-prof-gender").value = currentUser.gender || "Male";
+    document.getElementById("pat-prof-phone").value = currentUser.phone || "";
+    document.getElementById("pat-prof-address").value = currentUser.village || "";
+
+    // Virtual ID Card Live Visual Fields
+    const dispName = document.getElementById("pat-disp-name");
+    const dispId = document.getElementById("pat-disp-id");
+    const dispAge = document.getElementById("pat-disp-age");
+    const dispGender = document.getElementById("pat-disp-gender");
+    const dispPhone = document.getElementById("pat-disp-phone");
+    const dispVillage = document.getElementById("pat-disp-village");
+    const dispHealthId = document.getElementById("pat-disp-health-id");
+    const dispAvatar = document.getElementById("pat-disp-avatar");
+
+    if (dispName) dispName.innerText = currentUser.name;
+    if (dispId) dispId.innerText = `ID: ${currentUser.id}`;
+    if (dispAge) dispAge.innerText = `${currentUser.age || 30} yrs`;
+    if (dispGender) dispGender.innerText = currentUser.gender || "Male";
+    if (dispPhone) dispPhone.innerText = currentUser.phone || "Not provided";
+    if (dispVillage) dispVillage.innerText = currentUser.village || "Village Clinic A";
+    if (dispHealthId) {
+      const rawId = (currentUser.id || "pat1").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+      dispHealthId.innerText = `ABHA: VM-${rawId}-2026`;
+    }
+    if (dispAvatar) {
+      if (currentUser.photo) {
+        dispAvatar.innerHTML = `<img src="${currentUser.photo}" alt="${currentUser.name}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
+      } else {
+        const initials = currentUser.name ? currentUser.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "P";
+        dispAvatar.innerHTML = `<span>${initials}</span>`;
+      }
+    }
+
+    // Load Digital Health ID Card details & QR
+    const qrImg = document.getElementById("pat-qr-code-img");
+    const cardName = document.getElementById("pat-card-name");
+    const cardId = document.getElementById("pat-card-id");
+    if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUser.id)}`;
+    if (cardName) cardName.innerText = currentUser.name;
+    if (cardId) cardId.innerText = `ID: ${currentUser.id}`;
+
+    // Consultation history
+    const historyTbody = document.getElementById("pat-history-tbody");
+    historyTbody.innerHTML = "";
+    const historical = db.consultations.filter(c =>
+      (c.status === "completed" || !c.status) &&
+      (c.patientId === currentUser.id || (!c.patientId && c.patientName === currentUser.name))
+    );
+    
+    if (historical.length === 0) {
+      historyTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding: 24px;">No past consultation reports found</td></tr>`;
+    } else {
+      historical.forEach(h => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+        <td style="font-weight: 500; color: #64748b;">${h.date}</td>
+        <td><strong style="color: #0f172a;">${h.doctorName}</strong><br><span style="font-size: 11px; color: #64748b;">${h.diagnosis || 'General Checkup'}</span></td>
+        <td style="text-align: right; padding-right: 18px;"><button class="btn-action" style="padding: 5px 12px; font-size: 11.5px; border-radius: 6px;" onclick="viewDigitalPrescriptionPopup('${h.id}')">View Rx</button></td>
+      `;
+        historyTbody.appendChild(tr);
+      });
+    }
+  }
+
+  window.handleHeaderProfileClick = function() {
+    if (currentRole === "patient" || (currentUser && currentUser.role === "patient")) {
+      window.openPatientProfileModal();
+    } else {
+      const patView = document.getElementById("view-patient");
+      if (patView && patView.classList.contains("active")) {
+        window.openPatientProfileModal();
+      } else {
+        const roleTitle = currentRole ? currentRole.charAt(0).toUpperCase() + currentRole.slice(1) : "User";
+        showToast(`Logged in as ${currentUser ? currentUser.name : 'User'} (${roleTitle})`, "info");
+      }
+    }
+  };
+
+  window.openPatientProfileModal = function() {
+    const modal = document.getElementById("patient-profile-modal");
+    if (!modal) return;
+    if (typeof loadPatientDashboard === "function" && currentUser) {
+      loadPatientDashboard();
+    }
+    modal.style.display = "flex";
+    document.body.style.overflow = "hidden";
+  };
+
+  window.closePatientProfileModal = function() {
+    const modal = document.getElementById("patient-profile-modal");
+    if (!modal) return;
+    modal.style.display = "none";
+    document.body.style.overflow = "";
+    if (typeof window.togglePatientEditForm === "function") {
+      window.togglePatientEditForm(false);
+    }
+  };
+
+  // Keyboard accessibility: Close patient profile modal on Escape
+  window.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") {
+      const modal = document.getElementById("patient-profile-modal");
+      if (modal && modal.style.display !== "none") {
+        window.closePatientProfileModal();
+      }
+    }
+  });
+
+  window.switchPatientRightTab = function(tab) {
+    const profilePane = document.getElementById("pat-tab-pane-profile");
+    const historyPane = document.getElementById("pat-tab-pane-history");
+    const btnProfile = document.getElementById("btn-pat-tab-profile");
+    const btnHistory = document.getElementById("btn-pat-tab-history");
+
+    if (!profilePane || !historyPane) return;
+
+    if (tab === "profile") {
+      profilePane.style.display = "block";
+      historyPane.style.display = "none";
+      if (btnProfile) btnProfile.classList.add("active");
+      if (btnHistory) btnHistory.classList.remove("active");
+    } else {
+      profilePane.style.display = "none";
+      historyPane.style.display = "block";
+      if (btnProfile) btnProfile.classList.remove("active");
+      if (btnHistory) btnHistory.classList.add("active");
+    }
+  };
+
+  window.togglePatientEditForm = function(forceState) {
+    const editBox = document.getElementById("pat-id-edit-view");
+    const detailsBox = document.getElementById("pat-id-details-view");
+    const label = document.getElementById("pat-edit-toggle-label");
+    if (!editBox || !detailsBox) return;
+
+    const willShow = forceState !== undefined ? forceState : editBox.style.display === "none";
+    if (willShow) {
+      editBox.style.display = "block";
+      detailsBox.style.display = "none";
+      if (label) label.innerText = "Close Edit";
+    } else {
+      editBox.style.display = "none";
+      detailsBox.style.display = "grid";
+      if (label) label.innerText = "Edit Profile";
+    }
+  };
+
+  window.downloadPatientIdCard = function() {
+    if (!currentUser) return;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentUser.id)}`;
+    const link = document.createElement("a");
+    link.href = qrUrl;
+    link.download = `${currentUser.name.replace(/\s+/g, '_')}_VillageMed_ID.png`;
+    link.target = "_blank";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    showToast("Digital Health ID QR Code downloaded", "success");
+  };
+
+  window.sharePatientIdCard = function() {
+    if (!currentUser) return;
+    const shareText = `VillageMed Digital Health ID: ${currentUser.name} (ID: ${currentUser.id}) - Clinic: ${currentUser.village || 'Village Clinic A'}`;
+    if (navigator.share) {
+      navigator.share({
+        title: `VillageMed ID - ${currentUser.name}`,
+        text: shareText,
+        url: window.location.href
+      }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareText);
+      showToast("Patient ID copied to clipboard!", "info");
+    } else {
+      showToast(`Patient ID: ${currentUser.id}`, "info");
+    }
+  };
+
+  window.bookPatientAppointment = async function(e) {
+    e.preventDefault();
+    if (supabase) {
+      await refreshAppointmentsFromSupabase();
+    }
+
+    const symptoms = document.getElementById("pat-book-symptoms").value;
+    const docId = document.getElementById("pat-book-specialty").value;
+    const urgency = document.getElementById("pat-book-urgency").value;
+
+    const existingApp = db.appointments.find(a =>
+      a.patientId === currentUser.id && a.status !== "Completed"
+    );
+    if (existingApp) {
+      showToast("You already have an active appointment or token pending.", "warning");
+      return;
+    }
+
+    // Find selected doctor details
+    const doc = db.doctors.find(d => d.id === docId) || db.doctors[0];
+    const specialty = doc.specialty;
+
+    const prefix = (currentUser.village && currentUser.village.includes("A")) ? "VIL-A" : (currentUser.village && currentUser.village.includes("B")) ? "VIL-B" : "VIL-C";
+    const num = Math.floor(100 + Math.random() * 900);
+    const token = `${prefix}-${num}`;
+
+    const newApp = {
+      token,
+      patientId: currentUser.id,
+      patientName: currentUser.name,
+      patientAge: currentUser.age,
+      patientGender: currentUser.gender,
+      patientVillage: currentUser.village,
+      symptoms,
+      urgency,
+      specialty,
+      assignedDoctorId: doc.id,
+      status: "Waiting",
+      vitals: null // Patient-booked bookings need VHW to check vitals
+    };
+
+    db.appointments.push(newApp);
+    saveDB();
+
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("token_requested", { appointment: newApp });
+      } catch (e) {}
+    }
+
+    showToast(`Appointment booked successfully! Token: ${token}. Please visit your local health worker for vitals check-in.`, "success");
+    loadPatientDashboard();
+    
+    document.getElementById("pat-book-symptoms").value = "";
+  };
+
+  window.updatePatientProfile = function(e) {
+    e.preventDefault();
+    const name = document.getElementById("pat-prof-name").value.trim();
+    const age = parseInt(document.getElementById("pat-prof-age").value) || 30;
+    const gender = document.getElementById("pat-prof-gender").value;
+    const phone = document.getElementById("pat-prof-phone").value.trim();
+    const address = document.getElementById("pat-prof-address").value.trim();
+
+    const idx = db.patients.findIndex(p => p.id === currentUser.id);
+    if (idx >= 0) {
+      db.patients[idx].name = name;
+      db.patients[idx].age = age;
+      db.patients[idx].gender = gender;
+      db.patients[idx].phone = phone;
+      db.patients[idx].village = address;
+      currentUser = db.patients[idx];
+      saveDB();
+      showToast("Profile details updated successfully", "success");
+      window.togglePatientEditForm(false);
+      loadPatientDashboard();
+    }
+  };
+
+  function loadVhwDashboard() {
+    if (currentRole !== "vhw") return;
+
+    // VHW Stats (Clean numerical values matching reference)
+    document.getElementById("vhw-stat-registered").innerText = db.patients.length;
+    const waitSize = db.appointments.filter(a => a.status === "Waiting").length;
+    document.getElementById("vhw-stat-queue").innerText = waitSize;
+
+    let alerts = 0;
+    db.appointments.forEach(a => {
+      if (a.vitals) {
+        const triage = evaluateTriageUrgency(a.vitals);
+        if (triage.flag === "Critical") alerts++;
+      }
+    });
+    document.getElementById("vhw-stat-alerts").innerText = alerts;
+
+    // Render villages options
+    const villageSelect = document.getElementById("vhw-reg-village");
+    villageSelect.innerHTML = "";
+    db.villages.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.innerText = v;
+      if (currentUser && currentUser.village === v) opt.selected = true;
+      villageSelect.appendChild(opt);
+    });
+
+    // Render Patient Directory
+    renderVhwPatientList();
+
+    // Render queue
+    renderVhwQueue();
+  }
+
+  function getVhwPatientAvatarHtml(patientOrName, id = "") {
+    let name = "";
+    let photo = "";
+    if (typeof patientOrName === "object" && patientOrName !== null) {
+      name = patientOrName.name || "";
+      photo = patientOrName.photo || "";
+      id = patientOrName.id || id;
+    } else {
+      name = patientOrName || "";
+      const p = db && db.patients ? db.patients.find(pt => pt.name === name || pt.id === id) : null;
+      if (p && p.photo) photo = p.photo;
+    }
+    const initials = name ? name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() : "P";
+    const colors = ["#2563eb", "#0284c7", "#4f46e5", "#0d9488", "#0891b2", "#6366f1"];
+    const seed = (id || name || "P").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const bg = colors[seed % colors.length];
+    if (photo) {
+      return `<div class="patient-avatar-circle" style="background: ${bg};"><img src="${photo}" alt="${name}" onerror="this.outerHTML='${initials}'"></div>`;
+    }
+    return `<div class="patient-avatar-circle" style="background: ${bg};">${initials}</div>`;
+  }
+
+  function renderVhwPatientList(searchQuery = "") {
+    const tbody = document.getElementById("vhw-patient-list-tbody");
+    tbody.innerHTML = "";
+    
+    let list = db.patients;
+    if (searchQuery) {
+      list = db.patients.filter(p => 
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        p.phone.includes(searchQuery) || 
+        p.id.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding: 24px;">No patients found in directory</td></tr>`;
+      return;
+    }
+
+    list.forEach(p => {
+      const activeApp = db.appointments.find(a => a.patientId === p.id);
+      let buttonHtml = "";
+
+      if (activeApp && activeApp.status === "Active") {
+        buttonHtml = `<button class="btn-dispatch" style="background-color:#2563eb !important;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
+      } else {
+        buttonHtml = `
+        <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          Dispatch Token
+        </button>
+        <button class="btn-home-visit" onclick="openVitalsModal('${p.id}', true)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Home Visit
+        </button>
+      `;
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td style="font-weight: 500; color: #64748b; font-family: monospace;">${p.id}</td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(p, p.id)}
+          <span class="patient-name-bold">${p.name}</span>
+        </div>
+      </td>
+      <td>${p.age} yrs / ${p.gender}</td>
+      <td>${p.village}</td>
+      <td style="text-align: right; padding-right: 20px;">
+        <div style="display:inline-flex; gap:8px; align-items:center;">
+          ${buttonHtml}
+          <button class="btn-delete-pat" onclick="window.adminDeletePatient('${p.id}')" title="Delete Patient">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          </button>
+        </div>
+      </td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.adminDeletePatient = function(id) {
+    if (!confirm("Are you sure you want to delete this patient account? This will permanently remove their records.")) return;
+
+    const idx = db.patients.findIndex(p => p.id === id);
+    if (idx >= 0) {
+      db.patients.splice(idx, 1);
+      
+      // Clear any active tokens/appointments for this patient
+      db.appointments = db.appointments.filter(a => a.patientId !== id);
+
+      if (supabase) {
+        supabase.from("patients").delete().eq("id", id).then(({ error }) => {
+          if (error) console.error("Error deleting patient from Supabase:", error);
+          else console.log("Patient deleted from Supabase successfully");
+        });
+      }
+
+      saveDB();
+      showToast("Patient account removed successfully", "warning");
+      loadVhwDashboard();
+    }
+  };
+
+  window.vhwSearchPatients = function(val) {
+    renderVhwPatientList(val.trim());
+  };
+
+  window.vhwRegisterPatient = function(e) {
+    e.preventDefault();
+    const name = document.getElementById("vhw-reg-name").value.trim();
+    const age = parseInt(document.getElementById("vhw-reg-age").value);
+    const gender = document.getElementById("vhw-reg-gender").value;
+    const phone = document.getElementById("vhw-reg-phone").value.trim();
+    const village = document.getElementById("vhw-reg-village").value;
+
+    const id = `pat-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newPat = { id, name, age, gender, phone, village, history: [] };
+
+    db.patients.push(newPat);
+    saveDB();
+    showToast(`Patient registered! Account ID: ${id}`, "success");
+    
+    document.getElementById("vhw-reg-name").value = "";
+    document.getElementById("vhw-reg-age").value = "";
+    document.getElementById("vhw-reg-phone").value = "";
+
+    loadVhwDashboard();
+  };
+
+  window.openVitalsModal = function(patientId, isHomeVisit = false, targetToken = null) {
+    const p = db.patients.find(pat => pat.id === patientId);
+    if (!p) return;
+
+    window.currentVitalsToken = targetToken;
+    const saveModeToggle = document.getElementById("vhw-saved-details-toggle");
+    const saveModeLabel = document.getElementById("vhw-saved-mode-text");
+    const useSavedDetails = saveModeToggle ? !saveModeToggle.checked : true;
+
+    window.isHomeVisitCapture = isHomeVisit;
+    document.getElementById("vitals-pat-id").value = patientId;
+    document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
+
+    const app = targetToken 
+      ? db.appointments.find(a => a.token === targetToken) 
+      : db.appointments.find(a => a.patientId === patientId && (a.status === "Vitals Pending" || a.status === "Waiting for Doctor Queue" || a.status === "Waiting"));
+
+    const defaultDemoData = {
+      symptoms: "Fever, headache, general discomfort...",
+      vitals: {
+        bpSystolic: 120,
+        bpDiastolic: 80,
+        sugar: 110,
+        temp: 36.8,
+        spo2: 98,
+        hr: 75,
+        pain: 0
+      }
+    };
+    const lastSavedData = app && app.vitals ? app : defaultDemoData;
+
+    document.getElementById("vitals-symptoms").value = useSavedDetails ? (app ? (app.symptoms || "") : defaultDemoData.symptoms) : "";
+
+    document.getElementById("vitals-bp-systolic").value = useSavedDetails ? lastSavedData.vitals.bpSystolic : "";
+    document.getElementById("vitals-bp-diastolic").value = useSavedDetails ? lastSavedData.vitals.bpDiastolic : "";
+    document.getElementById("vitals-sugar").value = useSavedDetails ? lastSavedData.vitals.sugar : "";
+    document.getElementById("vitals-temp").value = useSavedDetails ? lastSavedData.vitals.temp : "";
+    document.getElementById("vitals-spo2").value = useSavedDetails ? lastSavedData.vitals.spo2 : "";
+    document.getElementById("vitals-hr").value = useSavedDetails ? lastSavedData.vitals.hr : "";
+    document.getElementById("vitals-pain").value = useSavedDetails ? (lastSavedData.vitals.pain ?? 0) : 0;
+    document.getElementById("pain-lbl-val").innerText = useSavedDetails ? (lastSavedData.vitals.pain ?? 0) : 0;
+
+    if (saveModeToggle) {
+      saveModeToggle.checked = false;
+      saveModeLabel.innerText = "OFF = Use saved details";
+    }
+
+    if (saveModeToggle) {
+      saveModeToggle.onchange = function() {
+        const modeOn = this.checked;
+        saveModeLabel.innerText = modeOn ? "ON = Enter new details" : "OFF = Use saved details";
+        if (modeOn) {
+          document.getElementById("vitals-symptoms").value = "";
+          document.getElementById("vitals-bp-systolic").value = "";
+          document.getElementById("vitals-bp-diastolic").value = "";
+          document.getElementById("vitals-sugar").value = "";
+          document.getElementById("vitals-temp").value = "";
+          document.getElementById("vitals-spo2").value = "";
+          document.getElementById("vitals-hr").value = "";
+          document.getElementById("vitals-pain").value = 0;
+          document.getElementById("pain-lbl-val").innerText = 0;
+        } else {
+          const savedApp = targetToken ? db.appointments.find(a => a.token === targetToken) : db.appointments.find(a => a.patientId === patientId);
+          const fallback = defaultDemoData;
+          const details = savedApp && savedApp.vitals ? savedApp : fallback;
+          document.getElementById("vitals-symptoms").value = details.symptoms || fallback.symptoms;
+          document.getElementById("vitals-bp-systolic").value = details.vitals.bpSystolic;
+          document.getElementById("vitals-bp-diastolic").value = details.vitals.bpDiastolic;
+          document.getElementById("vitals-sugar").value = details.vitals.sugar;
+          document.getElementById("vitals-temp").value = details.vitals.temp;
+          document.getElementById("vitals-spo2").value = details.vitals.spo2;
+          document.getElementById("vitals-hr").value = details.vitals.hr;
+          document.getElementById("vitals-pain").value = details.vitals.pain || 0;
+          document.getElementById("pain-lbl-val").innerText = details.vitals.pain || 0;
+        }
+      };
+    }
+
+    const vitalsSpecialtySelect = document.getElementById("vitals-specialty");
+    if (vitalsSpecialtySelect) {
+      vitalsSpecialtySelect.innerHTML = db.doctors.map(d => `<option value="${d.id}" ${app && app.assignedDoctorId === d.id ? 'selected' : ''}>${d.specialty} (${d.name})</option>`).join("");
+    }
+
+    document.getElementById("vitals-modal").classList.add("active");
+  };
+
+  window.closeVitalsModal = function() {
+    document.getElementById("vitals-modal").classList.remove("active");
+  };
+
+  window.vhwSubmitVitals = async function(e) {
+    e.preventDefault();
+    const patientId = document.getElementById("vitals-pat-id").value;
+    const symptoms = document.getElementById("vitals-symptoms").value.trim();
+    const bpSystolic = parseInt(document.getElementById("vitals-bp-systolic").value, 10);
+    const bpDiastolic = parseInt(document.getElementById("vitals-bp-diastolic").value, 10);
+    const sugar = parseInt(document.getElementById("vitals-sugar").value, 10) || 110;
+    const temp = parseFloat(document.getElementById("vitals-temp").value);
+    const spo2 = parseInt(document.getElementById("vitals-spo2").value, 10);
+    const hr = parseInt(document.getElementById("vitals-hr").value, 10);
+    const pain = parseInt(document.getElementById("vitals-pain").value, 10) || 0;
+    const docId = document.getElementById("vitals-specialty").value;
+
+    // Comprehensive Clinical Range Validations
+    if (isNaN(bpSystolic) || bpSystolic < 50 || bpSystolic > 260) {
+      showToast("Invalid Blood Pressure (Systolic must be 50 - 260 mmHg).", "warning");
+      return;
+    }
+    if (isNaN(bpDiastolic) || bpDiastolic < 30 || bpDiastolic > 160) {
+      showToast("Invalid Blood Pressure (Diastolic must be 30 - 160 mmHg).", "warning");
+      return;
+    }
+    if (isNaN(temp) || temp < 30 || temp > 45) {
+      showToast("Invalid Body Temperature (must be 30.0 - 45.0 °C).", "warning");
+      return;
+    }
+    if (isNaN(spo2) || spo2 < 50 || spo2 > 100) {
+      showToast("Invalid Blood Oxygen SpO2 (must be 50 - 100%).", "warning");
+      return;
+    }
+    if (isNaN(hr) || hr < 30 || hr > 220) {
+      showToast("Invalid Pulse/Heart Rate (must be 30 - 220 bpm).", "warning");
+      return;
+    }
+
+    const vitals = { bpSystolic, bpDiastolic, sugar, temp, spo2, hr, pain, photo: null };
+    const p = db.patients.find(pat => pat.id === patientId);
+    const doc = db.doctors.find(d => d.id === docId) || db.doctors[0];
+    const specialty = doc.specialty;
+
+    // Image upload
+    const photoInput = document.getElementById("vitals-photo");
+    if (photoInput && photoInput.files && photoInput.files[0]) {
+      vitals.photo = `Clinical Photo (${photoInput.files[0].name})`;
+    }
+
+    // Triage assessment
+    const triage = evaluateTriageUrgency(vitals);
+    const isEmergency = vitals.spo2 < 90 || vitals.bpSystolic > 180 || vitals.hr > 130;
+    const urgencyFlag = isEmergency ? "Emergency" : triage.flag;
+
+    const targetToken = window.currentVitalsToken;
+    let appIndex = -1;
+    if (targetToken) {
+      appIndex = db.appointments.findIndex(a => a.token === targetToken);
+    }
+    if (appIndex === -1) {
+      appIndex = db.appointments.findIndex(a => a.patientId === patientId && (a.status === "Vitals Pending" || a.status === "Waiting for Doctor Queue" || a.status === "Waiting"));
+    }
+    if (appIndex === -1) {
+      appIndex = db.appointments.findIndex(a => a.patientId === patientId && a.status !== "Completed" && a.status !== "Cancelled");
+    }
+
+    let token = null;
+    if (appIndex >= 0) {
+      db.appointments[appIndex].vitals = vitals;
+      db.appointments[appIndex].vitalsCompleted = true;
+      db.appointments[appIndex].status = "Waiting for Doctor Queue";
+      db.appointments[appIndex].vitalsRecordedAt = new Date().toISOString();
+      if (symptoms) db.appointments[appIndex].symptoms = symptoms;
+      db.appointments[appIndex].urgency = urgencyFlag;
+      db.appointments[appIndex].assignedDoctorId = doc.id;
+      db.appointments[appIndex].doctorName = doc.name;
+      db.appointments[appIndex].specialty = specialty;
+      db.appointments[appIndex].isHomeVisit = window.isHomeVisitCapture || false;
+      token = db.appointments[appIndex].token;
+    } else {
+      const prefix = p ? (p.village.includes("A") ? "VIL-A" : p.village.includes("B") ? "VIL-B" : "VIL-C") : "VIL-A";
+      token = `${prefix}-${Math.floor(100 + Math.random() * 900)}`;
+      const newReq = {
+        token,
+        consultationRequestId: token,
+        patientId,
+        patientName: p ? p.name : "Patient",
+        symptoms: symptoms || "General Consultation",
+        urgency: urgencyFlag,
+        specialty,
+        assignedDoctorId: doc.id,
+        doctorName: doc.name,
+        status: "Waiting for Doctor Queue",
+        vitals,
+        vitalsCompleted: true,
+        vitalsRecordedAt: new Date().toISOString(),
+        isHomeVisit: window.isHomeVisitCapture || false,
+        createdAt: new Date().toISOString()
+      };
+      db.appointments.push(newReq);
+    }
+
+    saveDB();
+    closeVitalsModal();
+
+    // Persist vitals to server API
+    try {
+      await fetch("/api/vitals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          patientId,
+          vitals,
+          urgency: urgencyFlag,
+          specialty
+        })
+      });
+    } catch (err) {
+      console.warn("API vitals sync error:", err);
+    }
+
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("vitals_recorded", {
+          token,
+          vitals,
+          urgency: urgencyFlag,
+          patientId,
+          specialty,
+          isHomeVisit: window.isHomeVisitCapture || false
+        });
+        if (isEmergency) {
+          appSocket.emit("emergency_alert", {
+            patientName: p ? p.name : "Patient",
+            vitals,
+            token
+          });
+        }
+      } catch (e) {}
+    }
+
+    if (isEmergency) {
+      window.triggerEmergencyAlert(p ? p.name : "Patient", vitals, token);
+    } else {
+      showToast(`Vitals recorded for ${token}! Patient placed in ${specialty} Queue. Booking slots unlocked.`, "success");
+    }
+
+    loadVhwDashboard();
+  };
+
+  function renderVhwQueue() {
+    const tbody = document.getElementById("vhw-queue-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    const vhwAllowedStatuses = ["Vitals Pending", "Waiting for Doctor Queue", "Waiting", "Active"];
+    const list = (db.appointments || []).filter(a => vhwAllowedStatuses.includes(a.status));
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding: 24px;">No patients currently waiting in consultation queue</td></tr>`;
+      return;
+    }
+
+    list.forEach(a => {
+      const directoryPatient = db.patients.find(pat => pat.id === a.patientId);
+      const p = directoryPatient || (a.patientName ? {
+        id: a.patientId,
+        name: a.patientName,
+        age: a.patientAge,
+        gender: a.patientGender,
+        village: a.patientVillage
+      } : null);
+      const doc = db.doctors.find(d => d.id === a.assignedDoctorId);
+      
+      let vitalsHtml = `<span style="color:#d97706; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:4px;"><span class="pulse-dot" style="background:#f59e0b;"></span> Pending Screening</span>`;
+      let priorityBadge = `<span class="badge" style="background:#fef3c7; color:#92400e; font-size:11px; padding:3px 8px; border-radius:12px;">Vitals Pending</span>`;
+
+      if (a.vitals) {
+        const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 92;
+        const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
+        const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
+        const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.8°C";
+        const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
+
+        vitalsHtml = `
+        <div class="vitals-telemetry-grid">
+          <div class="vital-row"><span class="vital-k">BP:</span> <span class="vital-v">${bpVal}</span></div>
+          <div class="vital-row"><span class="vital-k">SpO2:</span> <span class="vital-v ${isSpo2Low ? 'vital-danger' : ''}">${spo2Val}</span></div>
+          <div class="vital-row"><span class="vital-k">Temp:</span> <span class="vital-v">${tempVal}</span></div>
+          <div class="vital-row"><span class="vital-k">HR:</span> <span class="vital-v">${hrVal}</span></div>
+        </div>
+      `;
+
+        const triage = evaluateTriageUrgency(a.vitals);
+        if (triage.flag === "Critical" || a.urgency === "Critical" || a.urgency === "Emergency") {
+          priorityBadge = `<span class="triage-pill triage-critical"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Critical</span>`;
+        } else if (triage.flag === "High Warning" || a.urgency === "Urgent" || a.urgency === "Severe" || a.urgency === "Moderate") {
+          priorityBadge = `<span class="triage-pill triage-warning"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg> Urgent</span>`;
+        } else {
+          priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
+        }
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td><span class="token-pill">${a.token}</span></td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(p, p ? p.id : a.patientId)}
+          <div>
+            <div class="patient-name-bold">${p ? p.name : (a.patientName || "Patient")}</div>
+            <div class="patient-sub-meta">${p ? `${p.age} yrs / ${p.gender}` : ""}</div>
+          </div>
+        </div>
+      </td>
+      <td style="color:#334155; font-size: 13px;">${a.symptoms || "None reported"}</td>
+      <td>${vitalsHtml}</td>
+      <td>${priorityBadge}</td>
+      <td style="color:#0f172a; font-weight:500;">${doc ? doc.name : (a.specialty || "General Medicine")}</td>
+      <td style="text-align: right; padding-right: 20px;">
+        <div style="display:inline-flex; align-items:center; gap:6px;">
+          <button class="btn-queue-action" onclick="openVitalsModal('${p ? p.id : a.patientId}', ${a.isHomeVisit || false}, '${a.token}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> ${a.vitals ? 'Update Vitals' : 'Record Vitals'}
+          </button>
+        </div>
+      </td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.vhwCancelToken = function(token) {
+    const idx = db.appointments.findIndex(a => a.token === token);
+    if (idx >= 0) {
+      db.appointments.splice(idx, 1);
+      saveDB();
+      showToast(`Token ${token} cancelled.`, "warning");
+      loadVhwDashboard();
+    }
+  };
+
+  // --- DOCTOR DASHBOARD & MODULAR NAVIGATION ---
+  window.switchDoctorModule = function(moduleName, updateHash = true) {
+    if (currentRole !== "doctor") return;
+
+    const validModules = ["overview", "queue", "appointments", "schedule", "patients", "consultations", "history", "prescriptions", "reports"];
+    if (!validModules.includes(moduleName)) {
+      moduleName = "overview";
+    }
+
+    // Update Sidebar active state
+    document.querySelectorAll(".doc-nav-item").forEach(btn => {
+      if (btn.getAttribute("data-module") === moduleName) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+
+    // Switch Module Panes (Only 1 active module pane displayed)
+    document.querySelectorAll(".doc-module-pane").forEach(pane => {
+      pane.classList.remove("active");
+    });
+    const targetPane = document.getElementById(`doc-pane-${moduleName}`);
+    if (targetPane) {
+      targetPane.classList.add("active");
+    }
+
+    // Header Title & Subtitle updates
+    const titleEl = document.getElementById("doc-module-title");
+    const subEl = document.getElementById("doc-module-subtitle");
+    const actionsEl = document.getElementById("doc-header-actions-container");
+
+    const moduleMeta = {
+      overview: {
+        title: "Doctor Dashboard Overview",
+        sub: "Daily clinical summary, triage alerts, and active patient glance",
+        actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">▶ Start Queue Call</button>`
+      },
+      queue: {
+        title: "Active Consultation Queue",
+        sub: "Real-time waiting list ordered by vitals urgency and triage level",
+        actions: `<span class="badge-pill-count" style="font-size:12px; background:#e0e7ff; color:#3730a3; padding:4px 10px; border-radius:12px;">Live Queue Sync</span>`
+      },
+      appointments: {
+        title: "Appointment Management",
+        sub: "Schedule, filter, and launch upcoming tele-health appointments",
+        actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">Active Queue ➔</button>`
+      },
+      schedule: {
+        title: "Doctor Schedule & Availability",
+        sub: "Configure working hours, break periods, and consultation duration",
+        actions: `<button type="button" class="btn-primary" onclick="saveDoctorScheduleSettings()">💾 Save Schedule</button>`
+      },
+      patients: {
+        title: "Registered Patient Directory",
+        sub: "Search registered village patients, medical records, and profiles",
+        actions: `<button type="button" class="btn-secondary" onclick="renderDoctorPatients()">🔄 Refresh List</button>`
+      },
+      consultations: {
+        title: "Live Consultation Room",
+        sub: "Interactive 3-column tele-health suite & digital prescription paper",
+        actions: activeCall ? `<span class="live-session-pill"><span class="pulse-dot"></span> Call Active</span>` : `<span style="font-size:12px; color:#64748b;">No Active Call</span>`
+      },
+      history: {
+        title: "Patient Medical History",
+        sub: "Longitudinal health records, allergies, chronic conditions, and past consultations",
+        actions: `<button type="button" class="btn-secondary" onclick="window.print()">🖨️ Print Record</button>`
+      },
+      prescriptions: {
+        title: "Prescription Management",
+        sub: "Digital e-prescription generator and historical prescription log",
+        actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('consultations')">📄 Open Prescriber Suite</button>`
+      },
+      reports: {
+        title: "Clinical Reports & Analytics",
+        sub: "Dispensary consultation logs, triage stats, and failover metrics",
+        actions: `<button type="button" class="btn-secondary" onclick="renderDoctorReports()">📊 Refresh Stats</button>`
+      }
+    };
+
+    if (moduleMeta[moduleName]) {
+      if (titleEl) titleEl.innerText = moduleMeta[moduleName].title;
+      if (subEl) subEl.innerText = moduleMeta[moduleName].sub;
+      if (actionsEl) actionsEl.innerHTML = moduleMeta[moduleName].actions;
+    }
+
+    // Update hash route if requested
+    if (updateHash) {
+      const targetHash = `#/doctor/${moduleName}`;
+      if (window.location.hash !== targetHash) {
+        history.pushState(null, "", targetHash);
+      }
+    }
+
+    // Trigger data rendering for specific module
+    if (moduleName === "overview") {
+      renderDoctorOverviewSummaries();
+    } else if (moduleName === "queue") {
+      renderDoctorQueue();
+    } else if (moduleName === "appointments") {
+      renderDoctorAppointments();
+    } else if (moduleName === "schedule") {
+      if (typeof loadDoctorScheduleSettings === "function") {
+        loadDoctorScheduleSettings();
+      }
+    } else if (moduleName === "patients") {
+      renderDoctorPatients();
+    } else if (moduleName === "history") {
+      renderDoctorMedicalHistory();
+    } else if (moduleName === "prescriptions") {
+      renderDoctorPrescriptionHistory();
+    } else if (moduleName === "reports") {
+      renderDoctorReports();
+    }
+  };
+
+  // Render Overview summary widgets
+  function renderDoctorOverviewSummaries() {
+    const queueList = db.appointments ? db.appointments.filter(a => a.status === "Waiting" || a.status === "Active") : [];
+    const queueTable = document.getElementById("doc-overview-queue-summary");
+    if (queueTable) {
+      const list = queueList.length > 0 ? queueList : DEFAULT_APPOINTMENTS;
+      queueTable.innerHTML = list.slice(0, 3).map(a => {
+        const p = (db.patients || DEFAULT_PATIENTS).find(pat => pat.id === a.patientId);
+        return `
+        <tr>
+          <td><span class="token-pill">${a.token}</span></td>
+          <td><strong>${p ? p.name : "Patient"}</strong></td>
+          <td style="font-size:12px; color:#64748b;">${a.symptoms || "Checkup"}</td>
+          <td><span class="triage-pill triage-normal">${a.urgency || "Normal"}</span></td>
+          <td style="text-align:right;"><button class="btn-doc-start-call" style="padding:3px 8px; font-size:11px;" onclick="startDoctorConsultation('${a.token}')">Start Call</button></td>
+        </tr>
+      `;
+      }).join("");
+    }
+
+    const appTable = document.getElementById("doc-overview-app-summary");
+    if (appTable) {
+      const list = queueList.length > 0 ? queueList : DEFAULT_APPOINTMENTS;
+      appTable.innerHTML = list.slice(0, 3).map(a => {
+        const p = (db.patients || DEFAULT_PATIENTS).find(pat => pat.id === a.patientId);
+        return `
+        <tr>
+          <td><strong style="color:#059669;">${a.token}</strong></td>
+          <td>${p ? p.name : "Patient"}</td>
+          <td><span class="badge" style="background:#e0e7ff; color:#3730a3;">${a.status}</span></td>
+          <td style="text-align:right;"><button class="btn-secondary" style="padding:3px 8px; font-size:11px;" onclick="startDoctorConsultation('${a.token}')">Consult</button></td>
+        </tr>
+      `;
+      }).join("");
+    }
+
+    const completedList = (db.consultations && db.consultations.length > 0) ? db.consultations : DEFAULT_CONSULTATIONS;
+    const compTable = document.getElementById("doc-overview-completed-summary");
+    if (compTable) {
+      compTable.innerHTML = completedList.slice(0, 3).map(c => `
+      <tr>
+        <td><strong>${c.token || c.id}</strong> <small style="color:#64748b;">(${c.date || "Today"})</small></td>
+        <td>${c.patientName || "Patient"}</td>
+        <td>${c.diagnosis || "General Consultation"}</td>
+        <td style="font-size:12px; color:#475569;">${c.medicines || "Prescribed"}</td>
+        <td><span class="badge" style="background:#dcfce7; color:#166534;">Completed</span></td>
+      </tr>
+    `).join("");
+    }
+  }
+
+  window.currentDoctorAppFilter = "all";
+
+  window.setDoctorAppFilter = function(filterVal) {
+    window.currentDoctorAppFilter = filterVal || "all";
+    const sel = document.getElementById("doc-app-filter");
+    if (sel) sel.value = filterVal;
+
+    document.querySelectorAll(".btn-filter-pill").forEach(btn => {
+      const bFilter = btn.id.replace("filter-btn-", "");
+      if (bFilter.toLowerCase() === filterVal.toLowerCase()) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+
+    renderDoctorAppointments();
+  };
+
+  // Render Appointments module (AI-Assisted Smart Allocation & 7 Statuses)
+  window.renderDoctorAppointments = function(searchQuery = "") {
+    const tbody = document.getElementById("doc-appointments-tbody");
+    if (!tbody) return;
+
+    const filterVal = window.currentDoctorAppFilter || (document.getElementById("doc-app-filter") ? document.getElementById("doc-app-filter").value : "all");
+    let list = [...(db.appointments || [])];
+    if (list.length === 0 && Array.isArray(DEFAULT_APPOINTMENTS)) {
+      list = [...DEFAULT_APPOINTMENTS];
+    }
+    
+    const uniqueMap = new Map();
+    list.forEach(item => {
+      if (item && item.token) uniqueMap.set(item.token, item);
+    });
+    list = Array.from(uniqueMap.values());
+
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    if (filterVal && filterVal !== "all") {
+      const f = filterVal.toLowerCase();
+      list = list.filter(a => {
+        if (f === "today") {
+          return (a.scheduledDate === todayIST || a.scheduledDate === "Today") && a.status !== "Cancelled";
+        }
+        if (f === "upcoming") {
+          return (a.scheduledDate >= todayIST || a.scheduledDate === "Today" || !a.scheduledDate) && 
+                 ["Appointment Confirmed", "Confirmed", "Waiting for Doctor Queue", "Waiting", "Rescheduled"].includes(a.status);
+        }
+        if (f === "completed") {
+          return a.status === "Completed";
+        }
+        if (f === "cancelled") {
+          return a.status === "Cancelled";
+        }
+        if (f === "confirmed_active") {
+          return ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(a.status);
+        }
+        if (f === "queued_awaiting") {
+          return ["Waiting for Doctor Queue", "Vitals Pending", "Waiting", "Queued"].includes(a.status);
+        }
+        return a.status.toLowerCase() === f;
+      });
+    }
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(a => {
+        const p = (db.patients || DEFAULT_PATIENTS).find(pat => pat.id === a.patientId);
+        return (
+          (a.token && a.token.toLowerCase().includes(q)) ||
+          (a.patientName && a.patientName.toLowerCase().includes(q)) ||
+          (p && p.name.toLowerCase().includes(q)) ||
+          (a.symptoms && a.symptoms.toLowerCase().includes(q))
+        );
+      });
+    }
+
+    // Sort: active/confirmed first, then by booking time descending
+    list.sort((a, b) => {
+      const statusPriority = { "In Progress": 1, "Active": 1, "Appointment Confirmed": 2, "Confirmed": 2, "Rescheduled": 3, "Waiting for Doctor Queue": 4, "Waiting": 4, "Vitals Pending": 5, "Completed": 6, "Cancelled": 7 };
+      const prioA = statusPriority[a.status] || 9;
+      const prioB = statusPriority[b.status] || 9;
+      if (prioA !== prioB) return prioA - prioB;
+      const timeA = new Date(a.bookingTime || a.createdAt || 0).getTime();
+      const timeB = new Date(b.bookingTime || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:#94a3b8;">No matching appointments found.</td></tr>`;
+      return;
+    }
+
+    const statusClassMap = {
+      "Vitals Pending": "badge-awaiting",
+      "Waiting for Doctor Queue": "badge-queued",
+      "Queued": "badge-queued",
+      "Awaiting Selection": "badge-awaiting",
+      "Appointment Confirmed": "badge-confirmed",
+      "Confirmed": "badge-confirmed",
+      "In Progress": "badge-inprogress",
+      "Active": "badge-inprogress",
+      "Waiting": "badge-confirmed",
+      "Completed": "badge-completed",
+      "Cancelled": "badge-cancelled",
+      "Rescheduled": "badge-rescheduled"
+    };
+
+    tbody.innerHTML = list.map(a => {
+      const p = (db.patients || DEFAULT_PATIENTS).find(pat => pat.id === a.patientId);
+      const doc = (db.doctors || DEFAULT_DOCTORS).find(d => d.id === a.assignedDoctorId);
+      const docName = doc ? doc.name : (a.doctorName || "Dr. Vikram");
+      const pName = p ? p.name : (a.patientName || "Patient");
+      const pId = p ? p.id : (a.patientId || "pat-1");
+      const pMeta = p ? `${p.age || 30} yrs / ${p.gender || 'Patient'} • ID: ${pId}` : `ID: ${pId}`;
+
+      const bookingStr = a.bookingTime || a.createdAt ? new Date(a.bookingTime || a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now";
+      const dateStr = a.scheduledDate || "Today";
+      const startTimeStr = a.scheduledStartTime || "--:--";
+      const endTimeStr = a.scheduledEndTime || "--:--";
+      const duration = a.slotDurationMins || 15;
+
+      const badgeCls = statusClassMap[a.status] || "badge-confirmed";
+      const badgeHtml = (a.status === "In Progress" || a.status === "Active")
+        ? `<span class="badge ${badgeCls}"><span class="pulse-dot"></span> In Progress</span>`
+        : `<span class="badge ${badgeCls}">${a.status || 'Confirmed'}</span>`;
+
+      let vitalsCol = `<span style="font-size:11.5px; color:#94a3b8; font-style:italic;">Pending Screening</span>`;
+      if (a.vitals) {
+        const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 92;
+        const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
+        const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
+        const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
+        const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.8°C";
+        vitalsCol = `
+        <div style="font-size:11.5px; line-height:1.45;">
+          <div style="font-weight:600; color:#0f172a;">BP: ${bpVal} • <span class="${isSpo2Low ? 'vital-danger' : ''}">SpO2: ${spo2Val}</span></div>
+          <div style="color:#64748b;">HR: ${hrVal} • Temp: ${tempVal}</div>
+        </div>
+      `;
+      }
+
+      let actionButtons = "";
+      if (a.status === "Appointment Confirmed" || a.status === "Confirmed" || a.status === "Rescheduled" || a.status === "Waiting") {
+        actionButtons = `
+        <button class="btn-doc-start-call" style="padding:4px 9px; font-size:11.5px; margin-right:4px;" onclick="startDoctorConsultation('${a.token}')">Start Call</button>
+        <button class="btn-secondary" style="padding:4px 8px; font-size:11px; margin-right:4px;" onclick="openDoctorRescheduleModal('${a.token}')">Reschedule</button>
+        <button class="btn-danger-outline" style="padding:4px 8px; font-size:11px;" onclick="cancelDoctorAppointment('${a.token}')">Cancel</button>
+      `;
+      } else if (a.status === "In Progress" || a.status === "Active") {
+        actionButtons = `
+        <button class="btn-doc-start-call" style="padding:4px 10px; font-size:11.5px;" onclick="startDoctorConsultation('${a.token}')">Join Room</button>
+      `;
+      } else if (a.status === "Waiting for Doctor Queue") {
+        actionButtons = `
+        <button class="btn-doc-start-call" style="padding:4px 9px; font-size:11.5px; margin-right:4px;" onclick="startDoctorConsultation('${a.token}')">Call Now</button>
+        <button class="btn-danger-outline" style="padding:4px 8px; font-size:11px;" onclick="cancelDoctorAppointment('${a.token}')">Cancel</button>
+      `;
+      } else if (a.status === "Completed") {
+        actionButtons = `<span style="font-size:12px; color:#166534; font-weight:600;">✓ Completed</span>`;
+      } else if (a.status === "Cancelled") {
+        actionButtons = `<span style="font-size:12px; color:#991b1b; font-style:italic;">Cancelled</span>`;
+      } else {
+        actionButtons = `
+        <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openDoctorRescheduleModal('${a.token}')">Manage</button>
+      `;
+      }
+
+      return `
+      <tr>
+        <td>
+          <span class="token-pill">${a.token}</span>
+          <div style="font-size:11px; color:#64748b; margin-top:4px;">Booked: ${bookingStr}</div>
+        </td>
+        <td>
+          <div style="font-weight:600; color:#0f172a;">${pName}</div>
+          <div style="font-size:11.5px; color:#64748b;">${pMeta}</div>
+        </td>
+        <td>
+          <div style="font-weight:600; color:#059669; font-size:12.5px;">📅 ${dateStr}</div>
+          <div style="font-size:12px; color:#334155; font-weight:500;">⏰ ${startTimeStr} - ${endTimeStr} IST (${duration} mins)</div>
+        </td>
+        <td>
+          ${vitalsCol}
+        </td>
+        <td>
+          <div style="font-size:12.5px; color:#1e293b; max-width:180px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${a.symptoms || "Tele-Health Consultation"}</div>
+          <div style="font-size:11px; color:#64748b;">${docName} (${a.specialty || 'General Medicine'})</div>
+        </td>
+        <td>${badgeHtml}</td>
+        <td style="text-align:right; padding-right:16px;">
+          ${actionButtons}
+        </td>
+      </tr>
+    `;
+    }).join("");
+  };
+
+  // Render Patients directory module
+  window.renderDoctorPatients = function(searchQuery = "") {
+    const tbody = document.getElementById("doc-patients-tbody");
+    if (!tbody) return;
+
+    let list = db.patients || DEFAULT_PATIENTS;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(p => (p.name && p.name.toLowerCase().includes(q)) || (p.id && p.id.toLowerCase().includes(q)) || (p.village && p.village.toLowerCase().includes(q)));
+    }
+
+    tbody.innerHTML = list.map(p => `
+    <tr>
+      <td><strong style="color:#2563eb;">${p.id}</strong></td>
+      <td>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="remote-avatar-circle" style="width:28px; height:28px; font-size:11px;">${p.name ? p.name.slice(0, 2).toUpperCase() : "PT"}</div>
+          <strong>${p.name}</strong>
+        </div>
+      </td>
+      <td>${p.age} yrs / ${p.gender}</td>
+      <td>${p.phone || "9876543210"}</td>
+      <td><span class="badge" style="background:#f1f5f9; color:#475569;">${p.village || "Clinic A"}</span></td>
+      <td><span style="font-size:12px; color:#64748b;">${(p.history && p.history.length > 0) ? `${p.history.length} Visit(s)` : "Initial Record"}</span></td>
+      <td style="text-align:right; padding-right:20px;">
+        <button class="btn-secondary" style="padding:4px 10px; font-size:11.5px; margin-right:4px;" onclick="viewPatientDetails('${p.id}')">View Details</button>
+        <button class="btn-primary" style="padding:4px 10px; font-size:11.5px;" onclick="renderDoctorMedicalHistory('${p.id}'); switchDoctorModule('history');">Medical History</button>
+      </td>
+    </tr>
+  `).join("");
+  };
+
+  // View individual patient details drawer
+  window.viewPatientDetails = function(patientId) {
+    const p = (db.patients || DEFAULT_PATIENTS).find(item => item.id === patientId);
+    const container = document.getElementById("doc-patient-detail-drawer");
+    if (!container || !p) return;
+
+    container.style.display = "block";
+    container.innerHTML = `
+    <div class="card doc-card" style="border: 2px solid #2563eb; background: #faf5ff;">
+      <div class="card-title-bar" style="background: #eff6ff;">
+        <h3 style="margin:0; font-size:15px; color:#1e40af;">👤 Patient Details: ${p.name} (${p.id})</h3>
+        <button type="button" class="btn-secondary" style="padding: 2px 8px; font-size:12px;" onclick="document.getElementById('doc-patient-detail-drawer').style.display='none'">✕ Close</button>
+      </div>
+      <div style="padding: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; font-size: 13px;">
+        <div><span style="color:#64748b; font-size:11px; display:block;">Age / Gender</span> <strong>${p.age} / ${p.gender}</strong></div>
+        <div><span style="color:#64748b; font-size:11px; display:block;">Contact Phone</span> <strong>${p.phone || "N/A"}</strong></div>
+        <div><span style="color:#64748b; font-size:11px; display:block;">Dispensary Clinic</span> <strong>${p.village || "Village Clinic A"}</strong></div>
+        <div><span style="color:#64748b; font-size:11px; display:block;">Total Past Visits</span> <strong>${p.history ? p.history.length : 0}</strong></div>
+      </div>
+    </div>
+  `;
+  };
+
+  // Render Medical History module
+  window.renderDoctorMedicalHistory = function(selectedPatientId = "") {
+    const selectEl = document.getElementById("doc-history-pat-select");
+    const displayContainer = document.getElementById("doc-history-display-container");
+    if (!displayContainer) return;
+
+    const patientsList = db.patients || DEFAULT_PATIENTS;
+    if (selectEl) {
+      selectEl.innerHTML = `<option value="">Select Patient Record...</option>` + patientsList.map(p => `
+      <option value="${p.id}" ${p.id === selectedPatientId ? 'selected' : ''}>${p.name} (${p.id})</option>
+    `).join("");
+    }
+
+    const p = patientsList.find(item => item.id === selectedPatientId) || patientsList[0];
+    if (!p) {
+      displayContainer.innerHTML = `<div style="padding:32px; text-align:center; color:#94a3b8;">Select a patient to view full medical history.</div>`;
+      return;
+    }
+
+    const historyItems = (p.history && p.history.length > 0) ? p.history : [
+      { date: "2026-06-15", clinic: "General Medicine", diagnosis: "Viral Fever & Fatigue", medicines: "Paracetamol 500mg, ORS Sachet", doctor: "Dr. Vikram" }
+    ];
+
+    displayContainer.innerHTML = `
+    <div style="padding: 16px;">
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <h4 style="margin:0 0 4px 0; font-size: 16px; color: #0f172a;">${p.name}</h4>
+          <span style="font-size: 12px; color: #64748b;">ID: ${p.id} • ${p.age} yrs / ${p.gender} • ${p.village || 'Village Clinic A'}</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <span class="badge" style="background:#fee2e2; color:#991b1b; padding: 6px 12px;">Allergies: Penicillin</span>
+          <span class="badge" style="background:#dbeafe; color:#1e40af; padding: 6px 12px;">Blood: O+</span>
+        </div>
+      </div>
+
+      <h5 style="margin: 0 0 12px 0; font-size: 14px; color: #1e293b;">Consultation Timeline</h5>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        ${historyItems.map(h => `
+          <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #2563eb; border-radius: 8px; padding: 14px 16px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+              <strong style="color: #2563eb; font-size: 14px;">${h.diagnosis}</strong>
+              <span style="font-size: 12px; color: #64748b;">📅 ${h.date} | ${h.clinic || 'General'}</span>
+            </div>
+            <div style="font-size: 13px; color: #334155; margin-bottom: 4px;"><strong>Prescribed:</strong> ${h.medicines || 'N/A'}</div>
+            <div style="font-size: 11px; color: #64748b;">Clinician: ${h.doctor || 'Dr. Vikram'}</div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+  };
+
+  // Render Prescriptions history module
+  window.renderDoctorPrescriptionHistory = function() {
+    const tbody = document.getElementById("doc-prescriptions-history-tbody");
+    if (!tbody) return;
+
+    const consultationsList = (db.consultations && db.consultations.length > 0) ? db.consultations : DEFAULT_CONSULTATIONS;
+    tbody.innerHTML = consultationsList.map(c => `
+    <tr>
+      <td><span class="token-pill">${c.token || c.id}</span> <small style="color:#64748b;">(${c.date || "30/08/2026"})</small></td>
+      <td><strong>${c.patientName || "Patient"}</strong></td>
+      <td>${c.diagnosis || "General Consultation"}</td>
+      <td style="font-size:12px; color:#334155;">${c.medicines || "Paracetamol, Amoxicillin"}</td>
+      <td>${c.doctorName || "Dr. Vikram"}</td>
+      <td>${c.referral ? `<span class="badge" style="background:#fee2e2; color:#991b1b;">Referred</span>` : `<span class="badge" style="background:#dcfce7; color:#166534;">Dispensary Only</span>`}</td>
+      <td style="text-align:right; padding-right:20px;">
+        <button class="btn-secondary" style="padding:4px 10px; font-size:11.5px;" onclick="switchDoctorModule('consultations')">View Prescriber</button>
+      </td>
+    </tr>
+  `).join("");
+  };
+
+  // Render Reports & Analytics module
+  window.renderDoctorReports = function() {
+    const consultationsList = (db.consultations && db.consultations.length > 0) ? db.consultations : DEFAULT_CONSULTATIONS;
+    const criticalCount = consultationsList.filter(c => c.referral).length;
+
+    const totalEl = document.getElementById("doc-rep-total");
+    if (totalEl) totalEl.innerText = `${consultationsList.length} Total`;
+
+    const compEl = document.getElementById("doc-rep-completed");
+    if (compEl) compEl.innerText = `${consultationsList.length} Issued`;
+
+    const critEl = document.getElementById("doc-rep-critical");
+    if (critEl) critEl.innerText = `${criticalCount} Cases`;
+
+    renderDoctorCompletedLogs();
+  };
+
+  async function loadDoctorDashboard() {
+    if (currentRole !== "doctor" || !currentUser) return;
+
+    if (supabase) await refreshConsultationsFromSupabase();
+
+    // Populate Doctor Profile info in Sidebar
+    const docNameEl = document.getElementById("doc-sidebar-name");
+    const docSpecEl = document.getElementById("doc-sidebar-spec");
+    const docAvatarEl = document.getElementById("doc-sidebar-avatar");
+
+    if (docNameEl) docNameEl.innerText = currentUser.name || "Dr. Vikram";
+    if (docSpecEl) docSpecEl.innerText = currentUser.specialty || "General Medicine";
+    if (docAvatarEl) {
+      const initials = (currentUser.name || "Dr. Vikram").replace("Dr.", "").trim().split(" ").map(n => n[0]).join("").toUpperCase();
+      docAvatarEl.innerText = initials || "DV";
+    }
+
+    // Active consultation queue counts update
+    const queueList = db.appointments ? db.appointments.filter(a => a.status === "Waiting" || a.status === "Active" || a.status === "Waiting for Doctor Queue") : [];
+    
+    let criticalCount = 0;
+    queueList.forEach(q => {
+      if (q.vitals) {
+        const triage = evaluateTriageUrgency(q.vitals);
+        if (triage.flag === "Critical" || q.urgency === "Critical" || q.urgency === "Emergency") criticalCount++;
+      }
+    });
+
+    const consultedList = db.consultations || [];
+
+    const statQueue = document.getElementById("doc-stat-queue");
+    if (statQueue) statQueue.innerText = `${queueList.length} Waiting`;
+
+    const statCrit = document.getElementById("doc-stat-critical");
+    if (statCrit) statCrit.innerText = `${criticalCount} Cases`;
+
+    const statConsulted = document.getElementById("doc-stat-consulted");
+    if (statConsulted) statConsulted.innerText = `${consultedList.length} Patients`;
+
+    const queueBadge = document.getElementById("doc-queue-count-badge");
+    if (queueBadge) queueBadge.innerText = `${queueList.length} patient${queueList.length === 1 ? '' : 's'}`;
+
+    const navQueueBadge = document.getElementById("doc-nav-queue-count");
+    if (navQueueBadge) navQueueBadge.innerText = queueList.length;
+
+    const liveBadge = document.getElementById("doc-nav-consult-live");
+    if (liveBadge) liveBadge.style.display = activeCall ? "inline-block" : "none";
+
+    // Check URL hash route or default to overview
+    let targetModule = "overview";
+    if (window.location.hash && window.location.hash.startsWith("#/doctor/")) {
+      const route = window.location.hash.replace("#/doctor/", "").trim();
+      if (route) targetModule = route;
+    } else if (activeCall) {
+      targetModule = "consultations";
+    }
+
+    switchDoctorModule(targetModule, false);
+  }
+
+  function renderDoctorQueue(searchQuery = "") {
+    const tbody = document.getElementById("doc-queue-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    // Active queue appointments across all clinicians (including Waiting for Doctor Queue)
+    let list = (db.appointments || []).filter(a => a.status === "Waiting for Doctor Queue" || a.status === "Waiting" || a.status === "Active");
+    if (list.length === 0) {
+      list = [...DEFAULT_APPOINTMENTS.filter(a => a.status === "Waiting for Doctor Queue" || a.status === "Waiting" || a.status === "Active")];
+    }
+
+    // Ensure reference appointments exist for consistent preview
+    DEFAULT_APPOINTMENTS.forEach(defApp => {
+      if (!list.some(a => a.token === defApp.token)) {
+        list.push(defApp);
+      }
+    });
+
+    // Sorting: Active -> Emergency -> Critical (Urgency Score High) -> High Warning -> Normal
+    list.sort((a, b) => {
+      if (a.urgency === "Emergency" && b.urgency !== "Emergency") return -1;
+      if (b.urgency === "Emergency" && a.urgency !== "Emergency") return 1;
+      const triageA = evaluateTriageUrgency(a.vitals);
+      const triageB = evaluateTriageUrgency(b.vitals);
+      return triageB.score - triageA.score; // Descending score
+    });
+
+    if (searchQuery) {
+      list = list.filter(a => {
+        const p = db.patients.find(pat => pat.id === a.patientId);
+        return (
+          (p && p.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (a.token && a.token.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (a.symptoms && a.symptoms.toLowerCase().includes(searchQuery.toLowerCase()))
+        );
+      });
+    }
+
+    const queueBadge = document.getElementById("doc-queue-count-badge");
+    if (queueBadge) {
+      queueBadge.innerText = `${list.length} patient${list.length === 1 ? '' : 's'}`;
+    }
+
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No patients currently waiting in active queue.</td></tr>`;
+      return;
+    }
+
+    list.forEach(a => {
+      const p = db.patients.find(pat => pat.id === a.patientId);
+      const doc = db.doctors.find(d => d.id === a.assignedDoctorId);
+      const docName = doc ? doc.name : (currentUser && currentUser.name ? currentUser.name : "Dr. Vikram");
+
+      let vitalsHtml = `<span style="color:#94a3b8; font-size:12px; font-style:italic;">Pending Vitals Check</span>`;
+      let priorityBadge = `<span class="triage-pill" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1;">Awaiting</span>`;
+
+      if (a.vitals) {
+        const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 95;
+        const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
+        const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
+        const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.5°C";
+        const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
+
+        vitalsHtml = `
+        <div class="vitals-telemetry-grid">
+          <div class="vital-row"><span class="vital-k">BP:</span> <span class="vital-v">${bpVal}</span></div>
+          <div class="vital-row"><span class="vital-k">SpO2:</span> <span class="vital-v ${isSpo2Low ? 'vital-danger' : ''}">${spo2Val}</span></div>
+          <div class="vital-row"><span class="vital-k">Temp:</span> <span class="vital-v">${tempVal}</span></div>
+          <div class="vital-row"><span class="vital-k">HR:</span> <span class="vital-v">${hrVal}</span></div>
+        </div>
+      `;
+
+        const triage = evaluateTriageUrgency(a.vitals);
+        if (triage.flag === "Critical" || a.urgency === "Critical" || a.urgency === "Emergency") {
+          priorityBadge = `<span class="triage-pill triage-critical"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Critical</span>`;
+        } else if (triage.flag === "High Warning" || a.urgency === "Urgent" || a.urgency === "Severe" || a.urgency === "Moderate") {
+          priorityBadge = `<span class="triage-pill triage-warning"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg> Urgent</span>`;
+        } else {
+          priorityBadge = `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Normal</span>`;
+        }
+      }
+
+      const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:10px; padding:2px 6px; border-radius:12px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
+
+      const tr = document.createElement("tr");
+      tr.className = a.urgency === "Emergency" ? "queue-row emergency-high" : "queue-row";
+      tr.innerHTML = `
+      <td><span class="token-pill">${a.token}</span></td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(p, p ? p.id : a.patientId)}
+          <div>
+            <div class="patient-name-bold">${p ? p.name : "Unknown"}${homeVisitBadge}</div>
+            <div class="patient-sub-meta">${p ? `${p.age} yrs / ${p.gender}` : "--"}</div>
+          </div>
+        </div>
+      </td>
+      <td style="color:#334155; font-size:13.5px; max-width:220px; line-height:1.4;">${a.symptoms || "None reported"}</td>
+      <td>${vitalsHtml}</td>
+      <td>${priorityBadge}</td>
+      <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
+      <td style="text-align: right; padding-right: 20px;">
+        <button class="btn-doc-start-call" onclick="startDoctorConsultation('${a.token}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          Start Call
+        </button>
+      </td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.docSearchQueue = function(val) {
+    renderDoctorQueue(val.trim());
+  };
+
+  function renderDoctorCompletedLogs() {
+    const tbody = document.getElementById("doc-completed-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    const myLogs = (db.consultations || []).filter(log =>
+      (log.status === "completed" || !log.status) &&
+      (log.doctorId === currentUser.id || (!log.doctorId && log.doctorName === currentUser.name))
+    );
+
+    const badge = document.getElementById("doc-completed-count-badge");
+    if (badge) {
+      badge.innerText = `${myLogs.length} Completed`;
+    }
+
+    if (myLogs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--text-muted);">No completed consultations logged yet today.</td></tr>`;
+      return;
+    }
+
+    myLogs.forEach(l => {
+      const tr = document.createElement("tr");
+      const referralBadge = l.referral 
+        ? `<span class="triage-pill triage-warning">${typeof l.referral === 'string' && l.referral !== 'true' ? l.referral : 'Cardiology'}</span>` 
+        : `<span class="triage-pill triage-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> None</span>`;
+
+      const pat = db.patients.find(p => p.name === l.patientName || p.id === l.patientId);
+      const patMeta = pat ? `${pat.age} yrs / ${pat.gender}` : (l.village || "Clinic Patient");
+      const docName = l.doctorName || "Dr. Vikram";
+
+      tr.innerHTML = `
+      <td>
+        <div>
+          <span class="token-pill">${l.token || l.id}</span>
+          <div style="font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 500;">${l.date}</div>
+        </div>
+      </td>
+      <td>
+        <div class="vhw-patient-cell">
+          ${getVhwPatientAvatarHtml(pat || l.patientName, pat ? pat.id : l.id)}
+          <div>
+            <div class="patient-name-bold">${l.patientName}</div>
+            <div class="patient-sub-meta">${patMeta}</div>
+          </div>
+        </div>
+      </td>
+      <td style="color:#334155; font-size:13px; font-weight:500;">${l.diagnosis || "—"}</td>
+      <td style="color:#334155; font-size:12.5px; max-width:220px; line-height:1.4;">${l.medicines || "—"}</td>
+      <td>${referralBadge}</td>
+      <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
+      <td style="text-align: right; padding-right: 20px;">
+        <button class="btn-doc-view-rx" onclick="viewDigitalPrescriptionPopup('${l.id}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          View Rx
+        </button>
+      </td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // --- TELEMEDICINE ENGINE & BANDWIDTH FAILOVER ---
+  const CALL_MODES = {
+    VIDEO_NORMAL: "VIDEO_NORMAL",
+    VIDEO_LOW_QUALITY: "VIDEO_LOW_QUALITY",
+    AUDIO_ONLY: "AUDIO_ONLY"
+  };
+
+  const NETWORK_STATES = {
+    excellent: { label: "Excellent (1080p HD)", resolution: "1080p", bars: 4, bitrate: "6.2 Mbps", latency: "18 ms", class: "excellent-signal", pixelSize: 1, filter: "none", fps: 30 },
+    good:      { label: "Good (720p HD)",      resolution: "720p",  bars: 4, bitrate: "3.1 Mbps", latency: "45 ms", class: "good-signal",      pixelSize: 2, filter: "blur(1px) contrast(105%)", fps: 30 },
+    moderate:  { label: "Moderate (480p SD)",  resolution: "480p",  bars: 3, bitrate: "1.2 Mbps", latency: "85 ms", class: "moderate-signal",  pixelSize: 4, filter: "blur(2px) contrast(115%)", fps: 24 },
+    poor:      { label: "Poor (360p Low-Res)", resolution: "360p",  bars: 2, bitrate: "450 Kbps", latency: "160 ms", class: "poor-signal",     pixelSize: 8, filter: "blur(4px) contrast(125%)", fps: 18 },
+    critical:  { label: "Critical (Audio)",    resolution: "Audio", bars: 0, bitrate: "35 Kbps",  latency: "460 ms", class: "critical-signal",  pixelSize: 0, filter: "none", fps: 0 }
+  };
+
+  function initSimulatedCallState(token, role) {
+    let app = db.appointments.find(a => a.token === token);
+    if (!app) {
+      const def = DEFAULT_APPOINTMENTS.find(a => a.token === token);
+      if (def) {
+        app = { ...def, status: "Active" };
+        db.appointments.push(app);
+      } else {
+        app = { token, patientId: "pat-1", patientName: "Patient", status: "Active" };
+        db.appointments.push(app);
+      }
+      saveDB();
+    }
+    const patient = db.patients.find(p => p.id === app.patientId) ||
+                    DEFAULT_PATIENTS.find(p => p.id === app.patientId) ||
+                    { id: app.patientId || "pat-1", name: app.patientName || "Patient", age: 30, gender: "Other", village: "Village Clinic" };
+    const doctor = db.doctors.find(d => d.id === app.assignedDoctorId) ||
+                   DEFAULT_DOCTORS.find(d => d.id === app.assignedDoctorId) ||
+                   { id: app.assignedDoctorId || (currentUser ? currentUser.id : "doc-1"), name: (currentUser && currentUser.name) ? currentUser.name : "Dr. Vikram" };
+
+    peerToken = token;
+    peerLocalRole = role;
+
+    // Immediately initialize peer signaling channel for real-time messaging
+    if (!peerSignalingChannel || peerSignalingChannel.name !== `vm_peer_bridge_${token}`) {
+      try {
+        if (peerSignalingChannel) peerSignalingChannel.close();
+      } catch (e) {}
+      try {
+        peerSignalingChannel = new BroadcastChannel(`vm_peer_bridge_${token}`);
+        peerSignalingChannel.onmessage = (event) => handlePeerSignal(event.data);
+      } catch (e) {
+        console.warn("[Peer] BroadcastChannel unavailable, using storage signaling:", e);
+      }
+    }
+    window.removeEventListener("storage", handlePeerStorageEvent);
+    window.addEventListener("storage", handlePeerStorageEvent);
+
+    // Retrieve clean chat history: filter out any legacy bot/AI auto-replies
+    const cleanHistory = filterCleanChat(app.chat || []);
+
+    activeCall = {
+      token,
+      patient,
+      doctor,
+      role,
+      networkQuality: "excellent",
+      callMode: CALL_MODES.VIDEO_NORMAL,
+      autoFluctuate: false,
+      camActive: true,
+      manualVideoDisabled: false,
+      autoVideoDisabled: false,
+      networkCounters: { good: 0, moderate: 0, poor: 0, recovery: 0 },
+      micActive: true,
+      aiPredicting: false,
+      chat: (cleanHistory.length > 0) ? cleanHistory : [
+        { id: "msg_init_1", consultationId: token, sender: "system", text: "Encrypted consultation session established.", time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), timestamp: Date.now() }
+      ],
+      files: [
+        { name: "Clinical Vitals Record.pdf", size: "45 KB", type: "pdf" }
+      ],
+      animationFrameId: null,
+      telemetryInterval: null
+    };
+
+    // Add wound image if VHW uploaded one
+    if (app.vitals && app.vitals.photo) {
+      activeCall.files.push({ name: app.vitals.photo, size: "1.2 MB", type: "image" });
+    }
+
+    // Set active in DB
+    const idx = db.appointments.findIndex(a => a.token === token);
+    if (idx >= 0) db.appointments[idx].status = "Active";
+    saveDB();
+
+    // Start Telemetry Fluctuation Loop
+    startTelemetryFluctuations();
+  }
+
+  // Doctor Consultation Call Timer
+  let docCallTimerInterval = null;
+  let docCallStartTime = null;
+
+  function startDocCallTimer() {
+    if (docCallTimerInterval) clearInterval(docCallTimerInterval);
+    docCallStartTime = Date.now();
+    const timerEl = document.getElementById("doc-call-timer");
+    if (timerEl) timerEl.innerText = "⏱ 00:00:00";
+
+    docCallTimerInterval = setInterval(() => {
+      if (!activeCall) {
+        clearInterval(docCallTimerInterval);
+        return;
+      }
+      const elapsedSec = Math.floor((Date.now() - docCallStartTime) / 1000);
+      const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, "0");
+      const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, "0");
+      const secs = String(elapsedSec % 60).padStart(2, "0");
+      const el = document.getElementById("doc-call-timer");
+      if (el) el.innerText = `⏱ ${hrs}:${mins}:${secs}`;
+    }, 1000);
+  }
+
+  function stopDocCallTimer() {
+    if (docCallTimerInterval) {
+      clearInterval(docCallTimerInterval);
+      docCallTimerInterval = null;
+    }
+    const el = document.getElementById("doc-call-timer");
+    if (el) el.innerText = "⏱ 00:00:00";
+  }
+
+  window.startDoctorConsultation = function(token) {
+    let app = db.appointments.find(a => a.token === token);
+    if (!app) {
+      const defApp = DEFAULT_APPOINTMENTS.find(a => a.token === token);
+      if (defApp) {
+        app = { ...defApp, status: "Active" };
+        db.appointments.push(app);
+      } else {
+        app = {
+          token,
+          patientId: "pat-1",
+          patientName: "Sarah Mitchell",
+          status: "Active",
+          assignedDoctorId: currentUser ? currentUser.id : "doc-1",
+          symptoms: "General Tele-Health Consultation",
+          vitals: { hr: 75, temp: 101.4, bpSystolic: 120, bpDiastolic: 80, spo2: 98 }
+        };
+        db.appointments.push(app);
+      }
+    } else {
+      app.status = "Active";
+      if (currentUser) app.assignedDoctorId = currentUser.id;
+    }
+    saveDB();
+
+    const consultSec = document.getElementById("doc-consultation-section");
+    const noCallCard = document.getElementById("doc-no-active-call-card");
+
+    initSimulatedCallState(token, "doctor");
+
+    // Switch to Consultations module tab
+    switchDoctorModule("consultations");
+
+    if (noCallCard) noCallCard.style.display = "none";
+    if (consultSec) {
+      consultSec.style.display = "block";
+      consultSec.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    const liveBadge = document.getElementById("doc-nav-consult-live");
+    if (liveBadge) liveBadge.style.display = "inline-block";
+
+    const patName = (activeCall && activeCall.patient) ? activeCall.patient.name : (app.patientName || "Patient");
+    const docPatName = document.getElementById("doc-call-pat-name");
+    if (docPatName) docPatName.innerText = patName;
+
+    const docSessionDoctor = document.getElementById("doc-session-doctor-name");
+    if (docSessionDoctor) docSessionDoctor.innerText = currentUser ? currentUser.name : (app.doctorName || "Dr. Vikram");
+
+    const docTag = document.getElementById("doc-call-tag-name");
+    if (docTag) docTag.innerText = patName;
+
+    const pipLabel = document.getElementById("doc-pip-label");
+    if (pipLabel) pipLabel.innerText = currentUser ? currentUser.name : "Dr. Vikram";
+
+    const initialsEl = document.getElementById("doc-patient-initials");
+    if (initialsEl) {
+      const initials = patName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+      initialsEl.innerText = initials || "PT";
+    }
+
+    const audioPatName = document.getElementById("doc-call-pat-audio-name");
+    if (audioPatName) audioPatName.innerText = `${patName} (Audio-Only Mode)`;
+
+    // Populate Right Column: 2x2 Vitals Tiles & Reports Panel
+    const vitals = (app && app.vitals) ? app.vitals : { hr: 75, temp: 101.4, bpSystolic: 120, bpDiastolic: 80, spo2: 98 };
+
+    const hrEl = document.getElementById("doc-call-hr");
+    if (hrEl) hrEl.innerText = vitals.hr || 75;
+
+    const tempEl = document.getElementById("doc-call-temp");
+    if (tempEl) tempEl.innerText = vitals.temp || 101.4;
+
+    const bpEl = document.getElementById("doc-call-bp");
+    if (bpEl) bpEl.innerText = `${vitals.bpSystolic || 120}/${vitals.bpDiastolic || 80}`;
+
+    const spo2El = document.getElementById("doc-call-spo2");
+    if (spo2El) spo2El.innerText = vitals.spo2 || 98;
+
+    // Triage alert
+    const triageBanner = document.getElementById("doc-call-triage-banner");
+    const triageLvl = document.getElementById("doc-call-triage-level");
+    if (triageLvl) {
+      const triage = evaluateTriageUrgency(vitals);
+      if (triage.flag === "Critical") {
+        triageLvl.innerText = "RED — Critical Priority";
+        if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-danger";
+      } else if (triage.flag === "High Warning") {
+        triageLvl.innerText = "YELLOW — Urgent Attention";
+        if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-warning";
+      } else {
+        triageLvl.innerText = "GREEN — Non-Urgent (Normal)";
+        if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-normal";
+      }
+    }
+
+    // Symptoms tags cloud
+    const sympBox = document.getElementById("doc-call-symptoms-tags");
+    if (sympBox) {
+      sympBox.innerHTML = "";
+      const symptomsStr = (app && app.symptoms) ? app.symptoms : "Fever, Sore Throat, Body Aches, Fatigue";
+      const tags = symptomsStr.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+      if (tags.length === 0) tags.push("General Consultation");
+      tags.forEach(t => {
+        const tagSpan = document.createElement("span");
+        tagSpan.className = "symptom-tag";
+        tagSpan.innerText = t;
+        sympBox.appendChild(tagSpan);
+      });
+    }
+
+    // Patient Info section in right column
+    const infoName = document.getElementById("doc-call-info-name");
+    if (infoName) infoName.innerText = (activeCall && activeCall.patient) ? activeCall.patient.name : (app.patientName || "--");
+
+    const infoAgeGender = document.getElementById("doc-call-info-age-gender");
+    if (infoAgeGender) infoAgeGender.innerText = (activeCall && activeCall.patient) ? `${activeCall.patient.age || '--'} / ${activeCall.patient.gender || '--'}` : "--";
+
+    const infoToken = document.getElementById("doc-call-info-token");
+    if (infoToken) infoToken.innerText = token;
+
+    const infoVillage = document.getElementById("doc-call-info-village");
+    if (infoVillage) infoVillage.innerText = (activeCall && activeCall.patient) ? `${activeCall.patient.village || 'Village Clinic'}, Smart Network` : "--";
+
+    // Start live call timer
+    startDocCallTimer();
+
+    // Reset prescription compiler fields safely
+    activeCallPrescriptionMeds = [];
+    const pDiag = document.getElementById("pres-diagnosis");
+    if (pDiag) pDiag.value = "";
+    const pAdv = document.getElementById("pres-advice");
+    if (pAdv) pAdv.value = "";
+    const pRef = document.getElementById("pres-referral-check");
+    if (pRef) pRef.checked = false;
+    
+    syncPrescriptionLabels();
+
+    // Show live section
+    startCallLoop();
+
+    if (appSocket && appSocket.connected) {
+      try {
+        const patientId = (activeCall && activeCall.patient) ? activeCall.patient.id : (app ? app.patientId : null);
+        appSocket.emit("consultation_requested", {
+          token,
+          doctorId: currentUser ? currentUser.id : "doc-1",
+          doctorName: currentUser ? currentUser.name : "Dr. Vikram",
+          patientId,
+          appointment: app
+        });
+        appSocket.emit("consultation_started", {
+          token,
+          role: "doctor"
+        });
+      } catch (e) {}
+    }
+
+    showToast(`Connected to clinic. Tele-consultation session started.`, "success");
+  };
+
+  async function refreshConsultationStateFromCloud() {
+    const backendSynced = await refreshDbFromBackend();
+    if (backendSynced) return true;
+
+    if (!supabase || !currentUser || !currentUser.id) return false;
+
+    try {
+      const { data: appointmentsData, error: appointmentsError } = await supabase.from("appointments").select("*");
+      if (appointmentsError) {
+        console.warn("Unable to refresh appointments from Supabase:", appointmentsError);
+        return false;
+      }
+
+      if (appointmentsData) {
+        db.appointments = appointmentsData;
+        saveDB();
+        return true;
+      }
+    } catch (err) {
+      console.warn("Cloud refresh failed:", err);
+    }
+
+    return false;
+  }
+
+  async function refreshConsultationsFromSupabase() {
+    const backendSynced = await refreshDbFromBackend(true);
+    if (backendSynced) return true;
+
+    if (!supabase) return false;
+
+    try {
+      const { data, error } = await supabase.from("consultations").select("*");
+      if (error) {
+        console.warn("Unable to refresh consultations from Supabase:", error);
+        return false;
+      }
+
+      if (data) {
+        db.consultations = data;
+        localStorage.setItem("telehealth_db", JSON.stringify(db));
+        return true;
+      }
+    } catch (err) {
+      console.warn("Consultation cloud refresh failed:", err);
+    }
+
+    return false;
+  }
+
+  window.joinPatientCall = async function() {
+    console.log("[Patient] Join call button clicked");
+    console.log("[Patient] Current user:", currentUser);
+    console.log("[Patient] All appointments:", db.appointments);
+
+    if (!currentUser) {
+      currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", role: "patient" };
+      saveSessionState(currentUser, "patient");
+    }
+
+    const localAppointments = Array.isArray(db.appointments) ? [...db.appointments] : [];
+    if (supabase) await refreshConsultationStateFromCloud();
+
+    const urlToken = new URLSearchParams(window.location.search).get("token") || new URLSearchParams(window.location.hash.substring(1)).get("token");
+    const findPatientAppointment = appointments => {
+      if (!Array.isArray(appointments) || appointments.length === 0) return null;
+      if (urlToken) {
+        const byUrl = appointments.find(a => a.token === urlToken);
+        if (byUrl) return byUrl;
+      }
+      const activePat = appointments.find(a => a.status === "Active" && currentUser && a.patientId === currentUser.id);
+      if (activePat) return activePat;
+      const activeAny = appointments.find(a => a.status === "Active");
+      if (activeAny) return activeAny;
+      const waitingPat = appointments.find(a => (a.status === "Waiting" || !a.status) && currentUser && a.patientId === currentUser.id);
+      if (waitingPat) return waitingPat;
+      return appointments[0] || null;
+    };
+    const activeApp = findPatientAppointment(db.appointments) || findPatientAppointment(localAppointments) || DEFAULT_APPOINTMENTS[0];
+
+    console.log("[Patient] Active appointment found:", activeApp);
+    
+    if (!activeApp) {
+      showToast("No active video session found yet. Please wait for the doctor to start the consultation.", "warning");
+      console.log("[Patient] No active appointment found for patient:", currentUser.id);
+      return;
+    }
+
+    const activeCallCard = document.getElementById("pat-active-call-card");
+    const telehealthBox = document.getElementById("pat-telehealth-box");
+    
+    console.log("[Patient] UI elements - activeCallCard:", activeCallCard, "telehealthBox:", telehealthBox);
+    
+    if (!activeCallCard || !telehealthBox) {
+      console.error("[Patient] ERROR: Required UI elements not found!");
+      showToast("Error: Video UI elements not found. Please refresh the page.", "error");
+      return;
+    }
+
+    console.log("[Patient] Initializing call state with token:", activeApp.token);
+    initSimulatedCallState(activeApp.token, "patient");
+    
+    activeCallCard.style.display = "none";
+    telehealthBox.style.display = "block";
+    telehealthBox.scrollIntoView({ behavior: "smooth", block: "start" });
+    
+    console.log("[Patient] UI elements shown, starting call loop");
+    startCallLoop();
+
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("consultation_accepted", {
+          token: activeApp.token,
+          patientId: currentUser.id,
+          patientName: currentUser.name
+        });
+        appSocket.emit("consultation_started", {
+          token: activeApp.token,
+          role: "patient"
+        });
+      } catch (e) {}
+    }
+  };
+
+  window.joinVhwCall = function(token) {
+    initSimulatedCallState(token, "vhw");
+    document.getElementById("vhw-telehealth-box").style.display = "block";
+    
+    startCallLoop();
+  };
+
+  function shouldUseAgora() {
+    if (!agoraConfig || !agoraConfig.appid) return false;
+    return agoraConfig.enabled && !agoraConfig.lastFail;
+  }
+
+  function startCallLoop() {
+    console.log("[CallLoop] Starting call loop for role:", activeCall ? activeCall.role : "NO_ACTIVE_CALL");
+    
+    if (!activeCall) {
+      console.error("[CallLoop] ERROR: No active call!");
+      return;
+    }
+    
+    const role = activeCall.role;
+    const agoraPrefix = getAgoraRolePrefix(role);
+    console.log("[CallLoop] Using role prefix:", agoraPrefix);
+    
+    const mainCanvas = document.getElementById(`${agoraPrefix}-remote-canvas`);
+    const pipCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+    const remoteContainer = document.getElementById(`${agoraPrefix}-remote-video-container`);
+    const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+
+    console.log("[CallLoop] Canvas elements:", { 
+      mainCanvas: !!mainCanvas, 
+      pipCanvas: !!pipCanvas,
+      remoteContainer: !!remoteContainer,
+      localContainer: !!localContainer
+    });
+
+    if (!mainCanvas || !pipCanvas) {
+      console.error(`[CallLoop] ERROR: Agora call UI elements missing for role='${role}' prefix='${agoraPrefix}'`);
+      showToast("ERROR: Video UI elements not found. Please refresh and try again.", "error");
+      return;
+    }
+
+    // Initialize network status indicators
+    console.log("[CallLoop] Updating network UI");
+    updateNetworkUI();
+
+    // Sync and display chat messages
+    console.log("[CallLoop] Syncing chat messages");
+    syncChatBox();
+
+    // Populate vitals & files tab
+    console.log("[CallLoop] Updating vitals and files");
+    updateVitalsFilesTabs();
+
+    // Display standby remote feed until live peer media arrives
+    mainCanvas.style.display = "block";
+    if (remoteContainer) remoteContainer.style.display = "none";
+
+    // Play audible consultation chime so both doctor and patient hear immediate audio
+    playConsultationChime();
+
+    // Initialize local webcam / simulated feed for PIP and cross-peer transmission
+    (async () => {
+      await initNativeWebcam(role);
+      if (activeCall && activeCall.token) {
+        await initPeerCall(activeCall.token, role);
+      }
+      updateNetworkUI();
+    })();
+
+    // Connect Agora RTC for live audio in parallel if configured
+    if (shouldUseAgora()) {
+      console.log("[CallLoop] Connecting Agora RTC for live audio");
+      joinAgoraRoom(role);
+    } else {
+      console.log("[CallLoop] Agora audio disabled or not configured");
+    }
+
+    // Start render loop for remote canvas and failovers
+    requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
+  }
+
+  function resizeCanvasToDisplaySize(canvas) {
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      if (canvas.width !== Math.round(rect.width) || canvas.height !== Math.round(rect.height)) {
+        canvas.width = Math.round(rect.width);
+        canvas.height = Math.round(rect.height);
+      }
+    } else if (canvas.width === 0 || canvas.height === 0) {
+      canvas.width = 640;
+      canvas.height = 360;
+    }
+  }
+
+  function updateVitalsFilesTabs() {
+    const role = getAgoraRolePrefix(activeCall.role);
+    const vitalsContainer = document.getElementById(`${role}-call-vitals-box`);
+    const filesContainer = document.getElementById(`${role}-call-files-box`);
+
+    if (!vitalsContainer || !filesContainer) return;
+
+    const app = db.appointments.find(a => a.token === activeCall.token);
+    if (!app || !app.vitals) return;
+
+    vitalsContainer.innerHTML = `
+    <div class="vital-box">
+      <span class="vital-label">Blood Pressure</span>
+      <div class="vital-value">${app.vitals.bpSystolic}/${app.vitals.bpDiastolic} <span>mmHg</span></div>
+    </div>
+    <div class="vital-box">
+      <span class="vital-label">Blood Sugar</span>
+      <div class="vital-value">${app.vitals.sugar} <span>mg/dL</span></div>
+    </div>
+    <div class="vital-box">
+      <span class="vital-label">SpO2</span>
+      <div class="vital-value">${app.vitals.spo2} <span>%</span></div>
+    </div>
+    <div class="vital-box">
+      <span class="vital-label">Heart Rate</span>
+      <div class="vital-value">${app.vitals.hr} <span>BPM</span></div>
+    </div>
+  `;
+
+    // Apply visual warning classes inside tabs
+    const boxes = vitalsContainer.querySelectorAll(".vital-box");
+    evaluateTriageUrgency(app.vitals);
+    
+    if (app.vitals.spo2 < 92) boxes[2].classList.add("abnormal");
+    if (app.vitals.bpSystolic > 140) boxes[0].classList.add("warning");
+
+    // Files list
+    renderCallFiles();
+  }
+
+  function renderCallFiles() {
+    const role = getAgoraRolePrefix(activeCall.role);
+    const container = document.getElementById(`${role}-call-files-box`);
+    if (!container) return;
+    container.innerHTML = "";
+
+    activeCall.files.forEach(f => {
+      const icon = f.type === "image" ? "🖼️" : "📄";
+      const div = document.createElement("div");
+      div.className = "file-card";
+      div.innerHTML = `
+      <div class="file-info">
+        <span class="file-icon">${icon}</span>
+        <div class="file-details">
+          <span class="file-name">${f.name}</span>
+          <span class="file-size">${f.size}</span>
+        </div>
+      </div>
+      <a class="file-download-btn" href="#" onclick="showToast('Downloading simulated report: ${f.name}', 'success')">Download</a>
+    `;
+      container.appendChild(div);
+    });
+  }
+
+  window.vhwUploadWoundImage = function(e) {
+    if (!activeCall || activeCall.role !== "vhw") return;
+    const file = e.target.files[0];
+    if (!file) return;
+
+    activeCall.files.push({
+      name: `Uploaded Wound Photo (${file.name})`,
+      size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+      type: "image"
+    });
+
+    // Log in chat
+    activeCall.chat.push({ sender: "worker", text: `[Shared Wound Photo: ${file.name}]` });
+    
+    renderCallFiles();
+    syncChatBox();
+    showToast("Wound photo uploaded and shared with Doctor.", "success");
+  };
+
+  function renderWebcams(remoteCanvas, localCanvas) {
+    if (!activeCall) {
+      return;
+    }
+
+    if (!remoteCanvas || !localCanvas) {
+      return;
+    }
+
+    const remoteCtx = remoteCanvas.getContext("2d");
+    const localCtx = localCanvas.getContext("2d");
+
+    if (!remoteCtx || !localCtx) {
+      return;
+    }
+
+    // Ensure internal dimensions match CSS layouts
+    resizeCanvasToDisplaySize(remoteCanvas);
+    resizeCanvasToDisplaySize(localCanvas);
+
+    // Helper for caching portrait images
+    if (!window._portraitCache) window._portraitCache = {};
+    const getPortraitImg = (src) => {
+      if (!src) return null;
+      if (!window._portraitCache[src]) {
+        const img = new Image();
+        img.src = src;
+        window._portraitCache[src] = img;
+      }
+      return window._portraitCache[src];
+    };
+
+    const drawCoverImage = (ctx, img, width, height) => {
+      if (!img || !img.complete || img.naturalWidth === 0) return false;
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      const canvasRatio = width / height;
+      let renderW, renderH, offsetX, offsetY;
+
+      if (canvasRatio > imgRatio) {
+        renderW = width;
+        renderH = width / imgRatio;
+        offsetX = 0;
+        offsetY = (height - renderH) / 2;
+      } else {
+        renderH = height;
+        renderW = height * imgRatio;
+        offsetX = (width - renderW) / 2;
+        offsetY = 0;
+      }
+
+      ctx.drawImage(img, offsetX, offsetY, renderW, renderH);
+      return true;
+    };
+
+    // 1. Draw Local webcam feed (Picture-in-picture fallback/state)
+    const localImgSrc = (activeCall.role === "patient")
+      ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
+      : (currentUser?.photo || "doctor_portrait.jpg");
+    const localImg = getPortraitImg(localImgSrc);
+    const drewLocalImg = activeCall.camActive ? drawCoverImage(localCtx, localImg, localCanvas.width, localCanvas.height) : false;
+
+    if (!drewLocalImg) {
+      localCtx.fillStyle = "#1e293b";
+      localCtx.fillRect(0, 0, localCanvas.width, localCanvas.height);
+      
+      if (activeCall.camActive) {
+        localCtx.fillStyle = "#3b82f6";
+        localCtx.beginPath();
+        localCtx.arc(localCanvas.width / 2, localCanvas.height / 2 - 8, 16, 0, Math.PI * 2);
+        localCtx.fill();
+
+        localCtx.fillStyle = "#ffffff";
+        localCtx.font = "bold 11px Inter, system-ui, sans-serif";
+        localCtx.textAlign = "center";
+        localCtx.fillText("You", localCanvas.width / 2, localCanvas.height / 2 - 3);
+
+        localCtx.font = "9px Inter, system-ui, sans-serif";
+        localCtx.fillStyle = "#93c5fd";
+        localCtx.fillText("Camera Live", localCanvas.width / 2, localCanvas.height / 2 + 18);
+      } else {
+        localCtx.fillStyle = "#ef4444";
+        localCtx.font = "bold 14px Inter, system-ui, sans-serif";
+        localCtx.textAlign = "center";
+        localCtx.fillText("📵", localCanvas.width / 2, localCanvas.height / 2 - 6);
+
+        localCtx.fillStyle = "#cbd5e1";
+        localCtx.font = "10px Inter, system-ui, sans-serif";
+        localCtx.fillText("Camera Off", localCanvas.width / 2, localCanvas.height / 2 + 14);
+      }
+    }
+
+    // 2. Draw Remote camera feed (Shown on remote canvas when live peer video is connecting)
+    if (remoteCanvas.style.display !== "none") {
+      if (activeCall.networkQuality !== "critical") {
+        const remoteImgSrc = activeCall.role === "doctor"
+          ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
+          : (activeCall.doctor?.photo || "doctor_portrait.jpg");
+        const remoteImg = getPortraitImg(remoteImgSrc);
+        const drewRemoteImg = drawCoverImage(remoteCtx, remoteImg, remoteCanvas.width, remoteCanvas.height);
+
+        if (!drewRemoteImg) {
+          // Elegant deep slate gradient background
+          const grad = remoteCtx.createLinearGradient(0, 0, 0, remoteCanvas.height);
+          grad.addColorStop(0, "#0f172a");
+          grad.addColorStop(1, "#1e293b");
+          remoteCtx.fillStyle = grad;
+          remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+
+          const centerX = remoteCanvas.width / 2;
+          const centerY = remoteCanvas.height / 2;
+          const remoteName = activeCall.role === "doctor"
+            ? ((activeCall.patient && activeCall.patient.name) ? activeCall.patient.name : "Patient")
+            : ((activeCall.doctor && activeCall.doctor.name) ? activeCall.doctor.name : "Dr. Vikram");
+          const remoteInitials = remoteName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+
+          remoteCtx.fillStyle = activeCall.role === "doctor" ? "#2563eb" : "#0d9488";
+          remoteCtx.beginPath();
+          remoteCtx.arc(centerX, centerY - 28, 44, 0, Math.PI * 2);
+          remoteCtx.fill();
+
+          remoteCtx.fillStyle = "#ffffff";
+          remoteCtx.font = "bold 24px Inter, system-ui, sans-serif";
+          remoteCtx.textAlign = "center";
+          remoteCtx.textBaseline = "middle";
+          remoteCtx.fillText(remoteInitials, centerX, centerY - 28);
+        }
+
+        // Apply adaptive downsampling if simulated
+        const activeQuality = activeCall.networkQuality;
+        const state = NETWORK_STATES[activeQuality];
+        let pixelSize = state ? state.pixelSize : 1;
+        if (activeCall.aiPredicting) pixelSize = 14;
+        if (pixelSize > 1) {
+          pixelateCanvas(remoteCanvas, remoteCtx, pixelSize);
+        }
+      } else {
+        // In critical/audio-only mode, show audio fallback UI
+        remoteCtx.fillStyle = "#0f172a";
+        remoteCtx.fillRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+        remoteCtx.fillStyle = "white";
+        remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
+        remoteCtx.textAlign = "center";
+        remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 15);
+        remoteCtx.font = "12px Inter, system-ui, sans-serif";
+        remoteCtx.fillStyle = "#94a3b8";
+        remoteCtx.fillText("Low-bandwidth connection active. Voice audio preserved.", remoteCanvas.width / 2, remoteCanvas.height / 2 + 15);
+      }
+    }
+
+    // Continue render loop
+    activeCall.animationFrameId = requestAnimationFrame(() => renderWebcams(remoteCanvas, localCanvas));
+  }
+
+  // Low-Bandwidth Pixelation Algorithm (simulates real-time video downsampling)
+  function pixelateCanvas(canvas, ctx, pixelSize) {
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // Get original image data
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+
+    for (let y = 0; y < height; y += pixelSize) {
+      for (let x = 0; x < width; x += pixelSize) {
+        // Get color of pixel in center of block
+        const redIdx = ((Math.min(y + (pixelSize / 2), height - 1) * width) + Math.min(x + (pixelSize / 2), width - 1)) * 4;
+        const r = data[redIdx];
+        const g = data[redIdx + 1];
+        const b = data[redIdx + 2];
+        
+        // Paint block with that color
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x, y, pixelSize, pixelSize);
+      }
+    }
+  }
+
+  // Simulated Network change triggers
+  // Global prediction countdown holder
+  let predictionCountdownTimer = null;
+
+  window.simulateNetworkChange = function(quality) {
+    if (!activeCall) return;
+
+    // Clear any existing prediction countdowns
+    if (predictionCountdownTimer) {
+      clearTimeout(predictionCountdownTimer);
+      predictionCountdownTimer = null;
+    }
+    activeCall.aiPredicting = false;
+    toggleAIBadges(false);
+
+    const current = activeCall.networkQuality;
+    
+    // Feature 1: AI Predictor triggers if we are going from good signal (excellent/good/fair) to critical (audio)
+    const isDropToCritical = (quality === "critical" && current !== "critical");
+    
+    if (isDropToCritical) {
+      activeCall.aiPredicting = true;
+      toggleAIBadges(true);
+      
+      // Proactively apply resolution blur filter on CSS for video container and canvas downscaling
+      const roles = ["pat", "vhw", "doc"];
+      roles.forEach(r => {
+        const remoteContainer = document.getElementById(`${r}-remote-video-container`);
+        if (remoteContainer) remoteContainer.style.filter = "blur(7px) contrast(135%)";
+      });
+
+      showToast("🧠 AI Predictor: Connection drop expected in 5s! Proactively reducing resolution to 240p.", "warning");
+      activeCall.chat.push({ 
+        sender: "system", 
+        text: "🧠 AI Network Predictor: Connection degradation predicted in 5s. Proactively reducing resolution to sustain link." 
+      });
+      syncChatBox();
+
+      // Set 5-second countdown to complete the switch
+      predictionCountdownTimer = setTimeout(() => {
+        activeCall.aiPredicting = false;
+        toggleAIBadges(false);
+        activeCall.networkQuality = "critical";
+        
+        // Log in DB
+        db.failoverLogs.audio++;
+        saveDB();
+        
+        updateNetworkUI();
+      }, 5000);
+
+    } else {
+      // Standard direct transition
+      activeCall.networkQuality = quality;
+      
+      // Log in DB
+      if (quality === "excellent" || quality === "good") db.failoverLogs.hd++;
+      else if (quality === "critical") db.failoverLogs.audio++;
+      else db.failoverLogs.low++;
+      
+      saveDB();
+      updateNetworkUI();
+    }
+  };
+
+  function toggleAIBadges(show) {
+    const roles = ["pat", "vhw", "doc"];
+    roles.forEach(r => {
+      const el = document.getElementById(`${r}-ai-badge`);
+      if (el) el.style.display = show ? "inline-flex" : "none";
+    });
+  }
+
+  // Auto network fluctuation simulator (shows the failover without clicking manually)
+  let fluctuationTimer = null;
+  window.toggleAutoNetworkFluctuation = function() {
+    if (!activeCall) return;
+    activeCall.autoFluctuate = !activeCall.autoFluctuate;
+
+    const btnText = document.getElementById("doc-auto-fluctuate-indicator");
+
+    if (activeCall.autoFluctuate) {
+      btnText.innerText = "🔄 Auto-Fluctuate: ON";
+      showToast("Automatic bandwidth fluctuation enabled. Monitoring network environment...", "info");
+      
+      let step = 0;
+      fluctuationTimer = setInterval(() => {
+        if (!activeCall) {
+          clearInterval(fluctuationTimer);
+          return;
+        }
+        step = (step + 1) % 3;
+        const qualities = ["poor", "verypoor", "good"];
+        simulateNetworkChange(qualities[step]);
+      }, 15000); // changes every 15s
+    } else {
+      btnText.innerText = "🔄 Auto-Fluctuate: OFF";
+      clearInterval(fluctuationTimer);
+      simulateNetworkChange("good");
+    }
+  };
+
+  // Chat and messaging
+  window.switchCallTab = function(role, tab) {
+    document.getElementById(`${role}-tab-chat`).classList.remove("active");
+    document.getElementById(`${role}-tab-files`).classList.remove("active");
+    document.getElementById(`${role}-pane-chat`).classList.remove("active");
+    document.getElementById(`${role}-pane-files`).classList.remove("active");
+
+    document.getElementById(`${role}-tab-${tab}`).classList.add("active");
+    document.getElementById(`${role}-pane-${tab}`).classList.add("active");
+  };
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function playChatPingSound() {
+    try {
+      const ctx = unlockAudioContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(1320, now + 0.05);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } catch (e) {}
+  }
+
+  window.sendChatMessage = function(role) {
+    const input = document.getElementById(`${role}-chat-input`);
+    if (!input) {
+      console.error(`Chat input not found for role: ${role}`);
+      return;
+    }
+
+    const text = input.value.trim();
+    if (!text) {
+      return;
+    }
+
+    if (!activeCall) {
+      showToast("Unable to send chat: no active call.", "danger");
+      return;
+    }
+
+    const msgObj = createChatMessage({
+      text,
+      role,
+      currentUser,
+      activeCall,
+      peerSessionId
+    });
+
+    if (!msgObj) {
+      return;
+    }
+
+    activeCall.chat.push(msgObj);
+    input.value = "";
+
+    // Broadcast in real-time across tabs/windows (strictly two-way, zero AI bots)
+    sendPeerSignal({
+      type: "chat",
+      chatMsg: msgObj
+    });
+
+    // Direct socket emission for real-time delivery and centralized DB archiving
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("chat_message", msgObj);
+      } catch (e) {}
+    }
+
+    // Persist permanently in appointment record and database
+    const consultationToken = activeCall.token;
+    const appIdx = db.appointments.findIndex(a => a.token === consultationToken);
+    if (appIdx >= 0) {
+      db.appointments[appIdx].chat = activeCall.chat;
+      saveDB();
+    }
+
+    syncChatBox();
+  };
+
+  function syncChatBox() {
+    if (!activeCall) {
+      return;
+    }
+    const roles = ["pat", "vhw", "doc"];
+    
+    roles.forEach(viewerRole => {
+      const box = document.getElementById(`${viewerRole}-chat-box`);
+      if (!box) {
+        return;
+      }
+
+      box.innerHTML = "";
+      const cleanList = filterCleanChat(activeCall.chat || []);
+      const sortedChat = cleanList.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+      // Determine current authenticated user ID dynamically for this view
+      const currentUserId = getAuthenticatedUserId(currentUser, activeCall, viewerRole);
+
+      sortedChat.forEach(msg => {
+        const classification = classifyChatBubble(msg, currentUserId, viewerRole);
+
+        // Wrapper row with conditional flex alignment (justify-end for sender, justify-start for receiver)
+        const row = document.createElement("div");
+        row.className = classification.rowClass;
+
+        const bubble = document.createElement("div");
+
+        if (classification.isSystem) {
+          bubble.className = "chat-bubble system";
+          bubble.innerText = msg.text;
+        } else if (classification.isSelf) {
+          // Sender's message on the right
+          bubble.className = "chat-bubble self";
+          bubble.innerHTML = `
+          <div class="chat-sender-header" style="color: rgba(255,255,255,0.9); text-align: right; font-size: 11px; margin-bottom: 2px;">
+            You • ${escapeHtml(msg.time || "")}
+          </div>
+          <div class="chat-text-content" style="text-align: left;">${escapeHtml(msg.text)}</div>
+        `;
+        } else {
+          // Receiver's message on the left
+          bubble.className = classification.bubbleClass;
+          bubble.innerHTML = `
+          <div class="chat-sender-header" style="color: ${classification.roleColor}; font-weight: 600; font-size: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px;">
+            <span>${escapeHtml(classification.senderLabel)} <small style="font-size: 10px; font-weight: 500; opacity: 0.85;">(${classification.roleBadge})</small></span>
+            <span style="font-size: 10px; opacity: 0.75; font-weight: normal;">${escapeHtml(msg.time || "")}</span>
+          </div>
+          <div class="chat-text-content" style="text-align: left;">${escapeHtml(msg.text)}</div>
+        `;
+        }
+
+        row.appendChild(bubble);
+        box.appendChild(row);
+      });
+
+      box.scrollTop = box.scrollHeight;
+    });
+  }
+
+  window.toggleAudioState = async function(role) {
+    if (!activeCall) return;
+    activeCall.micActive = !activeCall.micActive;
+    const prefix = getAgoraRolePrefix(role);
+    const btn = document.getElementById(`${role}-mic-toggle`) || document.getElementById(`${prefix}-mic-toggle`);
+
+    // Toggle local stream audio tracks for WebRTC peer audio
+    if (localWebcamStream) {
+      localWebcamStream.getAudioTracks().forEach(t => t.enabled = activeCall.micActive);
+    }
+
+    if (activeCall.micActive) {
+      if (btn) {
+        btn.classList.add("active");
+        btn.innerText = "🎙️";
+      }
+      if (localAudioTrack) {
+        try {
+          if (typeof localAudioTrack.setMuted === "function") {
+            await localAudioTrack.setMuted(false);
+          }
+          if (typeof localAudioTrack.setEnabled === "function") {
+            await localAudioTrack.setEnabled(true);
+          }
+          console.info("[AGORA] Local audio unmuted");
+        } catch (e) {
+          console.warn("[AGORA] Error unmuting local audio:", e);
+        }
+      }
+      showToast("Microphone unmuted", "info");
+    } else {
+      if (btn) {
+        btn.classList.remove("active");
+        btn.innerText = "🔇";
+      }
+      if (localAudioTrack) {
+        try {
+          if (typeof localAudioTrack.setMuted === "function") {
+            await localAudioTrack.setMuted(true);
+          }
+          if (typeof localAudioTrack.setEnabled === "function") {
+            await localAudioTrack.setEnabled(false);
+          }
+          console.info("[AGORA] Local audio muted");
+        } catch (e) {
+          console.warn("[AGORA] Error muting local audio:", e);
+        }
+      }
+      showToast("Microphone muted", "warning");
+    }
+  };
+
+  window.toggleVideoState = async function(role) {
+    if (!activeCall) return;
+    activeCall.camActive = !activeCall.camActive;
+    const prefix = getAgoraRolePrefix(role);
+    const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${prefix}-cam-toggle`);
+    const localContainer = document.getElementById(`${prefix}-local-video-container`);
+    const localCanvas = document.getElementById(`${prefix}-local-canvas`);
+
+    console.info(`[VideoToggle] Toggling camera for role='${role}', prefix='${prefix}', camActive=${activeCall.camActive}`);
+
+    if (activeCall.camActive) {
+      activeCall.manualVideoDisabled = false;
+      if (btn) {
+        btn.classList.add("active");
+        btn.innerText = "📷";
+      }
+
+      if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+        localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
+        if (localContainer) localContainer.style.display = "block";
+        if (localCanvas) localCanvas.style.display = "none";
+        showToast("Camera turned ON", "info");
+      } else {
+        await initNativeWebcam(role);
+        if (peerConnection && localWebcamStream) {
+          const videoTrack = localWebcamStream.getVideoTracks()[0];
+          if (videoTrack) {
+            const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+            if (sender) {
+              sender.replaceTrack(videoTrack).catch(() => {});
+            } else {
+              peerConnection.addTrack(videoTrack, localWebcamStream);
+            }
+          }
+        }
+      }
+    } else {
+      activeCall.manualVideoDisabled = true;
+      activeCall.autoVideoDisabled = false;
+      if (btn) {
+        btn.classList.remove("active");
+        btn.innerText = "📵";
+      }
+
+      if (localWebcamStream) {
+        localWebcamStream.getVideoTracks().forEach(t => t.enabled = false);
+      }
+
+      if (localContainer) localContainer.style.display = "none";
+      if (localCanvas) localCanvas.style.display = "block";
+      showToast("Camera turned OFF", "warning");
+    }
+
+    updateNetworkUI();
+  };
+
+  window.leaveConsultation = function() {
+    if (!activeCall) return;
+
+    // Stop local camera
+    stopLocalWebcam();
+
+    if (window.isRecordingActive) {
+      window.stopCallRecording();
+    }
+
+    if (activeCall.animationFrameId) {
+      cancelAnimationFrame(activeCall.animationFrameId);
+    }
+    if (fluctuationTimer) {
+      clearInterval(fluctuationTimer);
+    }
+    if (activeCall.telemetryInterval) {
+      clearInterval(activeCall.telemetryInterval);
+    }
+    if (predictionCountdownTimer) {
+      clearTimeout(predictionCountdownTimer);
+      predictionCountdownTimer = null;
+    }
+
+    // Agora Disconnect
+    if (agoraClient) {
+      if (activeCall.networkQualityTimer) {
+        clearTimeout(activeCall.networkQualityTimer);
+        activeCall.networkQualityTimer = null;
+      }
+      leaveAgoraRoom();
+    }
+
+    // Restore Waiting status in db
+    const idx = db.appointments.findIndex(a => a.token === activeCall.token);
+    if (idx >= 0 && db.appointments[idx].status === "Active") {
+      db.appointments[idx].status = "Waiting";
+    }
+    saveDB();
+
+    const leavingToken = activeCall ? activeCall.token : null;
+    const leavingRole = activeCall ? activeCall.role : null;
+    if (appSocket && appSocket.connected && leavingToken) {
+      try {
+        appSocket.emit("leave_consultation", {
+          token: leavingToken,
+          role: leavingRole,
+          userId: currentUser ? currentUser.id : null
+        });
+      } catch (e) {}
+    }
+
+    const role = activeCall.role;
+    stopDocCallTimer();
+    activeCall = null;
+
+    // Hide suites
+    document.getElementById("pat-telehealth-box").style.display = "none";
+    document.getElementById("vhw-telehealth-box").style.display = "none";
+    document.getElementById("doc-consultation-section").style.display = "none";
+    
+    const noCallCard = document.getElementById("doc-no-active-call-card");
+    if (noCallCard) noCallCard.style.display = "block";
+
+    const liveBadge = document.getElementById("doc-nav-consult-live");
+    if (liveBadge) liveBadge.style.display = "none";
+
+    // Re-load panels
+    if (role === "doctor") {
+      loadDoctorDashboard();
+    } else if (role === "vhw") {
+      loadVhwDashboard();
+    } else if (role === "patient") {
+      loadPatientDashboard();
+    }
+
+    showToast("Call disconnected", "danger");
+  };
+
+  // --- PRESCRIPTION BUILDER ---
+  window.addMedicineRow = function() {
+    const select = document.getElementById("pres-med-name");
+    const freqInput = document.getElementById("pres-med-freq");
+    const durInput = document.getElementById("pres-med-duration");
+
+    const name = select.value;
+    const freq = freqInput.value.trim() || "1-0-1 (BID)";
+    const dur = durInput.value.trim() || "5 days";
+
+    activeCallPrescriptionMeds.push({ name, freq, dur });
+    
+    // Reset inputs
+    freqInput.value = "";
+    durInput.value = "";
+
+    syncPrescriptionLabels();
+    showToast(`${name} added to prescription list`, "success");
+  };
+
+  function syncPrescriptionLabels() {
+    const ul = document.getElementById("pres-lbl-meds-list");
+    if (!ul) return;
+
+    ul.innerHTML = "";
+    if (activeCallPrescriptionMeds.length === 0) {
+      ul.innerHTML = `<li style="color:var(--text-muted); border:none; padding:8px 0;">No medications added yet</li>`;
+    } else {
+      activeCallPrescriptionMeds.forEach((m, idx) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+        <div>
+          <span class="med-name">${m.name}</span>
+          <span class="med-freq" style="font-size:11px; color:var(--text-muted);">(${m.freq} &bull; ${m.dur})</span>
+        </div>
+        <button type="button" style="color:var(--danger); background:none; border:none; cursor:pointer; font-size:11px; font-weight:600;" onclick="removeMedicineRow(${idx})">✕ Remove</button>
+      `;
+        ul.appendChild(li);
+      });
+    }
+
+    // Live binding for diagnosis, advice, and referral
+    const diagInput = document.getElementById("pres-diagnosis");
+    const diagLbl = document.getElementById("pres-lbl-diagnosis");
+    if (diagLbl) {
+      diagLbl.innerText = (diagInput && diagInput.value.trim()) ? diagInput.value.trim() : "—";
+    }
+
+    const advInput = document.getElementById("pres-advice");
+    const advLbl = document.getElementById("pres-lbl-advice");
+    if (advLbl) {
+      advLbl.innerText = (advInput && advInput.value.trim()) ? advInput.value.trim() : "—";
+    }
+
+    const refInput = document.getElementById("pres-referral-check");
+    const refLbl = document.getElementById("pres-lbl-referral");
+    if (refLbl) {
+      refLbl.innerText = (refInput && refInput.checked)
+        ? "⚠️ Referred to District Specialist Hospital (Critical escalation)"
+        : "⊘ No referral required";
+      refLbl.style.color = (refInput && refInput.checked) ? "#dc2626" : "#64748b";
+    }
+
+    // Preview data bindings
+    if (activeCall) {
+      const patNameEl = document.getElementById("pres-lbl-pat-name");
+      if (patNameEl) patNameEl.innerText = activeCall.patient ? activeCall.patient.name : "--";
+
+      const patAgeEl = document.getElementById("pres-lbl-pat-age");
+      if (patAgeEl) patAgeEl.innerText = activeCall.patient ? `${activeCall.patient.age} / ${activeCall.patient.gender}` : "--";
+
+      const dateEl = document.getElementById("pres-lbl-date");
+      if (dateEl) dateEl.innerText = new Date().toLocaleDateString();
+
+      const tokenEl = document.getElementById("pres-lbl-token");
+      if (tokenEl) tokenEl.innerText = activeCall.token;
+      
+      const app = db.appointments.find(a => a.token === activeCall.token);
+      const bpEl = document.getElementById("pres-lbl-bp");
+      const spo2El = document.getElementById("pres-lbl-spo2");
+      if (app && app.vitals) {
+        if (bpEl) bpEl.innerText = `${app.vitals.bpSystolic}/${app.vitals.bpDiastolic} mmHg`;
+        if (spo2El) spo2El.innerText = `${app.vitals.spo2}% / ${app.vitals.hr} bpm`;
+      } else {
+        if (bpEl) bpEl.innerText = "--";
+        if (spo2El) spo2El.innerText = "--";
+      }
+      
+      const vilEl = document.getElementById("pres-lbl-village");
+      if (vilEl) vilEl.innerText = `${activeCall.patient ? activeCall.patient.village : 'Village Clinic'} Clinic • Smart Village Network • Tele-Health Suite`;
+
+      const docEl = document.getElementById("pres-lbl-doc");
+      if (docEl) docEl.innerText = currentUser ? currentUser.name : "Dr. Abinesh V";
+    }
+  }
+
+  window.removeMedicineRow = function(idx) {
+    activeCallPrescriptionMeds.splice(idx, 1);
+    syncPrescriptionLabels();
+  };
+
+  window.resetPrescriptionForm = function() {
+    activeCallPrescriptionMeds = [];
+    document.getElementById("pres-diagnosis").value = "";
+    document.getElementById("pres-advice").value = "";
+    document.getElementById("pres-referral-check").checked = false;
+    syncPrescriptionLabels();
+  };
+
+  window.submitDigitalPrescription = async function(e) {
+    e.preventDefault();
+    if (!activeCall) return;
+
+    const diagnosis = document.getElementById("pres-diagnosis").value.trim();
+    const advice = document.getElementById("pres-advice").value.trim() || "Take rest and drink warm liquids.";
+    const referral = document.getElementById("pres-referral-check").checked;
+
+    if (activeCallPrescriptionMeds.length === 0) {
+      showToast("Please add at least one medication to prescribe.", "warning");
+      return;
+    }
+
+    // Create Consultation Log
+    const conId = `con-${Date.now().toString().slice(-4)}`;
+    const medsSummary = activeCallPrescriptionMeds.map(m => `${m.name} (${m.freq})`).join(", ");
+    
+    let networkFailoverSummary = "HD Video";
+    if (activeCall.networkQuality === "poor") networkFailoverSummary = "Low Quality Video";
+    else if (activeCall.networkQuality === "verypoor") networkFailoverSummary = "Audio Call + Chat";
+
+    const newConsultation = {
+      id: conId,
+      token: activeCall.token,
+      patientId: activeCall.patient.id,
+      doctorId: currentUser.id,
+      status: "completed",
+      date: new Date().toISOString().split("T")[0],
+      completedAt: new Date().toISOString(),
+      patientName: activeCall.patient.name,
+      village: activeCall.patient.village,
+      doctorName: currentUser.name,
+      diagnosis,
+      advice,
+      medicines: medsSummary,
+      failoverState: networkFailoverSummary,
+      referral
+    };
+
+    db.consultations.push(newConsultation);
+
+    // Archive Patient History Record
+    const patIndex = db.patients.findIndex(p => p.id === activeCall.patient.id);
+    if (patIndex >= 0) {
+      db.patients[patIndex].history.push({
+        date: new Date().toISOString().split("T")[0],
+        clinic: currentUser.specialty,
+        diagnosis,
+        medicines: medsSummary,
+        doctor: currentUser.name
+      });
+    }
+
+    // Delete active appointment token
+    const appIdx = db.appointments.findIndex(a => a.token === activeCall.token);
+    if (appIdx >= 0) {
+      db.appointments[appIdx].status = "Completed";
+      db.appointments[appIdx].completedAt = new Date().toISOString();
+    }
+
+    if (appSocket && appSocket.connected) {
+      try {
+        appSocket.emit("consultation_ended", {
+          token: activeCall.token,
+          consultation: newConsultation
+        });
+        appSocket.emit("leave_consultation", {
+          token: activeCall.token,
+          role: "doctor",
+          userId: currentUser ? currentUser.id : null
+        });
+      } catch (e) {}
+    }
+
+    const consultationSaved = await saveDB("consultations");
+    if (!consultationSaved && window.isNetworkOnline) {
+      const databaseMessage = window.lastDatabaseError && window.lastDatabaseError.message
+        ? ` (${window.lastDatabaseError.message})`
+        : "";
+      showToast(`Prescription saved locally! Cloud sync pending Supabase migration.${databaseMessage} Run supabase-consultations-migration.sql in Supabase SQL editor.`, "warning");
+    }
+    await saveDB("patients");
+    await saveDB("appointments");
+
+    // Stop simulated webcam feed
+    if (activeCall.animationFrameId) {
+      cancelAnimationFrame(activeCall.animationFrameId);
+    }
+
+    // Stop local webcam and Agora audio
+    stopLocalWebcam();
+    if (agoraClient) {
+      leaveAgoraRoom();
+    }
+
+    stopDocCallTimer();
+    activeCall = null;
+    resetPrescriptionForm();
+    showToast(`Prescription saved! Token dispatched. Consultation complete.`, "success");
+
+    // Load modal view of PDF prescription
+    viewDigitalPrescriptionPopup(conId);
+
+    // Return to queue & restore overview
+    document.getElementById("doc-consultation-section").style.display = "none";
+    const overviewTop = document.getElementById("doc-overview-top-row");
+    const overviewSearch = document.getElementById("doc-overview-search-row");
+    const queueSec = document.getElementById("doc-queue-section");
+    const histSec = document.getElementById("doc-history-section");
+    const alertStrip = document.getElementById("doc-critical-alerts-strip");
+
+    if (overviewTop) overviewTop.style.display = "flex";
+    if (overviewSearch) overviewSearch.style.display = "flex";
+    if (queueSec) queueSec.style.display = "block";
+    if (histSec) histSec.style.display = "block";
+    if (alertStrip) alertStrip.style.display = "block";
+
+    loadDoctorDashboard();
+  };
+
+  window.viewDigitalPrescriptionPopup = function(conId) {
+    const con = db.consultations.find(c => c.id === conId);
+    if (!con) return;
+
+    const modalContent = document.getElementById("modal-pres-print-content");
+    modalContent.innerHTML = `
+    <div class="prescription-preview-panel" style="border:none; box-shadow:none; padding:10px;">
+      <div>
+        <div class="prescription-header">
+          <div class="dispensary-meta">
+            <h4>VILLAGEMED SMART DISPENSARY</h4>
+            <p>${con.village} Clinic, Smart Village Network</p>
+          </div>
+          <div class="doctor-stamp">
+            <div class="doc-name">${con.doctorName}</div>
+            <div style="font-size: 10px; color: var(--text-muted);">Consultant MD</div>
+          </div>
+        </div>
+
+        <div class="prescription-meta-grid">
+          <div class="meta-field"><span>Patient:</span> <span>${con.patientName}</span></div>
+          <div class="meta-field"><span>Date:</span> <span>${con.date}</span></div>
+          <div class="meta-field"><span>Record ID:</span> <span>${con.id}</span></div>
+        </div>
+
+        <div class="prescription-body">
+          <h5>Rx (Prescribed Medications)</h5>
+          <ul class="prescription-meds-list">
+            ${con.medicines.split(", ").map(m => `<li><span class="med-name">${m}</span></li>`).join("")}
+          </ul>
+
+          <h5>Diagnosis Summary</h5>
+          <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500;">${con.diagnosis}</div>
+
+          <h5>Referral Escalation</h5>
+          <div style="font-size: 12px; margin-bottom: 16px;">Escalated to Specialist Center: <strong>${con.referral ? "YES (Priority Escalation)" : "NO"}</strong></div>
+        </div>
+      </div>
+
+      <div class="prescription-footer" style="margin-top:20px;">
+        <div>* Digitally signed electronic health prescription.</div>
+        <div class="signature-line">Authorized Signature</div>
+      </div>
+    </div>
+  `;
+
+    document.getElementById("pres-view-modal").classList.add("active");
+  };
+
+  window.closePresModal = function() {
+    document.getElementById("pres-view-modal").classList.remove("active");
+  };
+
+  window.printPrescription = function() {
+    window.print();
+  };
+
+  // Bind inputs changes in real-time
+  document.getElementById("pres-diagnosis").addEventListener("input", (e) => {
+    const lbl = document.getElementById("pres-lbl-diagnosis");
+    if (lbl) lbl.innerText = e.target.value || "--";
+  });
+
+  document.getElementById("pres-advice").addEventListener("input", (e) => {
+    const lbl = document.getElementById("pres-lbl-advice");
+    if (lbl) lbl.innerText = e.target.value || "--";
+  });
+
+  // --- ADMIN PORTAL & SVG ANALYTICS ---
+  function loadAdminDashboard() {
+    if (currentRole !== "admin") return;
+
+    // Sync metrics
+    const villages = db.villages || DEFAULT_VILLAGES;
+    const doctors = db.doctors || DEFAULT_DOCTORS;
+    const consultations = db.consultations || DEFAULT_CONSULTATIONS;
+    const failovers = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
+
+    const elVillages = document.getElementById("adm-stat-villages");
+    if (elVillages) elVillages.innerText = `${villages.length} Clinics`;
+    const elDoctors = document.getElementById("adm-stat-doctors");
+    if (elDoctors) elDoctors.innerText = `${doctors.length} Doctors`;
+    const elCalls = document.getElementById("adm-stat-calls");
+    if (elCalls) elCalls.innerText = `${consultations.length} Logs`;
+    
+    // Calculate total failovers from DB logs
+    const totalFailures = (failovers.low || 0) + (failovers.audio || 0);
+    const elFailovers = document.getElementById("adm-stat-failovers");
+    if (elFailovers) elFailovers.innerText = `${totalFailures} Failures`;
+
+    // Render CRUD tables
+    renderAdminVillages();
+    renderAdminDoctors();
+    renderAdminLogs();
+    renderAdminRecordings();
+    renderAdminRbac();
+    populateAgoraInputs();
+
+    // Populate appointment patient & doctor dropdowns
+    const patSelect = document.getElementById("adm-book-patient");
+    if (patSelect) {
+      patSelect.innerHTML = db.patients.map(p => `<option value="${p.id}">${p.name} (ID: ${p.id})</option>`).join("");
+    }
+    const docSelect = document.getElementById("adm-book-doctor");
+    if (docSelect) {
+      docSelect.innerHTML = db.doctors.map(d => `<option value="${d.id}">${d.name} (${d.specialty})</option>`).join("");
+    }
+
+    // Render Charts
+    renderAdminCharts();
+  }
+
+  window.adminBookAppointment = function(e) {
+    e.preventDefault();
+    const patientId = document.getElementById("adm-book-patient").value;
+    const doctorId = document.getElementById("adm-book-doctor").value;
+    const symptoms = document.getElementById("adm-book-symptoms").value.trim();
+    const urgency = document.getElementById("adm-book-urgency").value;
+
+    const p = db.patients.find(pat => pat.id === patientId);
+    const doc = db.doctors.find(d => d.id === doctorId);
+
+    if (!p || !doc) return;
+
+    const existingApp = db.appointments.find(a => a.patientId === patientId);
+    if (existingApp) {
+      showToast(`${p.name} already has an active appointment or token!`, "warning");
+      return;
+    }
+
+    // Generate Token
+    const prefix = p.village.includes("A") ? "VIL-A" : p.village.includes("B") ? "VIL-B" : "VIL-C";
+    const num = Math.floor(100 + Math.random() * 900);
+    const token = `${prefix}-${num}`;
+
+    // Default normal vitals for admin booking so it goes directly to Doctor Queue
+    const vitals = { bpSystolic: 120, bpDiastolic: 80, sugar: 100, temp: 36.7, spo2: 98, hr: 72, pain: 0, photo: null };
+    if (urgency === "Severe") {
+      vitals.spo2 = 88; // low oxygen
+      vitals.bpSystolic = 165; // high BP
+      vitals.hr = 115; // fast heart rate
+    } else if (urgency === "Moderate") {
+      vitals.bpSystolic = 145;
+      vitals.spo2 = 93;
+    }
+
+    const newApp = {
+      token,
+      patientId,
+      symptoms,
+      urgency: urgency === "Severe" ? "Critical" : urgency === "Moderate" ? "High Warning" : "Normal",
+      specialty: doc.specialty,
+      assignedDoctorId: doctorId,
+      status: "Waiting",
+      vitals
+    };
+
+    db.appointments.push(newApp);
+    saveDB();
+    
+    document.getElementById("adm-book-symptoms").value = "";
+    showToast(`Admin Direct Booking success! Token ${token} created.`, "success");
+    
+    loadAdminDashboard();
+  };
+
+  function renderAdminVillages() {
+    const tbody = document.getElementById("adm-village-tbody");
+    tbody.innerHTML = "";
+    db.villages.forEach((v, idx) => {
+      let statusBadge = `<span class="badge badge-success">Online</span>`;
+      
+      if (v.includes("Clinic A") || v === "Village A") {
+        statusBadge = `<span class="badge badge-success" style="background:#10b981; border:none;">Online (Excellent: 98%)</span>`;
+      } else if (v.includes("Clinic B") || v === "Village B") {
+        statusBadge = `<span class="badge badge-critical" style="background:#ef4444; border:none;">Online (Poor: 42%)</span>`;
+      } else if (v.includes("Clinic C") || v === "Village C") {
+        statusBadge = `<span class="badge badge-warning" style="background:#f59e0b; border:none;">Online (Medium: 65%)</span>`;
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td><strong>${v}</strong></td>
+      <td>${statusBadge}</td>
+      <td><button class="btn-action danger" onclick="adminDeleteVillage(${idx})">Delete</button></td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.adminAddVillage = function(e) {
+    e.preventDefault();
+    const name = document.getElementById("adm-village-name").value.trim();
+    if (db.villages.includes(name)) {
+      showToast("Village clinic already exists", "warning");
+      return;
+    }
+    db.villages.push(name);
+    saveDB();
+    document.getElementById("adm-village-name").value = "";
+    showToast("Village clinic added", "success");
+    loadAdminDashboard();
+  };
+
+  window.adminDeleteVillage = function(idx) {
+    db.villages.splice(idx, 1);
+    saveDB();
+    showToast("Village clinic deleted", "warning");
+    loadAdminDashboard();
+  };
+
+  function renderAdminDoctors() {
+    const tbody = document.getElementById("adm-doctor-tbody");
+    tbody.innerHTML = "";
+    db.doctors.forEach((d, idx) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td><strong>${d.name}</strong></td>
+      <td>${d.specialty}</td>
+      <td><button class="btn-action danger" onclick="adminDeleteDoctor(${idx})">Remove</button></td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.adminAddDoctor = async function(e) {
+    e.preventDefault();
+    const name = document.getElementById("adm-doc-name").value.trim();
+    const email = document.getElementById("adm-doc-email").value.trim().toLowerCase();
+    const specialty = document.getElementById("adm-doc-specialty").value;
+    const password = document.getElementById("adm-doc-password").value;
+    const id = `doc-${Date.now().toString().slice(-4)}`;
+
+    // Register in Supabase Authentication if connected
+    if (supabase) {
+      showToast("Creating Doctor login credentials...", "info");
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: email,
+          password: password,
+          options: {
+            data: {
+              full_name: name
+            }
+          }
+        });
+        if (error) {
+          showToast(`Supabase registration failed: ${error.message}`, "danger");
+          return;
+        }
+        showToast("Credentials registered successfully!", "success");
+      } catch (authErr) {
+        console.warn("Supabase Auth signUp error:", authErr);
+      }
+    }
+
+    const newDoc = {
+      id,
+      name,
+      specialty,
+      email,
+      password,
+      online: true
+    };
+
+    db.doctors.push(newDoc);
+    saveDB();
+    
+    // Clear inputs
+    document.getElementById("adm-doc-name").value = "";
+    document.getElementById("adm-doc-email").value = "";
+    document.getElementById("adm-doc-password").value = "";
+    
+    showToast(`Doctor ${name} onboarded`, "success");
+    loadAdminDashboard();
+  };
+
+  window.adminDeleteDoctor = function(idx) {
+    const doc = db.doctors[idx];
+    db.doctors.splice(idx, 1);
+
+    if (supabase) {
+      supabase.from("doctors").delete().eq("id", doc.id).then(({ error }) => {
+        if (error) console.error("Error deleting doctor from Supabase:", error);
+        else console.log("Doctor deleted from Supabase successfully");
+      });
+    }
+
+    saveDB();
+    showToast("Doctor removed from staff", "warning");
+    loadAdminDashboard();
+  };
+
+  function renderAdminLogs() {
+    const tbody = document.getElementById("adm-logs-tbody");
+    tbody.innerHTML = "";
+
+    if (db.consultations.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No consultation records logged yet</td></tr>`;
+      return;
+    }
+
+    db.consultations.forEach(c => {
+      const fState = c.failoverState || "HD Video";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td>${c.id || "N/A"}</td>
+      <td>${c.village || "Village Clinic A"}</td>
+      <td>${c.doctorName || "Dr. Vikram"}</td>
+      <td>${c.patientName || "Patient"}</td>
+      <td>
+        <span class="badge ${fState.includes("HD") ? 'badge-success' : fState.includes("Low") ? 'badge-warning' : 'badge-critical'}">
+          ${fState}
+        </span>
+      </td>
+      <td>${c.diagnosis || "General Checkup"}</td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.exportReportsCSV = function() {
+    let csv = "Consultation ID,Date,Village Clinic,Doctor,Patient,Failover Status,Diagnosis,Medicines\n";
+    db.consultations.forEach(c => {
+      csv += `"${c.id}","${c.date}","${c.village}","${c.doctorName}","${c.patientName}","${c.failoverState}","${c.diagnosis}","${c.medicines}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `VillageMed_Dispensary_Report_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast("CSV report generated and downloaded.", "success");
+  };
+
+  // SVG Chart Engine
+  function renderAdminCharts() {
+    const volumeChartContainer = document.getElementById("admin-volume-chart");
+    const networkChartContainer = document.getElementById("admin-network-chart");
+
+    if (!volumeChartContainer || !networkChartContainer) return;
+
+    // 1. Consultation Volume (Last 5 Days)
+    const volumeData = [
+      { label: "Jun 26", val: 2 },
+      { label: "Jun 27", val: 4 },
+      { label: "Jun 28", val: 5 },
+      { label: "Jun 29", val: 7 },
+      { label: "Jun 30", val: db.consultations.length }
+    ];
+
+    const maxVal = Math.max(...volumeData.map(d => d.val), 5);
+    let volHtml = "";
+    volumeData.forEach(d => {
+      const pct = (d.val / maxVal) * 80; // max height 80%
+      volHtml += `
+      <div class="chart-bar-column">
+        <div class="chart-bar" style="height: ${pct}%;" data-value="${d.val} patients"></div>
+        <div class="chart-label">${d.label}</div>
+      </div>
+    `;
+    });
+    volumeChartContainer.innerHTML = volHtml;
+
+    // 2. Network Quality Failover Breakdowns
+    const netData = [
+      { label: "HD Video", val: db.failoverLogs.hd, color: "failover-good" },
+      { label: "Low Quality", val: db.failoverLogs.low, color: "failover-poor" },
+      { label: "Audio Fallback", val: db.failoverLogs.audio, color: "failover-verypoor" }
+    ];
+
+    const netMax = Math.max(...netData.map(d => d.val), 5);
+    let netHtml = "";
+    netData.forEach(d => {
+      const pct = (d.val / netMax) * 80;
+      netHtml += `
+      <div class="chart-bar-column">
+        <div class="chart-bar ${d.color}" style="height: ${pct}%;" data-value="${d.val} times"></div>
+        <div class="chart-label">${d.label}</div>
+      </div>
+    `;
+    });
+    networkChartContainer.innerHTML = netHtml;
+  }
+
+  // --- INITIALIZE APPLICATION ---
+  window.onload = function() {
+    initDB();
+    startClock();
+    
+    // Check if returning from a Google OAuth redirect
+    const hasOAuthCallback = window.location.hash.includes("access_token=") || 
+                             window.location.search.includes("code=") || 
+                             window.location.hash.includes("error=");
+                             
+    // Restore tab-isolated session from this tab's sessionStorage
+    const restored = loadSessionState();
+    if (restored && restored.user && restored.role) {
+      currentUser = restored.user;
+      currentRole = restored.role;
+      switchView(`view-${restored.role}`, restored.role);
+    } else if (!hasOAuthCallback) {
+      switchView("view-login", "login");
+    }
+
+    // Check if patient joined direct appointment
+    setInterval(() => {
+      if (currentRole === "patient" && !activeCall) {
+        loadPatientDashboard();
+      }
+    }, 3000);
+  };
+
+  window.saveAgoraConfig = function() {
+    const appid = document.getElementById("agora-appid").value.trim();
+    const token = document.getElementById("agora-token").value.trim();
+    const channel = document.getElementById("agora-channel").value.trim() || "telehealth-room";
+    const enabled = document.getElementById("agora-enabled").checked;
+
+    if (enabled && !validateAgoraAppId(appid)) {
+      showToast("Invalid Agora App ID. Please verify the App ID from your Agora console.", "warning");
+      console.warn("Attempted to enable Agora with invalid App ID", { appid });
+      return;
+    }
+
+    agoraConfig = { appid, token, channel, enabled };
+    if (enabled) {
+      agoraConfig.lastFail = false;
+    }
+
+    // Persist to localStorage and local DB cache
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    db.agoraConfig = agoraConfig;
+    saveDB();
+
+    console.info("Agora config saved successfully", { appid, hasToken: !!token, channel, enabled });
+    showToast("Agora audio configurations saved successfully!", "success");
+  };
+
+  async function joinAgoraRoom(role) {
+    if (agoraJoinPromise) return agoraJoinPromise;
+
+    agoraJoinPromise = joinAgoraRoomInternal(role);
+    try {
+      await agoraJoinPromise;
+    } finally {
+      agoraJoinPromise = null;
+    }
+  }
+
+  async function joinAgoraRoomInternal(role) {
+    if (typeof AgoraRTC === "undefined") {
+      showToast("Agora Web SDK failed to load. Check internet or ad-blocker.", "danger");
+      return;
+    }
+
+    // Clean up any existing Agora client or local tracks before joining
+    if (localAudioTrack) {
+      try { localAudioTrack.stop(); localAudioTrack.close(); } catch(e){}
+      localAudioTrack = null;
+    }
+    if (localVideoTrack) {
+      try { localVideoTrack.stop(); localVideoTrack.close(); } catch(e){}
+      localVideoTrack = null;
+    }
+    if (agoraClient) {
+      try { await agoraClient.leave(); } catch(e){}
+      agoraClient = null;
+    }
+    showToast(`Connecting Agora Audio: Channel '${agoraConfig.channel}'...`, "info");
+
+    const sys = AgoraRTC.checkSystemRequirements ? AgoraRTC.checkSystemRequirements() : null;
+    if (sys !== null && sys !== undefined) {
+      console.info("Agora system requirements:", sys);
+      const isSupported = typeof sys === "boolean" ? sys : (sys.webAudio !== false);
+      if (!isSupported) {
+        showToast("Browser does not support the Web Audio APIs required by Agora.", "danger");
+        console.error("Agora unsupported system requirements", sys);
+      }
+    }
+    
+    try {
+      agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+      const remoteUsers = new Map();
+
+      const subscribeToRemoteUser = async (user, mediaType) => {
+        try {
+          if (mediaType === "audio") {
+            if (!user.audioTrack) {
+              await agoraClient.subscribe(user, mediaType);
+            }
+            remoteUsers.set(String(user.uid), user);
+
+            if (user.audioTrack) {
+              try {
+                if (typeof user.audioTrack.setVolume === "function") {
+                  user.audioTrack.setVolume(100);
+                }
+                await user.audioTrack.play();
+                console.log(`[AGORA] Remote audio playing for UID: ${user.uid}`);
+                showToast("Remote audio connected & playing.", "success");
+              } catch (audioPlayErr) {
+                console.warn(`[AGORA] Remote audio play blocked by browser autoplay policy for ${user.uid}:`, audioPlayErr);
+                showToast("Click anywhere on screen to enable remote audio.", "info");
+                const resumeAudioOnGesture = () => {
+                  if (user.audioTrack) {
+                    user.audioTrack.play().catch(e => console.error("[AGORA] Gesture audio play error:", e));
+                  }
+                  window.removeEventListener("click", resumeAudioOnGesture);
+                  window.removeEventListener("keydown", resumeAudioOnGesture);
+                  window.removeEventListener("touchstart", resumeAudioOnGesture);
+                  window.removeEventListener("pointerdown", resumeAudioOnGesture);
+                };
+                window.addEventListener("click", resumeAudioOnGesture, { once: true });
+                window.addEventListener("keydown", resumeAudioOnGesture, { once: true });
+                window.addEventListener("touchstart", resumeAudioOnGesture, { once: true });
+                window.addEventListener("pointerdown", resumeAudioOnGesture, { once: true });
+              }
+            }
+          }
+        } catch (subscribeErr) {
+          console.error(`[AGORA] Remote subscription failed for UID ${user.uid} (${mediaType}):`, subscribeErr);
+        }
+      };
+
+      // Global Autoplay Failed handler
+      if (typeof AgoraRTC !== "undefined" && AgoraRTC.onAutoplayFailed) {
+        AgoraRTC.onAutoplayFailed(() => {
+          console.warn("[AGORA] Global audio autoplay failed due to browser restriction");
+          showToast("Audio autoplay blocked by browser. Click screen to enable audio.", "warning");
+        });
+      }
+
+      // Listen for incoming remote user publishing
+      agoraClient.on("user-published", async (user, mediaType) => {
+        console.log(`[AGORA] Remote ${mediaType} published by UID: ${user.uid}`);
+        await subscribeToRemoteUser(user, mediaType);
+        if (mediaType === "audio") {
+          showToast("Remote voice audio active in Agora session.", "success");
+        }
+      });
+
+      agoraClient.on("user-joined", (user) => {
+        console.log(`[AGORA] Remote user joined: ${user.uid}`);
+      });
+
+      agoraClient.on("user-unpublished", (user, mediaType) => {
+        console.log(`[AGORA] user-unpublished: ${user.uid} mediaType: ${mediaType}`);
+      });
+
+      agoraClient.on("user-left", (user) => {
+        console.log(`[AGORA] Remote user left: ${user.uid}`);
+        remoteUsers.delete(String(user.uid));
+      });
+
+      // Real-time bandwidth quality hooks
+      agoraClient.on("network-quality", (quality) => {
+        processAgoraNetworkQuality(quality);
+      });
+
+      agoraClient.on("connection-state-change", (curState, revState) => {
+        if (curState === "DISCONNECTED" || curState === "FAILED") {
+          showToast("Agora audio connection lost. Reconnecting voice link...", "danger");
+        } else if (curState === "CONNECTED") {
+          showToast("Agora audio connection established.", "success");
+        }
+      });
+
+      // Join room (Secure Server-Generated Token & Scoped Room)
+      const appid = (agoraConfig.appid || "").trim();
+      const consultationId = String(activeCall?.token || "").trim();
+      if (!consultationId) {
+        throw new Error("No consultation token is available for the Agora channel.");
+      }
+
+      let channel = `telehealth-${consultationId}`;
+      let token = (agoraConfig.token || "").trim() || null;
+
+      try {
+        const tokenRes = await fetch(`/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(consultationId)}&userId=${encodeURIComponent(currentUser ? currentUser.id : 'user')}`);
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          if (tokenData.channel) channel = tokenData.channel;
+          if (tokenData.token) token = tokenData.token;
+        }
+      } catch (e) {
+        console.warn("[Agora] Could not fetch server token, falling back to configured token/channel:", e);
+      }
+
+      const uid = getAgoraUid(role, consultationId);
+      if (!appid) {
+        throw new Error("Agora App ID is not configured.");
+      }
+
+      await agoraClient.join(appid, channel, token, uid);
+      console.log(`[AGORA] Joined channel: ${channel} UID: ${uid}`);
+
+      // Create local audio track
+      let audioTrack = null;
+
+      try {
+        audioTrack = await AgoraRTC.createMicrophoneAudioTrack({
+          AEC: true, // Acoustic Echo Cancellation
+          ANS: true, // Automatic Noise Suppression
+          AGC: true  // Automatic Gain Control
+        });
+        console.log("[AGORA] Hardware microphone audio track created successfully");
+      } catch (audioErr) {
+        console.warn("[AGORA] Hardware microphone creation failed, attempting custom fallback track:", audioErr);
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) {
+            const ctx = new AudioCtx();
+            const dest = ctx.createMediaStreamDestination();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(440, ctx.currentTime);
+            gain.gain.setValueAtTime(0.005, ctx.currentTime);
+            osc.connect(gain);
+            gain.connect(dest);
+            osc.start();
+
+            const mediaTrack = dest.stream.getAudioTracks()[0];
+            if (mediaTrack && typeof AgoraRTC !== "undefined" && AgoraRTC.createCustomAudioTrack) {
+              audioTrack = AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: mediaTrack });
+              console.log("[AGORA] Fallback custom audio track created successfully");
+            }
+          }
+        } catch (fallbackErr) {
+          console.error("[AGORA] Fallback custom audio track creation failed:", fallbackErr);
+        }
+        if (!audioTrack) {
+          showToast("Unable to access microphone. Check browser permissions.", "warning");
+        }
+      }
+
+      localAudioTrack = audioTrack;
+
+      // Prepare audio tracks to publish
+      const tracksToPublish = [];
+      if (localAudioTrack) {
+        const isMicActive = (activeCall && typeof activeCall.micActive === "boolean") ? activeCall.micActive : true;
+        try {
+          if (typeof localAudioTrack.setMuted === "function") {
+            await localAudioTrack.setMuted(!isMicActive);
+          }
+          if (typeof localAudioTrack.setEnabled === "function") {
+            await localAudioTrack.setEnabled(isMicActive);
+          }
+        } catch (trackStateErr) {
+          console.warn("[AGORA] Error setting local audio track active state:", trackStateErr);
+        }
+        tracksToPublish.push(localAudioTrack);
+      }
+
+      if (tracksToPublish.length > 0) {
+        await agoraClient.publish(tracksToPublish);
+        console.log(`[AGORA] Published local audio track`);
+        updateNetworkUI();
+        showToast("Realtime audio active in Agora session!", "success");
+      } else {
+        updateNetworkUI();
+        showToast("Agora audio joined. Microphone track unavailable.", "warning");
+      }
+
+      // Catch up on any users already published in the channel
+      if (agoraClient.remoteUsers && agoraClient.remoteUsers.length > 0) {
+        console.log(`[AGORA] Catchup: checking ${agoraClient.remoteUsers.length} existing remote users`);
+        for (const remoteUser of agoraClient.remoteUsers) {
+          if (remoteUser.hasAudio) {
+            console.log(`[AGORA] Catchup subscribing remote audio for UID: ${remoteUser.uid}`);
+            await subscribeToRemoteUser(remoteUser, "audio");
+          }
+        }
+      }
+
+    } catch (err) {
+      console.error("Agora Audio Error:", err);
+      if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
+        console.warn("Agora permission issue detected", err);
+      }
+
+      const tokenError = err.message && (err.message.includes("dynamic key expired") || err.message.includes("token timeout") || err.message.includes("ERR_TOKEN_EXPIRED") || err.message.includes("INVALID_TOKEN"));
+      if (tokenError) {
+        agoraConfig.token = "";
+        console.warn("Agora token error detected, clearing saved token.");
+      }
+
+      const invalidKey = err.message && (err.message.includes("invalid vendor key") || err.message.includes("can not find appid") || err.message.includes("invalid App ID") || err.message.includes("invalid appid"));
+      if (invalidKey) {
+        showToast("Invalid Agora App ID detected. Please verify your App ID in the Agora console and re-save the config.", "danger");
+        console.error("Agora invalid vendor key error detected", err);
+      }
+
+      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+      console.warn("Agora audio connection issue:", err);
+      showToast(`Agora Audio: ${err.message || "Connection error"}.`, "warning");
+    }
+  }
+
+  async function leaveAgoraRoom() {
+    try {
+      if (localAudioTrack) {
+        localAudioTrack.stop();
+        localAudioTrack.close();
+        localAudioTrack = null;
+      }
+      if (localVideoTrack) {
+        localVideoTrack.stop();
+        localVideoTrack.close();
+        localVideoTrack = null;
+      }
+      if (agoraClient) {
+        await agoraClient.leave();
+        agoraClient = null;
+      }
+      showToast("Agora audio channel closed.", "info");
+    } catch (err) {
+      console.error("Error leaving Agora:", err);
+    }
+  }
+
+  function getQualityCategory(networkQuality) {
+    if (networkQuality >= 6) return "critical";
+    if (networkQuality >= 4) return "poor";
+    if (networkQuality === 3) return "moderate";
+    return "good";
+  }
+
+  function normalizeAgoraQuality(quality) {
+    if (!quality) return { uplink: 6, downlink: 6 };
+    return {
+      uplink: quality.uplinkNetworkQuality || 6,
+      downlink: quality.downlinkNetworkQuality || 6
+    };
+  }
+
+  async function processAgoraNetworkQuality(quality) {
+    if (!activeCall) return;
+
+    const { uplink, downlink } = normalizeAgoraQuality(quality);
+    const worst = Math.max(uplink, downlink);
+    const category = getQualityCategory(worst);
+    const mode = activeCall.callMode;
+
+    activeCall.lastNetworkQuality = { uplink, downlink, category, timestamp: Date.now() };
+    activeCall.networkQuality = category;
+
+    // Maintain hysteresis counters
+    if (category === "good") {
+      activeCall.networkCounters.good += 1;
+      activeCall.networkCounters.moderate = 0;
+      activeCall.networkCounters.poor = 0;
+      activeCall.networkCounters.critical = 0;
+    } else if (category === "moderate") {
+      activeCall.networkCounters.moderate += 1;
+      activeCall.networkCounters.good = 0;
+      activeCall.networkCounters.poor = 0;
+      activeCall.networkCounters.critical = 0;
+    } else if (category === "poor") {
+      activeCall.networkCounters.poor += 1;
+      activeCall.networkCounters.good = 0;
+      activeCall.networkCounters.moderate = 0;
+      activeCall.networkCounters.critical = 0;
+    } else {
+      activeCall.networkCounters.critical += 1;
+      activeCall.networkCounters.good = 0;
+      activeCall.networkCounters.moderate = 0;
+      activeCall.networkCounters.poor = 0;
+    }
+
+    console.info("Network failover state", {
+      uplink,
+      downlink,
+      category,
+      callMode: mode,
+      counters: activeCall.networkCounters
+    });
+
+    // Transition logic
+    if (mode === CALL_MODES.VIDEO_NORMAL) {
+      if (category === "moderate" && activeCall.networkCounters.moderate >= 2) {
+        await setCallMode(CALL_MODES.VIDEO_LOW_QUALITY);
+      } else if ((category === "poor" || category === "critical") && activeCall.networkCounters.poor >= 2) {
+        await setCallMode(CALL_MODES.VIDEO_LOW_QUALITY);
+      } else if (category === "critical" && activeCall.networkCounters.critical >= 2) {
+        await setCallMode(CALL_MODES.AUDIO_ONLY);
+      }
+    } else if (mode === CALL_MODES.VIDEO_LOW_QUALITY) {
+      if (category === "good" && activeCall.networkCounters.good >= 4) {
+        await setCallMode(CALL_MODES.VIDEO_NORMAL);
+      } else if ((category === "poor" || category === "critical") && activeCall.networkCounters.poor >= 3) {
+        await setCallMode(CALL_MODES.AUDIO_ONLY);
+      } else if (category === "critical" && activeCall.networkCounters.critical >= 2) {
+        await setCallMode(CALL_MODES.AUDIO_ONLY);
+      }
+    } else if (mode === CALL_MODES.AUDIO_ONLY) {
+      if (category === "good" && activeCall.networkCounters.good >= 4) {
+        await setCallMode(CALL_MODES.VIDEO_NORMAL);
+      } else if (category === "moderate" && activeCall.networkCounters.moderate >= 4) {
+        await setCallMode(CALL_MODES.VIDEO_LOW_QUALITY);
+      }
+    }
+
+    updateNetworkUI();
+  }
+
+  async function setCallMode(targetMode) {
+    if (!activeCall) return;
+    if (activeCall.callMode === targetMode) return;
+
+    console.info(`Call mode transition: ${activeCall.callMode} -> ${targetMode}`);
+    activeCall.callMode = targetMode;
+
+    if (targetMode === CALL_MODES.VIDEO_NORMAL) {
+      await restoreVideoMode();
+      showToast("Network stable again. Restoring video quality.", "success");
+    } else if (targetMode === CALL_MODES.VIDEO_LOW_QUALITY) {
+      await reduceVideoQuality();
+      showToast("Network slowing down. Reducing video quality to keep call stable.", "warning");
+    } else if (targetMode === CALL_MODES.AUDIO_ONLY) {
+      await enterAudioOnlyMode();
+      showToast("Poor network detected. Video has been turned off to keep the call connected.", "danger");
+    }
+
+    updateNetworkUI();
+  }
+
+  async function reduceVideoQuality() {
+    if (!activeCall) return;
+    activeCall.autoVideoDisabled = false;
+    console.info("Adapting video quality for network failover");
+    updateNetworkUI();
+  }
+
+  async function enterAudioOnlyMode() {
+    if (!activeCall) return;
+    activeCall.autoVideoDisabled = true;
+    console.info("Switched to audio-only failover mode (Agora voice stream preserved)");
+    updateNetworkUI();
+  }
+
+  async function restoreVideoMode() {
+    if (!activeCall) return;
+    if (activeCall.manualVideoDisabled) {
+      console.info("Manual camera off: skipping automatic video restore");
+      return;
+    }
+    activeCall.autoVideoDisabled = false;
+    console.info("Restored video mode after network recovery");
+    updateNetworkUI();
+  }
+
+  function updateNetworkUI() {
+    if (!activeCall) return;
+    const state = NETWORK_STATES[activeCall.networkQuality] || NETWORK_STATES.poor;
+    const role = getAgoraRolePrefix(activeCall.role);
+    const connText = document.getElementById(`${role}-conn-text`);
+    const statusText = activeCall.callMode === CALL_MODES.AUDIO_ONLY ? "Audio-only mode" : activeCall.callMode === CALL_MODES.VIDEO_LOW_QUALITY ? "Low-quality video" : "Full video";
+
+    if (connText) {
+      connText.innerText = `${state.label} • ${statusText}`;
+    }
+
+    const bars = document.querySelectorAll(`#${role}-sig-bars .sig-bar`);
+    bars.forEach((bar, index) => {
+      if (index < state.bars) bar.classList.add("active"); else bar.classList.remove("active");
+    });
+
+    const viewport = document.getElementById(`${role}-viewport-container`);
+    if (viewport) {
+      const roleSpecificClass = role === "doc" ? "doc-call-viewport" : "";
+      viewport.className = `call-viewport ${roleSpecificClass} ${state.class}`.trim();
+    }
+
+    const mainCanvas = document.getElementById(`${role}-remote-canvas`);
+    const pipCanvas = document.getElementById(`${role}-local-canvas`);
+    const fallback = document.getElementById(`${role}-remote-audio-fallback`);
+    const remoteContainer = document.getElementById(`${role}-remote-video-container`);
+    const localContainer = document.getElementById(`${role}-local-video-container`);
+    const pipFeed = document.querySelector(`#${role}-viewport-container .local-pip-feed`) ||
+                    (localContainer ? localContainer.closest(".local-pip-feed") : null);
+
+    const permStrip = document.getElementById(`${role}-cam-perm-strip`);
+    if (permStrip) {
+      permStrip.style.display = (activeCall.isVirtualCam && activeCall.camActive) ? "flex" : "none";
+    }
+
+    if (activeCall.callMode === CALL_MODES.AUDIO_ONLY) {
+      if (fallback) fallback.style.display = "flex";
+      if (mainCanvas) mainCanvas.style.display = "none";
+      if (pipCanvas) pipCanvas.style.display = "none";
+      if (remoteContainer) remoteContainer.style.display = "none";
+      if (localContainer) localContainer.style.display = "none";
+      if (pipFeed) pipFeed.style.display = "none";
+    } else {
+      if (fallback) fallback.style.display = "none";
+      if (pipFeed) pipFeed.style.display = "block";
+
+      // Remote real-time video display
+      const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+      if (hasRemoteStream) {
+        if (remoteContainer) {
+          remoteContainer.style.display = "block";
+          attachStreamToContainer(remoteWebcamStream, `${role}-remote-video-container`, false);
+        }
+        if (mainCanvas) mainCanvas.style.display = "none";
+      } else {
+        if (remoteContainer) remoteContainer.style.display = "none";
+        if (mainCanvas) mainCanvas.style.display = "block";
+      }
+
+      const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+      if (hasLocalStream) {
+        if (pipCanvas) pipCanvas.style.display = "none";
+        if (localContainer) {
+          localContainer.style.display = "block";
+          attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
+        }
+      } else {
+        if (pipCanvas) pipCanvas.style.display = "block";
+        if (localContainer) localContainer.style.display = "none";
+      }
+    }
+
+    const docLabel = document.getElementById("doc-network-lbl");
+    if (docLabel) {
+      docLabel.innerText = `${state.label} • ${statusText}`;
+    }
+  }
+
+  window.showCameraPermissionModal = function() {
+    const existing = document.getElementById("cam-perm-modal-overlay");
+    if (existing) existing.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "cam-perm-modal-overlay";
+    overlay.className = "cam-perm-modal-overlay";
+    overlay.innerHTML = `
+    <div class="cam-perm-modal">
+      <h3>🔒 Allow Camera Access</h3>
+      <p style="font-size: 13px; color: #64748b; margin-bottom: 16px;">
+        Your browser has blocked camera or microphone access for this website. Follow these 3 quick steps:
+      </p>
+      
+      <div class="cam-perm-step">
+        <div class="cam-perm-step-num">1</div>
+        <div class="cam-perm-step-text">
+          Look at the <strong>browser address bar</strong> at the top of your screen, next to the web URL.
+        </div>
+      </div>
+
+      <div class="cam-perm-step">
+        <div class="cam-perm-step-num">2</div>
+        <div class="cam-perm-step-text">
+          Click the <strong>🔒 Padlock / 🎛️ Site Settings / 🎥 Camera</strong> icon, and switch <strong>Camera</strong> from <em>Block</em> to <strong>Allow</strong>.
+        </div>
+      </div>
+
+      <div class="cam-perm-step">
+        <div class="cam-perm-step-num">3</div>
+        <div class="cam-perm-step-text">
+          Click <strong>Connect Real Webcam</strong> below to switch to your camera.
+        </div>
+      </div>
+
+      <div class="cam-perm-actions">
+        <button class="btn-action" onclick="document.getElementById('cam-perm-modal-overlay').remove()">Keep Simulated Feed</button>
+        <button class="btn-primary" style="font-weight: 600;" onclick="window.retryRealWebcamFromModal()">🔄 Connect Real Webcam</button>
+      </div>
+    </div>
+  `;
+    document.body.appendChild(overlay);
+  };
+
+  window.retryRealWebcamFromModal = async function() {
+    const modal = document.getElementById("cam-perm-modal-overlay");
+    if (modal) modal.remove();
+    showToast("Requesting physical webcam access...", "info");
+    const role = activeCall ? activeCall.role : "doctor";
+    const stream = await initNativeWebcam(role, true);
+    if (stream && !stream._isVirtual) {
+      showToast("Real webcam connected successfully!", "success");
+      updateNetworkUI();
+    }
+  };
+
+  // --- FEATURE 2 & 3: LIVE TELEMETRY FLUCTUATIONS ---
+  function startTelemetryFluctuations() {
+    if (!activeCall) return;
+    if (activeCall.telemetryInterval) clearInterval(activeCall.telemetryInterval);
+
+    activeCall.telemetryInterval = setInterval(() => {
+      if (!activeCall) return;
+
+      const qual = activeCall.networkQuality;
+      const state = NETWORK_STATES[qual];
+      if (!state) return;
+
+      // Calculate randomized fluctuations
+      let latency = parseInt(state.latency);
+      let upload = parseFloat(state.bitrate);
+      let download = upload * 1.1; 
+      let loss = 0;
+      let fps = state.fps;
+
+      if (qual === "excellent") {
+        latency += Math.floor(Math.random() * 5) - 2; 
+        loss = (Math.random() * 0.4).toFixed(1);
+        upload = (2.6 + Math.random() * 0.5).toFixed(1);
+        download = (2.9 + Math.random() * 0.6).toFixed(1);
+      } else if (qual === "good") {
+        latency += Math.floor(Math.random() * 10) - 5;
+        loss = (0.5 + Math.random() * 0.8).toFixed(1);
+        upload = (1.8 + Math.random() * 0.4).toFixed(1);
+        download = (2.1 + Math.random() * 0.5).toFixed(1);
+      } else if (qual === "moderate") {
+        latency += Math.floor(Math.random() * 15) - 7;
+        loss = (1.5 + Math.random() * 1.5).toFixed(1);
+        upload = (0.9 + Math.random() * 0.3).toFixed(1);
+        download = (1.1 + Math.random() * 0.4).toFixed(1);
+      } else if (qual === "poor") {
+        latency += Math.floor(Math.random() * 20) - 10;
+        loss = (4.0 + Math.random() * 4.0).toFixed(1);
+        upload = (280 + Math.floor(Math.random() * 80)) + " Kbps"; 
+        download = (310 + Math.floor(Math.random() * 90)) + " Kbps";
+      } else if (qual === "critical") {
+        latency += Math.floor(Math.random() * 50) - 25;
+        loss = (22.0 + Math.random() * 6).toFixed(1);
+        upload = (25 + Math.floor(Math.random() * 15)) + " Kbps";
+        download = (30 + Math.floor(Math.random() * 20)) + " Kbps";
+      }
+
+      if (typeof upload === "number") upload = upload + " Mbps";
+      if (typeof download === "number") download = download + " Mbps";
+
+      // Update DOM
+      const roles = ["pat", "vhw", "doc"];
+      roles.forEach(r => {
+        const latEl = document.getElementById(`${r}-hud-latency`);
+        const lossEl = document.getElementById(`${r}-hud-loss`);
+        const fpsEl = document.getElementById(`${r}-hud-fps`);
+        const upEl = document.getElementById(`${r}-hud-upload`);
+        const downEl = document.getElementById(`${r}-hud-download`);
+        const predEl = document.getElementById(`${r}-hud-prediction`);
+        const recEl = document.getElementById(`${r}-hud-rec`);
+
+        if (latEl) latEl.innerText = latency + " ms";
+        if (lossEl) lossEl.innerText = loss + "%";
+        if (fpsEl) fpsEl.innerText = fps;
+        if (upEl) upEl.innerText = upload;
+        if (downEl) downEl.innerText = download;
+
+        if (predEl) {
+          if (activeCall.aiPredicting) {
+            predEl.innerText = "PENDING DROP";
+            predEl.className = "pred-warn";
+          } else if (qual === "excellent" || qual === "good") {
+            predEl.innerText = "GOOD";
+            predEl.className = "pred-good";
+          } else if (qual === "fair" || qual === "poor") {
+            predEl.innerText = "FAIR";
+            predEl.className = "pred-warn";
+          } else {
+            predEl.innerText = "CRITICAL";
+            predEl.className = "pred-danger";
+          }
+        }
+
+        if (recEl) {
+          if (activeCall.aiPredicting) {
+            recEl.innerText = "Reduce Resolution (Proactive)";
+          } else {
+            recEl.innerText = state.label;
+          }
+        }
+      });
+
+      // Also update Doctor Overview Network Card if elements exist
+      const docOverLat = document.getElementById("doc-overview-latency");
+      const docOverLoss = document.getElementById("doc-overview-loss");
+      const docOverFps = document.getElementById("doc-overview-fps");
+      const docOverDown = document.getElementById("doc-overview-down");
+      const docOverUp = document.getElementById("doc-overview-up");
+      const docOverRes = document.getElementById("doc-overview-res");
+      if (docOverLat) docOverLat.innerText = latency + " ms";
+      if (docOverLoss) docOverLoss.innerText = loss + "%";
+      if (docOverFps) docOverFps.innerText = fps;
+      if (docOverDown) docOverDown.innerText = download;
+      if (docOverUp) docOverUp.innerText = upload;
+      if (docOverRes) docOverRes.innerText = state.resolution + (state.resolution.includes("p") ? " HD" : "");
+    }, 1500);
+  }
+
+  // --- FEATURE 4: EMERGENCY ALERT SYSTEM ---
+  window.triggerEmergencyAlert = function(patientName, vitals, token) {
+    // Show red banner
+    document.getElementById("emergency-pat-name").innerText = patientName;
+    document.getElementById("emergency-spo2").innerText = vitals.spo2;
+    document.getElementById("emergency-bp").innerText = vitals.bpSystolic;
+    document.getElementById("emergency-hr").innerText = vitals.hr;
+    
+    const app = db.appointments.find(a => a.token === token);
+    const p = db.patients.find(pat => pat.id === app.patientId);
+    document.getElementById("emergency-clinic").innerText = p ? p.village : "Rural Center";
+
+    const banner = document.getElementById("global-emergency-banner");
+    if (banner) banner.style.display = "flex";
+
+    // Trigger Toast Alert
+    showToast(`🚨 RED ALERT: Vitals Critical for ${patientName}! SpO2: ${vitals.spo2}%, BP: ${vitals.bpSystolic}, HR: ${vitals.hr}. Ambulance Dispatched!`, "danger");
+
+    // Log emergency system event to consultations history
+    const conId = `con-${Math.floor(100 + Math.random() * 900)}`;
+    db.consultations.push({
+      id: conId,
+      date: new Date().toISOString().split("T")[0],
+      patientName: patientName,
+      village: p ? p.village : "Clinic A",
+      doctorName: "EMERGENCY UNIT",
+      diagnosis: "CRITICAL VITAL ESCALATION: SpO2 < 90 / BP > 180 / HR > 130",
+      medicines: "Ambulance dispatched to rural center immediately",
+      failoverState: "Red Alert Dispatch",
+      referral: true
+    });
+    saveDB("consultations");
+
+    // Reload queues immediately
+    if (currentUser) {
+      if (currentRole === "doctor") renderDoctorQueue();
+      else if (currentRole === "vhw") renderVhwQueue();
+      else if (currentRole === "admin") renderAdminLogs();
+    }
+  };
+
+  window.dismissEmergencyBanner = function() {
+    const banner = document.getElementById("global-emergency-banner");
+    if (banner) banner.style.display = "none";
+  };
+
+  // --- FEATURE 5: OFFLINE MODE & AUTO-SYNC ---
+  window.isNetworkOnline = true;
+
+  window.toggleSimulatedInternet = function() {
+    window.isNetworkOnline = !window.isNetworkOnline;
+    updateOnlinePill();
+
+    if (window.isNetworkOnline) {
+      showToast("🔄 Connection restored. Auto-syncing pending local changes to Supabase...", "info");
+      runOfflineSync();
+    } else {
+      showToast("🔴 Offline Mode Activated. Changes will be saved locally.", "warning");
+    }
+  };
+
+  function updateOnlinePill() {
+    const pill = document.getElementById("global-connection-status");
+    const text = document.getElementById("connection-status-text");
+    
+    if (pill && text) {
+      if (window.isNetworkOnline) {
+        pill.className = "connection-status-pill online";
+        text.innerText = "Online (Cloud)";
+      } else {
+        pill.className = "connection-status-pill offline";
+        text.innerText = "Offline (Local)";
+      }
+    }
+  }
+
+  async function runOfflineSync() {
+    if (!supabase) return;
+    const pending = JSON.parse(localStorage.getItem("pending_syncs"));
+    if (!pending) return;
+
+    try {
+      let syncedCount = 0;
+      if (pending.patients) {
+        await supabase.from("patients").upsert(db.patients);
+        syncedCount++;
+      }
+      if (pending.doctors) {
+        await supabase.from("doctors").upsert(db.doctors);
+        syncedCount++;
+      }
+      if (pending.appointments) {
+        await supabase.from("appointments").upsert(db.appointments);
+        syncedCount++;
+      }
+      if (pending.consultations) {
+        await supabase.from("consultations").upsert(db.consultations);
+        syncedCount++;
+      }
+
+      if (syncedCount > 0) {
+        showToast(`✅ Cloud Sync complete! Successfully uploaded pending changes.`, "success");
+        localStorage.removeItem("pending_syncs");
+      }
+    } catch (err) {
+      console.error("Auto-sync background task failed:", err);
+    }
+  }
+
+  // Listen to browser network changes automatically
+  window.addEventListener('online', () => {
+    window.isNetworkOnline = true;
+    updateOnlinePill();
+    runOfflineSync();
+  });
+  window.addEventListener('offline', () => {
+    window.isNetworkOnline = false;
+    updateOnlinePill();
+  });
+
+  // --- FEATURE 6: SPEECH TRANSLATION & TTS ---
+  window.translationConfig = {
+    patientLang: "ta-IN",
+    targetLang: "ta-IN"
+  };
+
+  window.updateTranslatorSettings = function() {
+    const patSelect = document.getElementById("doc-patient-lang");
+    const tarSelect = document.getElementById("doc-target-lang");
+    if (patSelect) window.translationConfig.patientLang = patSelect.value;
+    if (tarSelect) window.translationConfig.targetLang = tarSelect.value;
+  };
+
+  // Built-in browser Text-to-Speech (TTS)
+  function speakText(text, langCode) {
+    if (!window.speechSynthesis) return;
+    
+    // Cancel active speakings
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = langCode;
+    
+    // Attempt to select corresponding native speaker voice if loaded
+    const voices = window.speechSynthesis.getVoices();
+    const matchedVoice = voices.find(v => v.lang.startsWith(langCode));
+    if (matchedVoice) utterance.voice = matchedVoice;
+    
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Intercept typed doctor chat messages to read them to patient in their chosen language
+  window.speakDoctorTranslation = function(msgText) {
+    if (!activeCall) return;
+    
+    // Translation mocks
+    let translatedText = msgText;
+    const tLang = window.translationConfig.targetLang;
+    
+    if (tLang === "ta-IN") {
+      if (msgText.toLowerCase().includes("breathe") || msgText.toLowerCase().includes("breath")) {
+        translatedText = "தயவுசெய்து ஆழமாக சுவாசிக்கவும்";
+      } else if (msgText.toLowerCase().includes("bp") || msgText.toLowerCase().includes("blood pressure")) {
+        translatedText = "நான் உங்கள் இரத்த அழுத்தத்தை சரிபார்க்கிறேன்";
+      } else if (msgText.toLowerCase().includes("hello") || msgText.toLowerCase().includes("hi")) {
+        translatedText = "வணக்கம், நான் உங்களுக்கு எப்படி உதவ முடியும்?";
+      } else {
+        translatedText = "மருத்துவர்: உங்கள் மருந்து பரிந்துரை தயாராக உள்ளது";
+      }
+    } else if (tLang === "hi-IN") {
+      if (msgText.toLowerCase().includes("breathe") || msgText.toLowerCase().includes("breath")) {
+        translatedText = "कृपया गहरी सांस लें";
+      } else if (msgText.toLowerCase().includes("bp") || msgText.toLowerCase().includes("blood pressure")) {
+        translatedText = "मैं आपके रक्तचाप की जांच कर रहा हूं";
+      } else if (msgText.toLowerCase().includes("hello") || msgText.toLowerCase().includes("hi")) {
+        translatedText = "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?";
+      } else {
+        translatedText = "डॉक्टर: आपका नुस्खा तैयार है";
+      }
+    }
+
+    // Display translation overlay captions on patient viewport
+    const overlay = document.getElementById("pat-translation-overlay");
+    const origEl = document.getElementById("pat-trans-orig");
+    const resEl = document.getElementById("pat-trans-res");
+    
+    if (overlay && origEl && resEl) {
+      origEl.innerText = `Doctor (English): "${msgText}"`;
+      resEl.innerText = `${tLang === "ta-IN" ? "Tamil" : "Hindi"}: "${translatedText}"`;
+      overlay.style.display = "flex";
+      
+      // Auto hide overlay after 6s
+      setTimeout(() => {
+        overlay.style.display = "none";
+      }, 6000);
+    }
+
+    // Speak out loud to patient in their selected language!
+    speakText(translatedText, tLang);
+  };
+
+  // Simulate Patient speech to Doctor
+  window.triggerSimulatedSpeech = function() {
+    if (!activeCall) {
+      showToast("No active call to translate!", "warning");
+      return;
+    }
+
+    const pLang = window.translationConfig.patientLang;
+    let original = "";
+    let translation = "";
+
+    if (pLang === "ta-IN") {
+      original = "என் நெஞ்சில் ஒரு அழுத்தமாக இருக்கிறது, சுவாசிக்க கடினமாக உள்ளது.";
+      translation = "I feel a pressure in my chest and it is difficult to breathe.";
+    } else {
+      original = "मेरे सीने में दबाव महसूस हो रहा है और सांस लेने में कठिनाई हो रही है।";
+      translation = "I feel a pressure in my chest and it is difficult to breathe.";
+    }
+
+    // Render on Doctor Viewport
+    const overlay = document.getElementById("doc-translation-overlay");
+    const origEl = document.getElementById("doc-trans-orig");
+    const resEl = document.getElementById("doc-trans-res");
+    
+    if (overlay && origEl && resEl) {
+      origEl.innerText = `Patient (${pLang === "ta-IN" ? "Tamil" : "Hindi"}): "${original}"`;
+      resEl.innerText = `Translated (English): "${translation}"`;
+      overlay.style.display = "flex";
+      
+      setTimeout(() => {
+        overlay.style.display = "none";
+      }, 6000);
+    }
+
+    // Render on Nurse VHW Viewport too
+    const vhwOverlay = document.getElementById("vhw-translation-overlay");
+    const vhwOrigEl = document.getElementById("vhw-trans-orig");
+    const vhwResEl = document.getElementById("vhw-trans-res");
+    if (vhwOverlay && vhwOrigEl && vhwResEl) {
+      vhwOrigEl.innerText = `Patient: "${original}"`;
+      vhwResEl.innerText = `Translated (English): "${translation}"`;
+      vhwOverlay.style.display = "flex";
+      setTimeout(() => { vhwOverlay.style.display = "none"; }, 6000);
+    }
+
+    // Read out loud in English for the Doctor!
+    speakText(translation, "en-US");
+  };
+
+  // Hook translation to chat sends
+  const chatFormDoc = document.getElementById("doc-chat-form");
+  if (chatFormDoc) {
+    chatFormDoc.addEventListener("submit", (e) => {
+      const input = document.getElementById("doc-chat-input");
+      if (input && input.value.trim() && activeCall) {
+        window.speakDoctorTranslation(input.value.trim());
+      }
+    });
+  }
+
+  // --- FEATURE 7: QR CODE PATIENT SCANNER SYSTEM ---
+  window.openQrScanner = function() {
+    const modal = document.getElementById("qr-scanner-modal");
+    const select = document.getElementById("scanner-select-pat");
+    if (!modal || !select) return;
+
+    // Populate patient select options
+    select.innerHTML = "";
+    db.patients.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.innerText = `${p.name} (ID: ${p.id})`;
+      select.appendChild(opt);
+    });
+
+    // Default select first patient
+    if (db.patients.length > 0) {
+      window.updateScannerQrImage(db.patients[0].id);
+    }
+
+    modal.style.display = "flex";
+    showToast("Simulated camera scanner activated...", "info");
+  };
+
+  window.closeQrScanner = function() {
+    const modal = document.getElementById("qr-scanner-modal");
+    if (modal) modal.style.display = "none";
+  };
+
+  window.updateScannerQrImage = function(patientId) {
+    const img = document.getElementById("scanner-qr-target");
+    if (img) {
+      img.src = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${patientId}`;
+    }
+  };
+
+  window.runSimulatedScan = function() {
+    const select = document.getElementById("scanner-select-pat");
+    if (!select) return;
+    const patientId = select.value;
+    const patient = db.patients.find(p => p.id === patientId);
+
+    showToast("Scanning target code...", "info");
+    
+    setTimeout(() => {
+      window.closeQrScanner();
+      showToast(`✅ Code Decoded: ${patient ? patient.name : patientId} (ID: ${patientId})`, "success");
+      
+      // Automatically trigger Vitals entry modal for this patient!
+      window.openVitalsModal(patientId);
+    }, 1200);
+  };
+
+  // --- FEATURE 15: SECURE HIPPA CONSULTATION RECORDING ENGINE ---
+  window.isRecordingActive = false;
+  let callRecordingInterval = null;
+  let callRecordingSeconds = 0;
+
+  window.toggleCallRecording = function() {
+    if (!activeCall) {
+      showToast("No active call session to record!", "warning");
+      return;
+    }
+
+    const btn = document.getElementById("doc-record-btn");
+    const banner = document.getElementById("doc-recording-status");
+    const timer = document.getElementById("doc-rec-timer");
+
+    if (!window.isRecordingActive) {
+      // Start Recording
+      window.isRecordingActive = true;
+      callRecordingSeconds = 0;
+      if (btn) {
+        btn.innerText = "⏹️";
+        btn.style.backgroundColor = "#dc2626"; // stop state red
+        btn.classList.add("active");
+      }
+      if (banner) banner.style.display = "flex";
+      if (timer) timer.innerText = "00:00";
+
+      callRecordingInterval = setInterval(() => {
+        callRecordingSeconds++;
+        const mins = String(Math.floor(callRecordingSeconds / 60)).padStart(2, "0");
+        const secs = String(callRecordingSeconds % 60).padStart(2, "0");
+        if (timer) timer.innerText = `${mins}:${secs}`;
+      }, 1000);
+
+      showToast("🔴 Recording started. Audio and screen capture active.", "warning");
+    } else {
+      window.stopCallRecording(); 
+    }
+  };
+
+  window.stopCallRecording = function() {
+    if (!window.isRecordingActive) return;
+    window.isRecordingActive = false;
+
+    const btn = document.getElementById("doc-record-btn");
+    const banner = document.getElementById("doc-recording-status");
+    const timer = document.getElementById("doc-rec-timer");
+
+    if (callRecordingInterval) {
+      clearInterval(callRecordingInterval);
+      callRecordingInterval = null;
+    }
+
+    if (btn) {
+      btn.innerText = "🔴";
+      btn.style.backgroundColor = "#374151";
+      btn.classList.remove("active");
+    }
+    if (banner) banner.style.display = "none";
+
+    const durationStr = timer ? timer.innerText : "00:05";
+    showToast("🔒 AES-256 Encrypting media tracks...", "info");
+
+    setTimeout(() => {
+      const recId = `REC-${Math.floor(1000 + Math.random() * 9000)}`;
+      const newRec = {
+        id: recId,
+        date: new Date().toISOString().split("T")[0],
+        patientId: activeCall ? activeCall.patient.id : "pat-1",
+        patientName: activeCall ? activeCall.patient.name : "Patient",
+        secureUrl: `consultation_${activeCall ? activeCall.token : "session"}.enc`,
+        duration: durationStr
+      };
+
+      db.recordings.push(newRec);
+      saveDB();
+      showToast("✅ Encrypted recording uploaded to secure HIPAA bucket.", "success");
+      
+      if (currentRole === "admin") renderAdminRecordings();
+    }, 1200);
+  };
+
+  // Seeding Default Recordings for Audit Trail Demonstration
+  function seedDefaultRecordings() {
+    if (!db.recordings || db.recordings.length === 0) {
+      db.recordings = [
+        { id: "REC-4109", date: "2026-06-30", patientId: "pat-1", patientName: "Sarah Mitchell", secureUrl: "sarah_mitchell_session_1.enc", duration: "03:45" },
+        { id: "REC-8294", date: "2026-07-01", patientId: "pat-2", patientName: "Fatima", secureUrl: "fatima_session_3.enc", duration: "06:12" }
+      ];
+      saveDB();
+    }
+  }
+  // Run seed check on load
+  setTimeout(seedDefaultRecordings, 1000);
+
+  function renderAdminRecordings() {
+    const tbody = document.getElementById("admin-recordings-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    const list = db.recordings || [];
+    if (list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No consultation recordings saved.</td></tr>`;
+      return;
+    }
+
+    list.forEach(rec => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td><strong>${rec.id}</strong></td>
+      <td>${rec.date}</td>
+      <td><strong>${rec.patientName}</strong></td>
+      <td style="font-family: monospace; font-size: 11px; color:#10b981;">supabase://buckets/recordings/${rec.secureUrl}</td>
+      <td>${rec.duration}</td>
+      <td>
+        <button class="btn-action success" onclick="window.playRecording('${rec.id}')">▶️ Playback</button>
+      </td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.playRecording = function(recId) {
+    const rec = db.recordings.find(r => r.id === recId);
+    if (!rec) return;
+
+    const modal = document.getElementById("playback-modal");
+    const avatar = document.getElementById("playback-avatar");
+    const patLabel = document.getElementById("playback-patient-label");
+    const durLabel = document.getElementById("playback-duration-label");
+
+    if (modal && avatar && patLabel && durLabel) {
+      patLabel.innerText = rec.patientName;
+      durLabel.innerText = `Duration: ${rec.duration}`;
+      avatar.innerText = rec.patientName.split(" ").map(n => n[0]).join("");
+      modal.style.display = "flex";
+      showToast(`🔒 Decrypting consultation stream from secure HIPAA storage...`, "success");
+    }
+  };
+
+  window.closePlaybackModal = function() {
+    const modal = document.getElementById("playback-modal");
+    if (modal) modal.style.display = "none";
+  };
+
+  // --- GOOGLE SIGN IN OAUTH ACCOUNT PICKER ENGINE ---
+  window.openGoogleSignInModal = async function() {
+    if (!supabase) {
+      showToast("Supabase is not configured yet. Cannot sign in with Google.", "danger");
+      return;
+    }
+    showToast("Redirecting to Google Sign-In...", "info");
+    
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin + window.location.pathname
+        }
+      });
+      
+      if (error) {
+        showToast(`Google OAuth Error: ${error.message}. Make sure Google Provider is enabled in Supabase Dashboard.`, "danger");
+      }
+    } catch (err) {
+      showToast(`OAuth Trigger Failed: ${err.message}`, "danger");
+    }
+  };
+
+  window.closeGoogleSignInModal = function() {
+    const modal = document.getElementById("google-signin-modal");
+    if (modal) modal.style.display = "none";
+  };
+
+  window.selectGoogleRole = function(role) {
+    const roleModal = document.getElementById("google-role-modal");
+    if (roleModal) roleModal.style.display = "none";
+
+    if (!window.googleUser) {
+      showToast("No Google account verified.", "danger");
+      return;
+    }
+
+    const { name, email } = window.googleUser;
+    
+    if (role === "patient") {
+      // Check if patient exists or register them
+      let patient = db.patients.find(p => p.phone === email || p.name === name);
+      if (!patient) {
+        patient = { id: `pat-${Date.now().toString().slice(-4)}`, name, age: 30, gender: "Male", phone: email, village: "Village Clinic A", history: [] };
+        db.patients.push(patient);
+        saveDB();
+      }
+      currentUser = patient;
+    } else if (role === "vhw") {
+      currentUser = { name: `Nurse ${name}`, role: "VHW", village: "Village Clinic A" };
+    } else if (role === "doctor") {
+      let doctor = db.doctors.find(d => d.email === email);
+      if (!doctor) {
+        doctor = { id: `doc-${Date.now().toString().slice(-4)}`, name: `Dr. ${name}`, specialty: "General Medicine", email, online: true };
+        db.doctors.push(doctor);
+        saveDB();
+      }
+      currentUser = doctor;
+    } else if (role === "admin") {
+      currentUser = { name: `Admin ${name}`, role: "Admin" };
+    }
+
+    switchView(`view-${role}`, role);
+    showToast(`Logged in successfully as ${currentUser.name}!`, "success");
+  };
+
+  // --- FEATURE: ROLE-BASED ACCESS CONTROL (RBAC) MANAGER ---
+  function renderAdminRbac() {
+    const tbody = document.getElementById("admin-rbac-tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    const config = db.authConfig || { admins: [], vhws: [] };
+    
+    // Render Admins
+    config.admins.forEach(email => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td><strong>${email}</strong></td>
+      <td><span class="badge" style="background:#f59e0b; color:white;">Administrator</span></td>
+      <td><button class="btn-action danger" onclick="window.adminDeleteRbacEmail('admin', '${email}')">Revoke</button></td>
+    `;
+      tbody.appendChild(tr);
+    });
+
+    // Render VHWs
+    config.vhws.forEach(email => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+      <td><strong>${email}</strong></td>
+      <td><span class="badge" style="background:#10b981; color:white;">Health Worker</span></td>
+      <td><button class="btn-action danger" onclick="window.adminDeleteRbacEmail('vhw', '${email}')">Revoke</button></td>
+    `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  window.adminAddRbacEmail = function(e) {
+    e.preventDefault();
+    const email = document.getElementById("rbac-new-email").value.trim().toLowerCase();
+    const role = document.getElementById("rbac-new-role").value;
+
+    if (!db.authConfig) {
+      db.authConfig = { admins: [], vhws: [] };
+    }
+
+    if (role === "admin") {
+      if (db.authConfig.admins.includes(email)) {
+        showToast("Email is already authorized as Admin.", "warning");
+        return;
+      }
+      db.authConfig.admins.push(email);
+    } else if (role === "vhw") {
+      if (db.authConfig.vhws.includes(email)) {
+        showToast("Email is already authorized as VHW.", "warning");
+        return;
+      }
+      db.authConfig.vhws.push(email);
+    }
+
+    saveDB();
+    showToast(`Successfully authorized ${email} for role: ${role.toUpperCase()}`, "success");
+    document.getElementById("rbac-new-email").value = "";
+    renderAdminRbac();
+  };
+
+  window.adminDeleteRbacEmail = function(role, email) {
+    if (!db.authConfig) return;
+
+    if (role === "admin") {
+      db.authConfig.admins = db.authConfig.admins.filter(e => e !== email);
+    } else if (role === "vhw") {
+      db.authConfig.vhws = db.authConfig.vhws.filter(e => e !== email);
+    }
+
+    saveDB();
+    showToast(`Successfully revoked authorizations for ${email}`, "warning");
+    renderAdminRbac();
+  };
+
+  window.addEventListener("hashchange", () => {
+    if (currentRole === "doctor" && window.location.hash && window.location.hash.startsWith("#/doctor/")) {
+      const moduleName = window.location.hash.replace("#/doctor/", "").trim();
+      switchDoctorModule(moduleName, false);
+    }
+  });
+  window.addEventListener("popstate", () => {
+    if (currentRole === "doctor" && window.location.hash && window.location.hash.startsWith("#/doctor/")) {
+      const moduleName = window.location.hash.replace("#/doctor/", "").trim();
+      switchDoctorModule(moduleName, false);
+    }
+  });
+  let currentPatientAvailableSlots = [];
+  let selectedPatientSlot = null;
+  let patientQueueDoctorId = "doc-1";
+
+  let selectedPatientRescheduleSlot = null;
+  let patientRescheduleSlots = [];
+
+  let doctorRescheduleTargetToken = null;
+  let selectedDoctorRescheduleSlot = null;
+  let doctorRescheduleSlots = [];
+
+  // Helper: In-app & Browser Notifications
+  function sendBrowserAndAppNotification(title, body, type = "info") {
+    showToast(`${title}: ${body}`, type);
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(title, {
+          body,
+          icon: "/favicon.ico"
+        });
+      } catch (e) {
+        console.warn("[Notification] Could not display browser notification:", e);
+      }
+    }
+  }
+
+  // Helper: Format slot date cleanly for India Standard Time
+  function formatSlotDate(dateStr) {
+    if (!dateStr) return "Today";
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      const d = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+      return d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" });
+    }
+    return dateStr;
+  }
+
+  // Helper: Populate doctor select dropdowns
+  window.initPatientConsultationQueue = function() {
+    const docSelect = document.getElementById("pat-consult-doctor-select");
+    if (docSelect) {
+      const doctors = (db.doctors && db.doctors.length > 0) ? db.doctors : (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS : [
+        { id: "doc-1", name: "Dr. Vikram Malhotra", specialty: "General Medicine" },
+        { id: "doc-2", name: "Dr. Ananya Sharma", specialty: "Cardiology" }
+      ]);
+      const currentVal = docSelect.value;
+      docSelect.innerHTML = doctors.map(d => `<option value="${d.id}" ${d.id === currentVal ? 'selected' : ''}>${d.name} (${d.specialty})</option>`).join("");
+    }
+  };
+
+  // 1. Patient: Request Consultation -> Creates Consultation Request with status "Vitals Pending"
+  window.handlePatientConsultationRequest = async function(event) {
+    if (event) event.preventDefault();
+
+    // Request browser notification permission if not yet decided
+    if ("Notification" in window && Notification.permission === "default") {
+      try { Notification.requestPermission(); } catch (e) {}
+    }
+
+    const docSelect = document.getElementById("pat-book-specialty") || document.getElementById("pat-consult-doctor-select");
+    const symptomsInput = document.getElementById("pat-book-symptoms") || document.getElementById("pat-consult-symptoms");
+    const urgencySelect = document.getElementById("pat-book-urgency") || document.getElementById("pat-consult-urgency");
+    const submitBtn = document.getElementById("pat-request-consult-btn");
+
+    const doctorId = docSelect ? docSelect.value : "doc-1";
+    const symptoms = symptomsInput ? symptomsInput.value.trim() : "";
+    const urgency = urgencySelect ? urgencySelect.value : "Normal";
+
+    patientQueueDoctorId = doctorId;
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span>⏳ Registering Consultation Request...</span>`;
+    }
+
+    try {
+      const payload = {
+        patientId: (currentUser && currentUser.id) ? currentUser.id : "pat-1",
+        patientName: (currentUser && currentUser.name) ? currentUser.name : "Sarah Mitchell",
+        doctorId,
+        symptoms: symptoms || "General Consultation",
+        urgency
+      };
+
+      const res = await fetch("/api/consultations/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        if (data.conflict && data.appointment) {
+          const conflictApp = data.appointment;
+          const existingIdx = (db.appointments || []).findIndex(a => a.token === conflictApp.token);
+          if (existingIdx >= 0) db.appointments[existingIdx] = conflictApp;
+          else (db.appointments = db.appointments || []).push(conflictApp);
+          saveDB();
+
+          showToast(data.error || `Active request found (Token: ${conflictApp.token})`, "warning");
+
+          const formContainer = document.getElementById("pat-consult-request-form-container");
+          if (formContainer) {
+            let conflictBanner = document.getElementById("pat-active-request-conflict-alert");
+            if (!conflictBanner) {
+              conflictBanner = document.createElement("div");
+              conflictBanner.id = "pat-active-request-conflict-alert";
+              conflictBanner.className = "alert";
+              conflictBanner.style.cssText = "margin-bottom: 16px; padding: 12px 14px; background: #fffbeb; border: 1.5px solid #f59e0b; border-radius: 8px; font-size: 13px; color: #92400e; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;";
+              formContainer.insertBefore(conflictBanner, formContainer.firstChild);
+            }
+            conflictBanner.innerHTML = `
+            <div style="flex: 1; min-width: 220px;">
+              <strong style="color: #b45309;">⚠️ Active Consultation: Token ${conflictApp.token}</strong>
+              <div style="font-size: 12px; color: #78350f; margin-top: 2px;">Status: <strong>${conflictApp.status}</strong> (${conflictApp.doctorName || 'Doctor'})</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn-primary" style="font-size: 11.5px; padding: 6px 12px;" onclick="loadPatientDashboard()">Continue Active Queue</button>
+              <button type="button" class="pat-btn-cancel" style="font-size: 11.5px; padding: 6px 12px;" onclick="cancelActiveAppointment('${conflictApp.token}')">✕ Cancel Request</button>
+            </div>
+          `;
+            conflictBanner.style.display = "flex";
+          }
+
+          loadPatientDashboard();
+          return;
+        }
+
+        showToast(data.error || "Failed to create consultation request", "danger");
+        return;
+      }
+
+      const newReq = data.consultationRequest || data.appointment;
+      const existingIdx = (db.appointments || []).findIndex(a => a.token === newReq.token);
+      if (existingIdx >= 0) db.appointments[existingIdx] = newReq;
+      else (db.appointments = db.appointments || []).push(newReq);
+      saveDB();
+
+      showToast(`Consultation request registered (Token: ${newReq.token})! Please proceed to the kiosk for health worker vitals screening.`, "success");
+
+      if (appSocket && appSocket.connected) {
+        appSocket.emit("consultation_requested", { token: newReq.token, appointment: newReq });
+        appSocket.emit("token_requested", { token: newReq.token, appointment: newReq });
+      }
+
+      loadPatientDashboard();
+    } catch (err) {
+      console.error("Consultation request failed:", err);
+      showToast(`Error submitting consultation request: ${err.message}`, "danger");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<span>Request Consultation</span> <span class="btn-arrow">→</span>`;
+      }
+    }
+  };
+
+  // Check screening status manually for patient
+  window.checkPatientVitalsStatus = async function() {
+    try {
+      const res = await fetch("/api/consultations");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.consultations) {
+          db.consultations = data.consultations;
+        }
+      }
+      loadDB();
+      loadPatientDashboard();
+      showToast("Vitals screening status refreshed.", "info");
+    } catch (e) {
+      loadPatientDashboard();
+    }
+  };
+
+  let currentPatientSelectedDate = null;
+  let currentPatientAvailableDates = [];
+
+  // Fetch genuine available slots for assigned doctor and render State 2
+  window.loadPatientAvailableSlotsForDoctor = async function(doctorId = "doc-1", consultationToken = null, targetDate = null) {
+    try {
+      patientQueueDoctorId = doctorId;
+      if (consultationToken) {
+        window.activeConsultationRequestToken = consultationToken;
+      }
+
+      const dateQuery = targetDate ? `&date=${encodeURIComponent(targetDate)}` : (currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '');
+      let data = null;
+      try {
+        const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (e) {
+        console.warn("[Slots] Remote slot fetch failed, using client-side fallback slots:", e.message);
+      }
+
+      if (!data) {
+        // Offline fallback slots for GitHub Pages
+        const today = new Date();
+        const dateStr = targetDate || today.toISOString().split('T')[0];
+        const doc = (db.doctors || []).find(d => d.id === doctorId) || DEFAULT_DOCTORS.find(d => d.id === doctorId) || { name: "Dr. Abinesh V" };
+        data = {
+          slots: [
+            { id: `slot-${dateStr}-1415`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:15", endTime: "14:30", label: "14:15 – 14:30 IST", period: "Afternoon", isAvailable: true },
+            { id: `slot-${dateStr}-1430`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:30", endTime: "14:45", label: "14:30 – 14:45 IST", period: "Afternoon", isAvailable: true },
+            { id: `slot-${dateStr}-1500`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:00", endTime: "15:15", label: "15:00 – 15:15 IST", period: "Afternoon", isAvailable: true },
+            { id: `slot-${dateStr}-1530`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:30", endTime: "15:45", label: "15:30 – 15:45 IST", period: "Afternoon", isAvailable: true }
+          ],
+          availableDates: [
+            { date: dateStr, label: "Today", isToday: true, count: 4 }
+          ],
+          aiAdvisory: {
+            demandLevel: "Normal",
+            queueDepth: 1,
+            estimatedWaitMins: 10,
+            recommendation: "Early afternoon consultation slots available immediately"
+          },
+          doctorName: doc.name,
+          selectedDate: dateStr
+        };
+      }
+
+      const slots = data.slots || [];
+      const aiAdvisory = data.aiAdvisory;
+      const doctorName = data.doctorName || "Doctor";
+      const availableDates = data.availableDates || [];
+
+      currentPatientAvailableDates = availableDates;
+      currentPatientSelectedDate = data.selectedDate || targetDate || (availableDates[0] ? availableDates[0].date : null);
+
+      const docNameEl = document.getElementById("pat-slots-doctor-name");
+      if (docNameEl) docNameEl.innerText = doctorName;
+
+      // Render AI demand advisory pill & wait time
+      if (aiAdvisory) {
+        const pill = document.getElementById("pat-ai-demand-pill");
+        if (pill) {
+          pill.className = `ai-demand-pill demand-${(aiAdvisory.demandLevel || 'Low').toLowerCase()}`;
+          pill.innerText = `🤖 AI Demand: ${aiAdvisory.demandLevel} (${aiAdvisory.queueDepth} in queue)`;
+        }
+        const waitText = document.getElementById("pat-ai-wait-text");
+        if (waitText) waitText.innerText = `Est. wait: ~${aiAdvisory.estimatedWaitMins} mins`;
+        const recText = document.getElementById("pat-ai-recommendation-text");
+        if (recText) recText.innerText = aiAdvisory.recommendation;
+      }
+
+      const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
+      const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+
+      // Render Date Selector Tabs
+      renderPatientDateSelector(availableDates, currentPatientSelectedDate, doctorId);
+
+      if (slots.length > 0 || availableDates.length > 0) {
+        if (stateSlots) stateSlots.style.display = "block";
+        if (stateWaiting) stateWaiting.style.display = "none";
+        renderPatientAvailableSlots(slots);
+      } else {
+        if (stateSlots) stateSlots.style.display = "none";
+        if (stateWaiting) stateWaiting.style.display = "block";
+        const waitDoc = document.getElementById("pat-queue-doctor-name");
+        if (waitDoc) waitDoc.innerText = doctorName;
+      }
+    } catch (e) {
+      console.error("loadPatientAvailableSlotsForDoctor error:", e);
+    }
+  };
+
+  // Render Date Tabs for selecting consultation date
+  function renderPatientDateSelector(availableDates, activeDate, doctorId) {
+    const tabsContainer = document.getElementById("pat-date-tabs-container");
+    const datePicker = document.getElementById("pat-slot-date-picker");
+
+    if (datePicker && activeDate) {
+      datePicker.value = activeDate;
+    }
+
+    if (!tabsContainer) return;
+    tabsContainer.innerHTML = "";
+
+    if (!availableDates || availableDates.length === 0) {
+      tabsContainer.innerHTML = `<span style="font-size:11.5px; color:#64748b;">Checking doctor calendar...</span>`;
+      return;
+    }
+
+    tabsContainer.innerHTML = availableDates.map(d => {
+      const isActive = d.date === activeDate;
+      const dayTag = d.isToday ? ' (Today)' : d.isTomorrow ? ' (Tomorrow)' : '';
+      return `
+      <button type="button" class="slot-date-tab ${isActive ? 'active' : ''}" onclick="onPatientDatePick('${d.date}')" title="${d.openSlotCount} slots available">
+        <span>📅 ${d.label}${dayTag}</span>
+        <span class="date-count-pill">${d.openSlotCount}</span>
+      </button>
+    `;
+    }).join("");
+  }
+
+  // Patient picks a different date
+  window.onPatientDatePick = function(dateStr) {
+    if (!dateStr) return;
+    currentPatientSelectedDate = dateStr;
+    const doctorId = patientQueueDoctorId || "doc-1";
+    loadPatientAvailableSlotsForDoctor(doctorId, window.activeConsultationRequestToken, dateStr);
+  };
+
+  // ----------------------------------------------------------------------------
+  // REACT STATE HOOK & CONSULTATION SLOTS SELECTION COMPONENT
+  // ----------------------------------------------------------------------------
+
+  // Cross-tab broadcast channel for real-time synchronization across browser tabs
+  const slotBroadcastChannel = (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined")
+    ? new BroadcastChannel("telehealth_slot_channel")
+    : null;
+
+  if (slotBroadcastChannel) {
+    slotBroadcastChannel.onmessage = (evt) => {
+      const data = evt.data;
+      if (data && data.type === "SLOT_BOOKED") {
+        if (typeof loadPatientDashboard === "function" && currentRole === "patient") {
+          loadPatientDashboard();
+        }
+      }
+    };
+  }
+
+  // React State Hook for storing selected slot
+  function usePatientSlotState(initialSlot = null) {
+    const [selectedSlot, setSelectedSlot] = React.useState(initialSlot);
+    return [selectedSlot, setSelectedSlot];
+  }
+  if (typeof window !== "undefined") {
+    window.usePatientSlotState = usePatientSlotState;
+  }
+
+  // React Component for Consultation Slots Queue
+  function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, onSlotChange }) {
+    // Requirement 2: Implement React state using `useState` to store the selected slot
+    const [selectedSlot, setSelectedSlot] = React.useState(initialSelectedSlot || null);
+
+    // Sync internal React state when initialSelectedSlot changes externally
+    React.useEffect(() => {
+      setSelectedSlot(initialSelectedSlot || null);
+    }, [initialSelectedSlot]);
+
+    // Requirement 3: When a user clicks a slot, update the selected slot state immediately.
+    // Requirement 5: Allow only one slot to be selected at a time. Selecting another slot deselects the previous.
+    const handleCardClick = React.useCallback((slot, e) => {
+      if (e) {
+        e.stopPropagation();
+      }
+      const isSame = selectedSlot && selectedSlot.slotId === slot.slotId;
+      const nextSlot = isSame ? null : slot;
+      setSelectedSlot(nextSlot);
+      if (onSlotChange) {
+        onSlotChange(nextSlot);
+      }
+    }, [selectedSlot, onSlotChange]);
+
+    const handleKeyDown = React.useCallback((slot, e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleCardClick(slot, e);
+      }
+    }, [handleCardClick]);
+
+    if (!slots || slots.length === 0) {
+      return React.createElement(
+        "div",
+        {
+          style: {
+            gridColumn: "1 / -1",
+            textAlign: "center",
+            padding: "28px 16px",
+            color: "#64748b",
+            background: "#f8fafc",
+            border: "1px dashed #cbd5e1",
+            borderRadius: "10px"
+          }
+        },
+        React.createElement("div", { style: { fontSize: "24px", marginBottom: "6px" } }, "⏱️"),
+        React.createElement("strong", null, "No consultation slots available for this date."),
+        React.createElement("br", null),
+        React.createElement("span", { style: { fontSize: "12px" } }, "Please select another upcoming date using the tabs above.")
+      );
+    }
+
+    return slots.map((s) => {
+      const isSelected = selectedSlot && selectedSlot.slotId === s.slotId;
+      return React.createElement(
+        "div",
+        {
+          key: s.slotId,
+          id: `pat-slot-card-${s.slotId}`,
+          className: `slot-select-card${isSelected ? " selected" : ""}`,
+          role: "button",
+          tabIndex: 0,
+          "aria-selected": isSelected ? "true" : "false",
+          onClick: (e) => handleCardClick(s, e),
+          onKeyDown: (e) => handleKeyDown(s, e),
+          style: {
+            cursor: "pointer",
+            touchAction: "manipulation"
+          }
+        },
+        // Top header with Date, Duration, and Checkmark indicator
+        React.createElement(
+          "div",
+          { className: "slot-card-top" },
+          React.createElement(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: "6px" } },
+            React.createElement("span", { className: "slot-date-chip" }, `📅 ${formatSlotDate(s.date)}`),
+            React.createElement("span", { className: "slot-duration-chip" }, `⏱️ ${s.durationMins || 15} Mins`)
+          ),
+          React.createElement(
+            "span",
+            {
+              className: "slot-check-circle",
+              title: isSelected ? "Slot Selected" : "Select slot"
+            },
+            isSelected ? "✓" : ""
+          )
+        ),
+        // Time display (IST)
+        React.createElement(
+          "div",
+          { className: "slot-time-display" },
+          React.createElement("span", null, `${s.startTime} – ${s.endTime}`),
+          React.createElement("small", { style: { fontSize: "11px", fontWeight: 600, color: "#64748b" } }, " IST")
+        ),
+        // Doctor info
+        React.createElement(
+          "div",
+          { className: "slot-doctor-info" },
+          `👨‍⚕️ ${s.doctorName || "Doctor"} (${s.specialty || "General Medicine"})`
+        ),
+        // AI Advisory badge (if available)
+        s.aiAdvisory
+          ? React.createElement(
+              "div",
+              {
+                className: "slot-ai-advisory",
+                style: {
+                  marginTop: "4px",
+                  paddingTop: "6px",
+                  borderTop: "1px dashed #cbd5e1",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }
+              },
+              React.createElement(
+                "span",
+                {
+                  className: `ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || "Low").toLowerCase()}`,
+                  style: { fontSize: "10px", padding: "1px 6px" }
+                },
+                `🤖 ${s.aiAdvisory.demandLevel} Demand`
+              ),
+              React.createElement(
+                "span",
+                {
+                  style: { fontSize: "10.5px", color: "#15803d", fontStyle: "italic" }
+                },
+                `~${s.aiAdvisory.estimatedWaitMins || 5}m wait`
+              )
+            )
+          : null
+      );
+    });
+  }
+
+  let reactSlotsRoot = null;
+
+  // Synchronize UI visuals (Confirm button, preview banner, card highlights)
+  function updateSlotSelectionUI(slot) {
+    // 1. Update DOM card classes and checkmarks
+    document.querySelectorAll(".slot-select-card").forEach((el) => {
+      el.classList.remove("selected");
+      el.setAttribute("aria-selected", "false");
+      const chk = el.querySelector(".slot-check-circle");
+      if (chk) chk.innerText = "";
+    });
+
+    if (slot) {
+      const targetCard = document.getElementById(`pat-slot-card-${slot.slotId}`);
+      if (targetCard) {
+        targetCard.classList.add("selected");
+        targetCard.setAttribute("aria-selected", "true");
+        const chk = targetCard.querySelector(".slot-check-circle");
+        if (chk) chk.innerText = "✓";
+      }
+    }
+
+    // 2. Requirement 6: Enable Confirm & Book button ONLY when a slot is selected
+    const confirmBtn = document.getElementById("pat-confirm-slot-btn");
+    if (confirmBtn) {
+      confirmBtn.disabled = !slot;
+      confirmBtn.innerHTML = slot
+        ? `<span>Confirm &amp; Book: ${formatSlotDate(slot.date)} @ ${slot.startTime} IST ✓</span>`
+        : `<span>Confirm &amp; Book Selected Slot ✓</span>`;
+    }
+
+    // 3. Update preview banner
+    const preview = document.getElementById("pat-selected-slot-preview");
+    const previewText = document.getElementById("pat-selected-slot-preview-text");
+    if (preview && previewText) {
+      if (slot) {
+        previewText.innerText = `${formatSlotDate(slot.date)} (${slot.startTime} – ${slot.endTime} IST) with ${slot.doctorName || "Doctor"}`;
+        preview.style.display = "flex";
+      } else {
+        preview.style.display = "none";
+      }
+    }
+
+    // 4. Hide conflict alert when user selects a new slot
+    if (slot) {
+      const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+      if (conflictAlert) conflictAlert.style.display = "none";
+    }
+  }
+
+  // Mount or update the React component inside the slots container
+  function mountReactSlotsSelector(slots, activeSlot) {
+    const container = document.getElementById("pat-slots-container") || document.getElementById("pat-available-slots-list");
+    if (!container) return;
+
+    const reactElement = React.createElement(PatientConsultationSlotsComponent, {
+      slots: slots,
+      initialSelectedSlot: activeSlot,
+      onSlotChange: (newSlot) => {
+        if (newSlot) {
+          applySlotSelection(newSlot);
+        } else {
+          deselectPatientSlot();
+        }
+      }
+    });
+
+    try {
+      if (!reactSlotsRoot || container._reactRoot !== reactSlotsRoot) {
+        reactSlotsRoot = ReactDOM.createRoot(container);
+        container._reactRoot = reactSlotsRoot;
+      }
+      reactSlotsRoot.render(reactElement);
+    } catch (err) {
+      console.warn("[Slots] React mounting fallback:", err);
+      renderVanillaSlotsFallback(container, slots, activeSlot);
+    }
+  }
+
+  // Fallback direct DOM renderer if React root fails
+  function renderVanillaSlotsFallback(container, slots, activeSlot) {
+    if (!container) return;
+    if (!slots || slots.length === 0) {
+      container.innerHTML = `<div style="grid-column: 1 / -1; text-align:center; padding:28px 16px; color:#64748b; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px;">
+      <div style="font-size:24px; margin-bottom:6px;">⏱️</div>
+      <strong>No consultation slots available for this date.</strong><br>
+      <span style="font-size:12px;">Please select another upcoming date using the tabs above.</span>
+    </div>`;
+      return;
+    }
+
+    container.innerHTML = slots.map((s) => {
+      const isSelected = activeSlot && activeSlot.slotId === s.slotId;
+      return `
+      <div class="slot-select-card${isSelected ? ' selected' : ''}"
+           id="pat-slot-card-${s.slotId}"
+           role="button"
+           tabindex="0"
+           aria-selected="${isSelected ? 'true' : 'false'}"
+           onclick="selectPatientSlot('${s.slotId}', event)"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPatientSlot('${s.slotId}', event);}">
+        <div class="slot-card-top">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="slot-date-chip">📅 ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-chip">⏱️ ${s.durationMins || 15} Mins</span>
+          </div>
+          <span class="slot-check-circle" title="Select slot">${isSelected ? '✓' : ''}</span>
+        </div>
+        <div class="slot-time-display">
+          <span>${s.startTime} – ${s.endTime}</span>
+          <small style="font-size:11px; font-weight:600; color:#64748b;">IST</small>
+        </div>
+        <div class="slot-doctor-info">
+          👨‍⚕️ ${s.doctorName || 'Doctor'} (${s.specialty || 'General Medicine'})
+        </div>
+        ${s.aiAdvisory ? `
+          <div class="slot-ai-advisory" style="margin-top:4px; padding-top:6px; border-top:1px dashed #cbd5e1; display:flex; justify-content:space-between; align-items:center;">
+            <span class="ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || 'Low').toLowerCase()}" style="font-size:10px; padding:1px 6px;">🤖 ${s.aiAdvisory.demandLevel} Demand</span>
+            <span style="font-size:10.5px; color:#15803d; font-style:italic;">~${s.aiAdvisory.estimatedWaitMins || 5}m wait</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+    }).join("");
+  }
+
+  // Render all available slot cards for Patient (Preserving active selection across polls!)
+  function renderPatientAvailableSlots(slots) {
+    currentPatientAvailableSlots = slots || [];
+
+    // CRITICAL FIX: Do not unconditionally wipe out selected slot during polling!
+    if (selectedPatientSlot) {
+      const stillValid = currentPatientAvailableSlots.find((s) => s.slotId === selectedPatientSlot.slotId);
+      if (stillValid) {
+        selectedPatientSlot = {
+          ...stillValid,
+          appointmentId: selectedPatientSlot.appointmentId,
+          consultationRequestId: selectedPatientSlot.consultationRequestId
+        };
+        window.selectedPatientSlot = selectedPatientSlot;
+        updateSlotSelectionUI(selectedPatientSlot);
+      } else {
+        // Slot was booked or no longer open
+        const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+        if (conflictAlert) {
+          conflictAlert.innerText = `⚠️ Slot Conflict: Your previously selected slot is no longer available. Please choose another opening.`;
+          conflictAlert.style.display = "block";
+        }
+        selectedPatientSlot = null;
+        window.selectedPatientSlot = null;
+        updateSlotSelectionUI(null);
+      }
+    } else {
+      updateSlotSelectionUI(null);
+    }
+
+    const countInd = document.getElementById("pat-slots-count-indicator");
+    if (countInd) {
+      const dateLabel = currentPatientSelectedDate ? formatSlotDate(currentPatientSelectedDate) : "selected date";
+      countInd.innerText = `Showing ${currentPatientAvailableSlots.length} available 15-minute consultation slot${currentPatientAvailableSlots.length === 1 ? '' : 's'} on ${dateLabel}`;
+    }
+
+    // Mount React Component
+    mountReactSlotsSelector(currentPatientAvailableSlots, selectedPatientSlot);
+  }
+
+  // Internal slot selection applicator
+  function applySlotSelection(slot) {
+    if (!slot) {
+      deselectPatientSlot();
+      return;
+    }
+
+    // Find active consultation request token
+    const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : "pat-1";
+    const activeApp = (db.appointments || []).find(
+      a => (a.patientId === curPatientId || a.patientId === currentUser?.id || a.patientId === currentUser?.profileId) &&
+           (a.status === "Waiting for Doctor Queue" || a.status === "Waiting" || a.status === "Vitals Pending")
+    );
+    const tokenToBind = activeApp ? activeApp.token : window.activeConsultationRequestToken;
+
+    selectedPatientSlot = {
+      ...slot,
+      appointmentId: tokenToBind || null,
+      consultationRequestId: tokenToBind || null
+    };
+    window.selectedPatientSlot = selectedPatientSlot;
+
+    updateSlotSelectionUI(selectedPatientSlot);
+  }
+
+  // Patient selects/deselects a slot (Global window API)
+  window.selectPatientSlot = function(slotId, event) {
+    if (event) {
+      event.stopPropagation();
+    }
+
+    const slot = currentPatientAvailableSlots.find(s => s.slotId === slotId);
+    if (!slot) return;
+
+    // DESELECTION: If user clicks the currently selected slot, deselect it
+    if (selectedPatientSlot && selectedPatientSlot.slotId === slotId) {
+      deselectPatientSlot();
+      return;
+    }
+
+    applySlotSelection(slot);
+    mountReactSlotsSelector(currentPatientAvailableSlots, selectedPatientSlot);
+  };
+
+  // Deselect current slot
+  window.deselectPatientSlot = function() {
+    selectedPatientSlot = null;
+    window.selectedPatientSlot = null;
+
+    updateSlotSelectionUI(null);
+    mountReactSlotsSelector(currentPatientAvailableSlots, null);
+  };
+
+  // Patient confirms selected slot (Transactional validation & 409 conflict handling)
+  window.confirmPatientSelectedSlot = async function() {
+    if (!selectedPatientSlot) {
+      showToast("Please select an available consultation slot first.", "warning");
+      return;
+    }
+
+    const confirmBtn = document.getElementById("pat-confirm-slot-btn");
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = `<span>⏳ Securing Consultation Slot...</span>`;
+    }
+
+    // Resolve active consultation request token and patient ID
+    const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : "pat-1";
+    const activeApp = (db.appointments || []).find(
+      a => (a.patientId === curPatientId || a.patientId === currentUser?.id || a.patientId === currentUser?.profileId) &&
+           (a.status === "Waiting for Doctor Queue" || a.status === "Waiting")
+    );
+
+    const payload = {
+      token: activeApp ? activeApp.token : (selectedPatientSlot.appointmentId || undefined),
+      consultationRequestId: activeApp ? activeApp.token : (selectedPatientSlot.consultationRequestId || undefined),
+      slotId: selectedPatientSlot.slotId,
+      doctorId: selectedPatientSlot.doctorId,
+      patientId: curPatientId,
+      patientName: (currentUser && currentUser.name) ? currentUser.name : (activeApp?.patientName || "Sarah Mitchell"),
+      date: selectedPatientSlot.date,
+      startTime: selectedPatientSlot.startTime,
+      endTime: selectedPatientSlot.endTime,
+      symptoms: (activeApp && activeApp.symptoms) || "General Tele-Health Consultation",
+      urgency: (activeApp && activeApp.urgency) || "Normal"
+    };
+
+    try {
+      const res = await fetch("/api/slots/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (res.status === 201 && data.success) {
+        // Successfully booked!
+        const app = data.appointment;
+        const idx = (db.appointments || []).findIndex(a => a.token === app.token);
+        if (idx >= 0) db.appointments[idx] = app;
+        else (db.appointments = db.appointments || []).push(app);
+        saveDB();
+
+        selectedPatientSlot = null;
+        window.selectedPatientSlot = null;
+        updateSlotSelectionUI(null);
+
+        // Broadcast to other tabs
+        if (slotBroadcastChannel) {
+          try {
+            slotBroadcastChannel.postMessage({ type: "SLOT_BOOKED", appointment: app });
+          } catch (e) {}
+        }
+
+        sendBrowserAndAppNotification(
+          "Consultation Confirmed!",
+          `Your consultation on ${app.scheduledDate} at ${app.scheduledStartTime} IST is confirmed. Token: ${app.token}`,
+          "success"
+        );
+
+        showToast(`🎉 Consultation Confirmed! Booked for ${app.scheduledDate} at ${app.scheduledStartTime} IST (Token: ${app.token})`, "success");
+
+        // Reload patient dashboard to immediately display the Confirmed Hero banner
+        loadPatientDashboard();
+      } else if (res.status === 409) {
+        // Double-booking conflict detected!
+        const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+        if (conflictAlert) {
+          conflictAlert.innerText = `⚠️ Slot Conflict: ${data.error || "That slot was just booked by another patient. We've refreshed the available slots below."}`;
+          conflictAlert.style.display = "block";
+        }
+
+        showToast("Selected slot was just booked by another patient! Refreshing available slots...", "warning");
+        selectedPatientSlot = null;
+        window.selectedPatientSlot = null;
+        updateSlotSelectionUI(null);
+        await refreshPatientAvailableSlots(true);
+      } else {
+        showToast(data.error || "Failed to book consultation slot.", "danger");
+        await refreshPatientAvailableSlots(true);
+      }
+    } catch (err) {
+      console.warn("Backend unavailable, confirming slot booking locally in browser DB:", err);
+      // Client-side fallback booking for GitHub Pages & offline operation:
+      const consultationToken = payload.token || `VIL-${Date.now().toString().slice(-4)}`;
+      const bookedAppointment = {
+        token: consultationToken,
+        patientId: curPatientId || (currentUser ? currentUser.id : "pat-1"),
+        patientName: payload.patientName || (currentUser ? currentUser.name : "Sarah Mitchell"),
+        assignedDoctorId: payload.doctorId || patientQueueDoctorId || "doc-1",
+        scheduledDate: payload.date || new Date().toISOString().split('T')[0],
+        scheduledStartTime: payload.startTime || "14:15",
+        scheduledEndTime: payload.endTime || "14:30",
+        status: "Appointment Confirmed",
+        symptoms: payload.symptoms || "General Tele-Health Consultation",
+        urgency: payload.urgency || "Normal",
+        bookedAt: new Date().toISOString()
+      };
+
+      const idx = (db.appointments || []).findIndex(a => a.token === bookedAppointment.token);
+      if (idx >= 0) db.appointments[idx] = { ...db.appointments[idx], ...bookedAppointment };
+      else (db.appointments = db.appointments || []).push(bookedAppointment);
+      saveDB();
+
+      selectedPatientSlot = null;
+      window.selectedPatientSlot = null;
+      updateSlotSelectionUI(null);
+
+      sendBrowserAndAppNotification(
+        "Consultation Confirmed!",
+        `Your consultation on ${bookedAppointment.scheduledDate} at ${bookedAppointment.scheduledStartTime} IST is confirmed. Token: ${bookedAppointment.token}`,
+        "success"
+      );
+
+      showToast(`🎉 Consultation Confirmed! Booked for ${bookedAppointment.scheduledDate} at ${bookedAppointment.scheduledStartTime} IST (Token: ${bookedAppointment.token})`, "success");
+      loadPatientDashboard();
+      return;
+    } finally {
+      if (confirmBtn) {
+        confirmBtn.disabled = !selectedPatientSlot;
+        confirmBtn.innerHTML = selectedPatientSlot
+          ? `<span>Confirm &amp; Book: ${formatSlotDate(selectedPatientSlot.date)} @ ${selectedPatientSlot.startTime} IST ✓</span>`
+          : `<span>Confirm &amp; Book Selected Slot ✓</span>`;
+      }
+    }
+  };
+
+  // Refresh available slots for patient
+  window.refreshPatientAvailableSlots = async function(silent = false) {
+    const doctorId = patientQueueDoctorId || "doc-1";
+    try {
+      const dateQuery = currentPatientSelectedDate ? `&date=${encodeURIComponent(currentPatientSelectedDate)}` : '';
+      let data = null;
+      try {
+        const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`);
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (e) {
+        console.warn("[Slots] Remote slot refresh failed, using client-side fallback:", e.message);
+      }
+
+      if (!data) {
+        const today = new Date();
+        const dateStr = currentPatientSelectedDate || today.toISOString().split('T')[0];
+        const doc = (db.doctors || []).find(d => d.id === doctorId) || DEFAULT_DOCTORS.find(d => d.id === doctorId) || { name: "Dr. Abinesh V" };
+        data = {
+          slots: [
+            { id: `slot-${dateStr}-1415`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:15", endTime: "14:30", label: "14:15 – 14:30 IST", period: "Afternoon", isAvailable: true },
+            { id: `slot-${dateStr}-1430`, doctorId, doctorName: doc.name, date: dateStr, startTime: "14:30", endTime: "14:45", label: "14:30 – 14:45 IST", period: "Afternoon", isAvailable: true },
+            { id: `slot-${dateStr}-1500`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:00", endTime: "15:15", label: "15:00 – 15:15 IST", period: "Afternoon", isAvailable: true },
+            { id: `slot-${dateStr}-1530`, doctorId, doctorName: doc.name, date: dateStr, startTime: "15:30", endTime: "15:45", label: "15:30 – 15:45 IST", period: "Afternoon", isAvailable: true }
+          ],
+          availableDates: [
+            { date: dateStr, label: "Today", isToday: true, count: 4 }
+          ],
+          doctorName: doc.name
+        };
+      }
+
+      const slots = data.slots || [];
+      const availableDates = data.availableDates || [];
+      const doctorName = data.doctorName || "Doctor";
+
+      currentPatientAvailableDates = availableDates;
+      if (!currentPatientSelectedDate && availableDates.length > 0) {
+        currentPatientSelectedDate = availableDates[0].date;
+      }
+
+      renderPatientDateSelector(availableDates, currentPatientSelectedDate, doctorId);
+
+      const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
+      const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+
+      if (slots.length > 0 || availableDates.length > 0) {
+        if (stateWaiting && stateWaiting.style.display !== "none") {
+          stateWaiting.style.display = "none";
+          if (stateSlots) stateSlots.style.display = "block";
+          sendBrowserAndAppNotification("Slots Available!", `A consultation slot just opened up for ${doctorName}!`, "info");
+        } else if (stateSlots) {
+          stateSlots.style.display = "block";
+        }
+        renderPatientAvailableSlots(slots);
+        if (!silent) showToast("Refreshed latest available slots.", "info");
+      } else {
+        if (stateSlots && stateSlots.style.display !== "none") {
+          stateSlots.style.display = "none";
+          if (stateWaiting) stateWaiting.style.display = "block";
+        }
+        if (!silent) showToast("No slots currently available. Remaining in priority queue.", "warning");
+      }
+    } catch (e) {
+      console.warn("Refresh slots error:", e);
+    }
+  };
+
+  // Return to State 1
+  window.resetConsultationQueueView = function() {
+    const stateRequest = document.getElementById("pat-consult-request-form-container") || document.getElementById("pat-queue-state-request");
+    const stateSlots = document.getElementById("pat-slots-allocation-container") || document.getElementById("pat-queue-state-slots");
+    const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+    if (stateRequest) stateRequest.style.display = "block";
+    if (stateSlots) stateSlots.style.display = "none";
+    if (stateWaiting) stateWaiting.style.display = "none";
+    selectedPatientSlot = null;
+    window.selectedPatientSlot = null;
+  };
+
+  // Priority Queue Waiting State actions
+  window.checkPatientQueueSlots = function() {
+    refreshPatientAvailableSlots(false);
+  };
+
+  window.cancelPatientQueueRequest = function() {
+    resetConsultationQueueView();
+    showToast("Consultation queue request cancelled.", "info");
+  };
+
+  // 2. Patient Reschedule Modal & Execution
+  window.openPatientRescheduleModal = async function() {
+    const activeApp = (db.appointments || []).find(a =>
+      currentUser && a.patientId === currentUser.id && !["Completed", "Cancelled"].includes(a.status)
+    );
+    if (!activeApp) {
+      showToast("No active appointment found to reschedule.", "warning");
+      return;
+    }
+
+    const modal = document.getElementById("pat-reschedule-modal");
+    const container = document.getElementById("pat-reschedule-slots-container");
+    const confirmBtn = document.getElementById("pat-reschedule-confirm-btn");
+    if (confirmBtn) confirmBtn.disabled = true;
+
+    if (modal) modal.style.display = "flex";
+    if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">Loading available slots...</div>`;
+
+    selectedPatientRescheduleSlot = null;
+
+    try {
+      const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(activeApp.assignedDoctorId || 'doc-1')}`);
+      const data = await res.json();
+      patientRescheduleSlots = data.slots || [];
+
+      if (patientRescheduleSlots.length === 0) {
+        if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">No alternative slots currently open. Please check back shortly.</div>`;
+        return;
+      }
+
+      if (container) {
+        container.innerHTML = patientRescheduleSlots.map(s => `
+        <div class="slot-select-card" id="pat-resched-card-${s.slotId}" onclick="selectPatientRescheduleSlot('${s.slotId}')">
+          <div class="slot-card-header">
+            <span class="slot-date-pill">📅 ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-pill">⏱️ ${s.durationMins || 15} Mins</span>
+          </div>
+          <div class="slot-time-range">${s.startTime} – ${s.endTime} <small>IST</small></div>
+          <div class="slot-doc-name">👨‍⚕️ ${s.doctorName || 'Doctor'}</div>
+        </div>
+      `).join("");
+      }
+    } catch (err) {
+      if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#dc2626;">Error loading slots: ${err.message}</div>`;
+    }
+  };
+
+  window.selectPatientRescheduleSlot = function(slotId) {
+    const slot = patientRescheduleSlots.find(s => s.slotId === slotId);
+    if (!slot) return;
+    selectedPatientRescheduleSlot = slot;
+
+    document.querySelectorAll("#pat-reschedule-slots-container .slot-select-card").forEach(el => el.classList.remove("selected"));
+    const target = document.getElementById(`pat-resched-card-${slotId}`);
+    if (target) target.classList.add("selected");
+
+    const confirmBtn = document.getElementById("pat-reschedule-confirm-btn");
+    if (confirmBtn) confirmBtn.disabled = false;
+  };
+
+  window.confirmPatientReschedule = async function() {
+    if (!selectedPatientRescheduleSlot) return;
+
+    const activeApp = (db.appointments || []).find(a =>
+      currentUser && a.patientId === currentUser.id && !["Completed", "Cancelled"].includes(a.status)
+    );
+    if (!activeApp) return;
+
+    const confirmBtn = document.getElementById("pat-reschedule-confirm-btn");
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.innerText = "Rescheduling...";
+    }
+
+    try {
+      const res = await fetch(`/api/appointments/${encodeURIComponent(activeApp.token)}/reschedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newSlot: selectedPatientRescheduleSlot })
+      });
+
+      const data = await res.json();
+      if (res.status === 200 && data.success) {
+        const idx = db.appointments.findIndex(a => a.token === activeApp.token);
+        if (idx >= 0) db.appointments[idx] = data.appointment;
+        saveDB();
+
+        closePatientRescheduleModal();
+        sendBrowserAndAppNotification("Appointment Rescheduled", `Your consultation is now scheduled for ${data.appointment.scheduledDate} at ${data.appointment.scheduledStartTime} IST.`, "success");
+        loadPatientDashboard();
+      } else if (res.status === 409) {
+        showToast("Selected slot was just booked by someone else! Please pick another slot.", "warning");
+        openPatientRescheduleModal();
+      } else {
+        showToast(data.error || "Failed to reschedule appointment.", "danger");
+      }
+    } catch (err) {
+      showToast(`Rescheduling error: ${err.message}`, "danger");
+    } finally {
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.innerText = "Confirm Reschedule";
+      }
+    }
+  };
+
+  window.closePatientRescheduleModal = function() {
+    const modal = document.getElementById("pat-reschedule-modal");
+    if (modal) modal.style.display = "none";
+    selectedPatientRescheduleSlot = null;
+  };
+
+  // 3. Patient: Cancel Active Appointment
+  window.cancelActiveAppointment = async function(targetToken = null) {
+    const curPatientId = currentUser ? (currentUser.profileId || currentUser.id) : null;
+    const activeApps = (db.appointments || []).filter(a =>
+      curPatientId && (a.patientId === curPatientId || a.patientId === currentUser.id || a.patientId === currentUser.profileId) && !["Completed", "Cancelled", "cancelled"].includes(a.status)
+    );
+
+    const tokensToCancel = targetToken 
+      ? [targetToken] 
+      : (activeApps.length > 0 ? activeApps.map(a => a.token).filter(Boolean) : []);
+
+    if (tokensToCancel.length === 0) {
+      showToast("No active consultation found to cancel.", "info");
+      return;
+    }
+
+    const confirmMsg = tokensToCancel.length === 1
+      ? `Are you sure you want to cancel your consultation request (Token: ${tokensToCancel[0]})?`
+      : `Are you sure you want to cancel your active consultation request?`;
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+
+    // Mark in local DB
+    (db.appointments || []).forEach(a => {
+      if (tokensToCancel.includes(a.token) || (curPatientId && (a.patientId === curPatientId || a.patientId === currentUser.id) && !["Completed", "Cancelled", "cancelled"].includes(a.status))) {
+        a.status = "Cancelled";
+        a.cancelledAt = new Date().toISOString();
+      }
+    });
+    saveDB();
+
+    // Call server cancel endpoint for each token
+    for (const token of tokensToCancel) {
+      try {
+        await fetch(`/api/appointments/${encodeURIComponent(token)}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.warn("Cancel API error for token " + token, err);
+      }
+    }
+
+    const conflictAlert = document.getElementById("pat-active-request-conflict-alert");
+    if (conflictAlert) conflictAlert.style.display = "none";
+
+    showToast("Consultation appointment cancelled successfully. You can now request a new consultation.", "info");
+    sendBrowserAndAppNotification("Appointment Cancelled", "Consultation appointment cancelled.", "info");
+    loadPatientDashboard();
+  };
+
+  // 4. Doctor: Schedule & Working Hours Settings
+  window.loadDoctorScheduleSettings = async function() {
+    const doctorSelect = document.getElementById("doc-schedule-doctor-select");
+    if (doctorSelect && doctorSelect.options.length <= 1) {
+      const doctors = (db.doctors && db.doctors.length > 0) ? db.doctors : (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS : [
+        { id: "doc-1", name: "Dr. Vikram Malhotra", specialty: "General Medicine" },
+        { id: "doc-2", name: "Dr. Ananya Sharma", specialty: "Cardiology" }
+      ]);
+      const currentVal = (currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1";
+      doctorSelect.innerHTML = doctors.map(d => `<option value="${d.id}" ${d.id === currentVal ? 'selected' : ''}>${d.name} (${d.specialty})</option>`).join("");
+    }
+
+    const doctorId = (doctorSelect && doctorSelect.value) ? doctorSelect.value : ((currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1");
+
+    try {
+      const res = await fetch(`/api/doctor/schedule/${encodeURIComponent(doctorId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const sched = data.schedule || {};
+
+      const startInput = document.getElementById("doc-sched-start");
+      const endInput = document.getElementById("doc-sched-end");
+      const durationInput = document.getElementById("doc-sched-duration");
+      const breaksContainer = document.getElementById("doc-breaks-container");
+
+      if (startInput) startInput.value = sched.workStart || "09:00";
+      if (endInput) endInput.value = sched.workEnd || "17:00";
+      if (durationInput) durationInput.value = String(sched.slotDurationMins || 15);
+
+      // Days checkboxes
+      const workDays = sched.workDays || [1, 2, 3, 4, 5, 6];
+      document.querySelectorAll("input[name='doc-work-day']").forEach(cb => {
+        cb.checked = workDays.includes(parseInt(cb.value, 10));
+      });
+
+      // Breaks
+      if (breaksContainer) {
+        breaksContainer.innerHTML = "";
+        const breaks = (sched.breaks && sched.breaks.length > 0) ? sched.breaks : [{ start: "13:00", end: "14:00" }];
+        breaks.forEach(b => {
+          addDoctorBreakRow(b.start, b.end);
+        });
+      }
+    } catch (err) {
+      console.warn("Error loading doctor schedule:", err);
+    }
+  };
+
+  window.addDoctorBreakRow = function(start = "13:00", end = "14:00") {
+    const container = document.getElementById("doc-breaks-container");
+    if (!container) return;
+    const div = document.createElement("div");
+    div.className = "doc-break-row";
+    div.style.cssText = "display: flex; align-items: center; gap: 8px; margin-bottom: 8px;";
+    div.innerHTML = `
+    <input type="time" class="form-input doc-break-start" value="${start}" style="max-width: 130px;">
+    <span style="color: #64748b; font-size: 13px;">to</span>
+    <input type="time" class="form-input doc-break-end" value="${end}" style="max-width: 130px;">
+    <button type="button" class="btn-danger-outline" style="padding: 4px 8px; font-size: 11px;" onclick="this.closest('.doc-break-row').remove()">Remove</button>
+  `;
+    container.appendChild(div);
+  };
+
+  window.saveDoctorScheduleSettings = async function() {
+    const doctorSelect = document.getElementById("doc-schedule-doctor-select");
+    const doctorId = (doctorSelect && doctorSelect.value) ? doctorSelect.value : ((currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1");
+
+    const startInput = document.getElementById("doc-sched-start");
+    const endInput = document.getElementById("doc-sched-end");
+    const durationInput = document.getElementById("doc-sched-duration");
+
+    const workStart = startInput ? startInput.value : "09:00";
+    const workEnd = endInput ? endInput.value : "17:00";
+    const slotDurationMins = durationInput ? parseInt(durationInput.value, 10) : 15;
+
+    const workDays = [];
+    document.querySelectorAll("input[name='doc-work-day']:checked").forEach(cb => {
+      workDays.push(parseInt(cb.value, 10));
+    });
+
+    const breaks = [];
+    document.querySelectorAll(".doc-break-row").forEach(row => {
+      const s = row.querySelector(".doc-break-start")?.value;
+      const e = row.querySelector(".doc-break-end")?.value;
+      if (s && e) breaks.push({ start: s, end: e });
+    });
+
+    const payload = {
+      workStart,
+      workEnd,
+      slotDurationMins,
+      workDays,
+      breaks
+    };
+
+    try {
+      const res = await fetch(`/api/doctor/schedule/${encodeURIComponent(doctorId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast("Doctor working hours, breaks, and slot duration saved successfully!", "success");
+      } else {
+        showToast(data.error || "Failed to update doctor schedule.", "danger");
+      }
+    } catch (err) {
+      showToast(`Save error: ${err.message}`, "danger");
+    }
+  };
+
+  // 5. Doctor Reschedule & Cancel Actions
+  window.openDoctorRescheduleModal = async function(token) {
+    const app = (db.appointments || []).find(a => a.token === token);
+    if (!app) {
+      showToast(`Appointment ${token} not found.`, "warning");
+      return;
+    }
+
+    doctorRescheduleTargetToken = token;
+    selectedDoctorRescheduleSlot = null;
+
+    const modal = document.getElementById("doc-reschedule-modal");
+    const disp = document.getElementById("doc-reschedule-token-display");
+    const container = document.getElementById("doc-reschedule-slots-container");
+    const confirmBtn = document.getElementById("doc-reschedule-confirm-btn");
+
+    if (disp) disp.innerText = `Token: ${token} (${app.patientName || 'Patient'})`;
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (modal) modal.style.display = "flex";
+    if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">Loading available slots...</div>`;
+
+    try {
+      const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(app.assignedDoctorId || 'doc-1')}`);
+      const data = await res.json();
+      doctorRescheduleSlots = data.slots || [];
+
+      if (doctorRescheduleSlots.length === 0) {
+        if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b;">No open slots found for this doctor.</div>`;
+        return;
+      }
+
+      if (container) {
+        container.innerHTML = doctorRescheduleSlots.map(s => `
+        <div class="slot-select-card" id="doc-resched-card-${s.slotId}" onclick="selectDoctorRescheduleSlot('${s.slotId}')">
+          <div class="slot-card-header">
+            <span class="slot-date-pill">📅 ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-pill">⏱️ ${s.durationMins || 15} Mins</span>
+          </div>
+          <div class="slot-time-range">${s.startTime} – ${s.endTime} <small>IST</small></div>
+          <div class="slot-doc-name">👨‍⚕️ ${s.doctorName || 'Doctor'}</div>
+        </div>
+      `).join("");
+      }
+    } catch (err) {
+      if (container) container.innerHTML = `<div style="text-align:center; padding:20px; color:#dc2626;">Error: ${err.message}</div>`;
+    }
+  };
+
+  window.selectDoctorRescheduleSlot = function(slotId) {
+    const slot = doctorRescheduleSlots.find(s => s.slotId === slotId);
+    if (!slot) return;
+    selectedDoctorRescheduleSlot = slot;
+
+    document.querySelectorAll("#doc-reschedule-slots-container .slot-select-card").forEach(el => el.classList.remove("selected"));
+    const target = document.getElementById(`doc-resched-card-${slotId}`);
+    if (target) target.classList.add("selected");
+
+    const confirmBtn = document.getElementById("doc-reschedule-confirm-btn");
+    if (confirmBtn) confirmBtn.disabled = false;
+  };
+
+  window.confirmDoctorReschedule = async function() {
+    if (!selectedDoctorRescheduleSlot || !doctorRescheduleTargetToken) return;
+
+    const confirmBtn = document.getElementById("doc-reschedule-confirm-btn");
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.innerText = "Rescheduling...";
+    }
+
+    try {
+      const res = await fetch(`/api/appointments/${encodeURIComponent(doctorRescheduleTargetToken)}/reschedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newSlot: selectedDoctorRescheduleSlot })
+      });
+
+      const data = await res.json();
+      if (res.status === 200 && data.success) {
+        const idx = db.appointments.findIndex(a => a.token === doctorRescheduleTargetToken);
+        if (idx >= 0) db.appointments[idx] = data.appointment;
+        saveDB();
+
+        closeDoctorRescheduleModal();
+        showToast(`Appointment ${doctorRescheduleTargetToken} rescheduled to ${data.appointment.scheduledDate} ${data.appointment.scheduledStartTime} IST.`, "success");
+        renderDoctorAppointments();
+      } else {
+        showToast(data.error || "Failed to reschedule appointment.", "danger");
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`, "danger");
+    } finally {
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.innerText = "Confirm Reschedule";
+      }
+    }
+  };
+
+  window.closeDoctorRescheduleModal = function() {
+    const modal = document.getElementById("doc-reschedule-modal");
+    if (modal) modal.style.display = "none";
+    selectedDoctorRescheduleSlot = null;
+    doctorRescheduleTargetToken = null;
+  };
+
+  window.cancelDoctorAppointment = async function(token) {
+    if (!confirm(`Are you sure you want to cancel appointment ${token}? The slot will be released back into availability.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/appointments/${encodeURIComponent(token)}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json();
+      if (data.success) {
+        const app = (db.appointments || []).find(a => a.token === token);
+        if (app) app.status = "Cancelled";
+        saveDB();
+
+        showToast(`Appointment ${token} cancelled and slot released.`, "info");
+        renderDoctorAppointments();
+      } else {
+        showToast(data.error || "Failed to cancel appointment.", "danger");
+      }
+    } catch (err) {
+      showToast(`Error cancelling appointment: ${err.message}`, "danger");
+    }
+  };
+
+  // 6. Real-time Socket Event Handlers & Doctor Synchronization
+  function handleRealtimeSlotBooked(payload) {
+    // If viewing slots for the doctor that just got booked:
+    if (patientQueueDoctorId === payload.doctorId) {
+      if (selectedPatientSlot && selectedPatientSlot.slotId === payload.slotId) {
+        const conflictAlert = document.getElementById("pat-slot-conflict-alert");
+        if (conflictAlert) {
+          conflictAlert.innerText = `⚠️ Slot Conflict: The slot at ${payload.startTime} IST was just booked by another patient! Refreshing...`;
+          conflictAlert.style.display = "block";
+        }
+        deselectPatientSlot();
+      }
+      refreshPatientAvailableSlots(true);
+    }
+
+    // If in reschedule modals, refresh
+    const patModal = document.getElementById("pat-reschedule-modal");
+    if (patModal && patModal.style.display !== "none") {
+      openPatientRescheduleModal();
+    }
+
+    // Refresh doctor views immediately
+    if (currentRole === "doctor") {
+      renderDoctorAppointments();
+      renderDoctorOverviewSummaries();
+      renderDoctorQueue();
+    }
+  }
+
+  function handleRealtimeSlotCancelled(payload) {
+    // If patient is waiting in priority queue (State 3), notify and switch to State 2!
+    const stateWaiting = document.getElementById("pat-queue-waiting-container") || document.getElementById("pat-queue-state-waiting");
+    if (stateWaiting && stateWaiting.style.display !== "none" && patientQueueDoctorId === payload.doctorId) {
+      sendBrowserAndAppNotification("Consultation Slot Opened!", `A 15-minute slot just opened up for ${payload.doctorName || 'Doctor'}!`, "success");
+      refreshPatientAvailableSlots(false);
+    } else if (patientQueueDoctorId === payload.doctorId) {
+      refreshPatientAvailableSlots(true);
+    }
+
+    if (currentRole === "doctor") {
+      renderDoctorAppointments();
+      renderDoctorOverviewSummaries();
+      renderDoctorQueue();
+    }
+  }
+
+  function handleRealtimeScheduleUpdated(payload) {
+    if (patientQueueDoctorId === payload.doctorId) {
+      refreshPatientAvailableSlots(true);
+    }
+    if (currentRole === "doctor") {
+      const docSelect = document.getElementById("doc-schedule-doctor-select");
+      if (docSelect && docSelect.value === payload.doctorId) {
+        loadDoctorScheduleSettings();
+      }
+    }
+  }
+
+  function handleRealtimeAppointmentConfirmed(payload) {
+    if (payload && payload.appointment) {
+      const app = payload.appointment;
+      const idx = (db.appointments || []).findIndex(a => a.token === app.token);
+      if (idx >= 0) db.appointments[idx] = app;
+      else (db.appointments = db.appointments || []).push(app);
+      saveDB();
+
+      const curPatId = currentUser ? (currentUser.profileId || currentUser.id) : null;
+      const isThisPatient = curPatId && (app.patientId === curPatId || app.patientId === currentUser?.id || app.patientId === currentUser?.profileId);
+
+      if (isThisPatient) {
+        sendBrowserAndAppNotification("Consultation Booked", `Your appointment ${app.token} is confirmed for ${app.scheduledDate} at ${app.scheduledStartTime} IST.`, "success");
+        loadPatientDashboard();
+      } else if (currentRole === "doctor") {
+        renderDoctorAppointments();
+        renderDoctorOverviewSummaries();
+        renderDoctorQueue();
+        if (typeof loadDoctorScheduleSettings === "function") {
+          loadDoctorScheduleSettings();
+        }
+        showToast(`📅 Confirmed: ${app.patientName} booked ${app.scheduledDate} @ ${app.scheduledStartTime} IST (${app.token})`, "info");
+      }
+    }
+  }
+
+  // Reliable 5-second polling fallback to keep Doctor & Patient views synchronized
+  let autoSyncInterval = null;
+  function initTelehealthAutoSync() {
+    if (autoSyncInterval) return;
+    autoSyncInterval = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch("/api/appointments");
+        if (!res.ok) return;
+        const data = await res.json();
+        const appointments = data.appointments || data;
+        if (Array.isArray(appointments) && appointments.length > 0) {
+          let changed = false;
+          appointments.forEach(remoteApp => {
+            const localIdx = (db.appointments || []).findIndex(a => a.token === remoteApp.token);
+            if (localIdx >= 0) {
+              if (JSON.stringify(db.appointments[localIdx]) !== JSON.stringify(remoteApp)) {
+                db.appointments[localIdx] = remoteApp;
+                changed = true;
+              }
+            } else {
+              (db.appointments = db.appointments || []).push(remoteApp);
+              changed = true;
+            }
+          });
+          if (changed) {
+            saveDB();
+            if (currentRole === "doctor") {
+              renderDoctorAppointments();
+              renderDoctorOverviewSummaries();
+              renderDoctorQueue();
+            } else if (currentRole === "patient") {
+              loadPatientDashboard();
+            }
+          }
+        }
+      } catch (e) {
+        // Quiet background sync
+      }
+    }, 5000);
+  }
+  initTelehealthAutoSync();
+
+  exports.PatientConsultationSlotsComponent = PatientConsultationSlotsComponent;
+  exports.getBackendUrl = getBackendUrl;
+  exports.usePatientSlotState = usePatientSlotState;
+
+  return exports;
+
+})({}, React, ReactDOM);

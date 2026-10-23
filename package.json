@@ -4,7 +4,8 @@
   "description": "Smart Village Digital Tele-Health Dispensary Dashboard with Low-Bandwidth Video Failovers",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && rollup app.js --file dist-bundle.js --format iife --name VillageMed --globals react:React,react-dom/client:ReactDOM && node -e \"require('fs').copyFileSync('dist-bundle.js', 'dist/dist-bundle.js')\"",
+    "bundle": "rollup app.js --file dist-bundle.js --format iife --name VillageMed --globals react:React,react-dom/client:ReactDOM",
     "preview": "vite preview",
     "server": "node server.js",
     "start": "node server.js",

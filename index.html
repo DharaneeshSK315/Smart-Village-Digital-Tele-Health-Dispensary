@@ -15,8 +15,32 @@
   <!-- React 18 & ReactDOM CDN -->
   <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <!-- Import map for native ES module fallback in static HTTP hosting -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://cdn.jsdelivr.net/npm/react@18.3.1/+esm",
+      "react-dom": "https://cdn.jsdelivr.net/npm/react-dom@18.3.1/+esm",
+      "react-dom/client": "https://cdn.jsdelivr.net/npm/react-dom@18.3.1/client/+esm"
+    }
+  }
+  </script>
 </head>
 <body>
+
+  <!-- Local File Protocol Info Banner -->
+  <div id="file-protocol-banner" style="display: none; background: #eff6ff; border-bottom: 1px solid #bfdbfe; color: #1e40af; padding: 10px 16px; font-size: 12px; text-align: center; justify-content: center; align-items: center; gap: 8px; z-index: 9999;">
+    <span>💻 <strong>Local Offline Mode Active:</strong> Sign-in and all dashboards work locally. For live cross-device video calls and shared queue sync, run <code>node server.js</code> in terminal and visit <a href="http://localhost:3001" style="color: #1d4ed8; font-weight: 700; text-decoration: underline;">http://localhost:3001</a>.</span>
+    <button type="button" onclick="document.getElementById('file-protocol-banner').style.display='none'" style="border: none; background: transparent; cursor: pointer; color: #1e40af; font-size: 14px; font-weight: 700;">✕</button>
+  </div>
+  <script>
+    if (window.location.protocol === 'file:') {
+      document.addEventListener('DOMContentLoaded', function() {
+        var b = document.getElementById('file-protocol-banner');
+        if (b) b.style.display = 'flex';
+      });
+    }
+  </script>
 
   <!-- Global Emergency Red Alert Banner -->
   <div class="emergency-alert-banner" id="global-emergency-banner" style="display: none;">
@@ -2542,8 +2566,13 @@
     </div>
   </div>
 
-  <!-- Core App Controller JS -->
-  <script type="module" src="app.js"></script>
+  <!-- Core App Controller JS (Runs seamlessly in file:/// and http/https environments) -->
+  <script src="dist-bundle.js"></script>
+  <script type="module">
+    if (typeof window.handleLogin === 'undefined') {
+      import('./app.js');
+    }
+  </script>
 
 </body>
 </html>

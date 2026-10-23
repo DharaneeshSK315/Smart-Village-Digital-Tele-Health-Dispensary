@@ -109,7 +109,18 @@ const DEFAULT_FAILOVER_LOGS = {
 };
 
 // State Variables
-let db = {};
+let db = {
+  villages: [...DEFAULT_VILLAGES],
+  doctors: [...DEFAULT_DOCTORS],
+  patients: [...DEFAULT_PATIENTS],
+  appointments: [...DEFAULT_APPOINTMENTS],
+  consultations: [...DEFAULT_CONSULTATIONS],
+  failoverLogs: { ...DEFAULT_FAILOVER_LOGS },
+  authConfig: {
+    admins: ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"],
+    vhws: ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"]
+  }
+};
 let currentUser = null;
 let currentRole = "guest";
 let activeCall = null; // { token, patient, doctor, networkQuality, autoFluctuate, chat: [], files: [], animationId: null }
@@ -662,13 +673,16 @@ export function getBackendUrl() {
 
   if (typeof window !== "undefined") {
     const loc = window.location;
-    // Served directly by Node/Express server on Render / Railway or port 3001
-    if (loc.port === "3001" || (!loc.port && !loc.hostname.includes("github.io"))) {
-      return loc.origin;
-    }
-    // Accessing via LAN IP on local Wi-Fi (e.g. 192.168.x.x:5173 or 10.x.x.x:5173)
-    if (loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1" && !loc.hostname.includes("github.io")) {
-      return `http://${loc.hostname}:3001`;
+    // Don't treat local file:/// URLs as web origin
+    if (loc.protocol !== "file:") {
+      // Served directly by Node/Express server on Render / Railway or port 3001
+      if (loc.port === "3001" || (!loc.port && !loc.hostname.includes("github.io"))) {
+        return loc.origin;
+      }
+      // Accessing via LAN IP on local Wi-Fi (e.g. 192.168.x.x:5173 or 10.x.x.x:5173)
+      if (loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1" && !loc.hostname.includes("github.io")) {
+        return `http://${loc.hostname}:3001`;
+      }
     }
   }
 
@@ -735,19 +749,29 @@ window.configureBackendServer = function() {
   }
 };
 
+let isRefreshingDashboard = false;
 function refreshCurrentDashboard() {
-  if (currentRole === "patient") {
-    loadPatientDashboard();
-  } else if (currentRole === "vhw") {
-    loadVhwDashboard();
-  } else if (currentRole === "doctor") {
-    loadDoctorDashboard();
-  } else if (currentRole === "admin" && typeof loadAdminDashboard === "function") {
-    loadAdminDashboard();
+  if (isRefreshingDashboard) return;
+  isRefreshingDashboard = true;
+  try {
+    if (currentRole === "patient") {
+      loadPatientDashboard();
+    } else if (currentRole === "vhw") {
+      loadVhwDashboard();
+    } else if (currentRole === "doctor") {
+      loadDoctorDashboard();
+    } else if (currentRole === "admin" && typeof loadAdminDashboard === "function") {
+      loadAdminDashboard();
+    }
+  } finally {
+    isRefreshingDashboard = false;
   }
 }
 
-async function refreshDbFromBackend() {
+let isSyncingBackendDb = false;
+async function refreshDbFromBackend(skipDashboardRefresh = false) {
+  if (isSyncingBackendDb) return false;
+  isSyncingBackendDb = true;
   try {
     const backend = getBackendUrl();
     const res = await fetch(`${backend}/api/db`, { cache: "no-store" });
@@ -765,11 +789,15 @@ async function refreshDbFromBackend() {
       if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
       localStorage.setItem("telehealth_db", JSON.stringify(db));
       console.info("[DB] Centralized database state synced from backend.");
-      refreshCurrentDashboard();
+      if (!skipDashboardRefresh) {
+        refreshCurrentDashboard();
+      }
       return true;
     }
   } catch (err) {
     console.warn("[DB] Could not sync database from backend:", err.message);
+  } finally {
+    isSyncingBackendDb = false;
   }
   return false;
 }
@@ -1724,7 +1752,7 @@ async function saveDB(tableName = null) {
 }
 
 async function refreshAppointmentsFromSupabase() {
-  const backendSynced = await refreshDbFromBackend();
+  const backendSynced = await refreshDbFromBackend(true);
   if (backendSynced) return true;
 
   if (!supabase) return false;
@@ -1863,21 +1891,21 @@ function updateHeaderProfile() {
 window.autoDetectRole = function(val) {
   const roleSelect = document.getElementById("login-role");
   if (!roleSelect || !val) return;
-  const trimmed = val.trim();
+  const trimmed = val.trim().toLowerCase();
   const digits = trimmed.replace(/[\s\-\(\)\+]/g, "");
   if (digits.length >= 5 && /^\d+$/.test(digits)) {
     roleSelect.value = "patient";
-  } else if (trimmed.toLowerCase().endsWith("@villagemed.in") || trimmed.toLowerCase().startsWith("doc.")) {
-    roleSelect.value = "doctor";
-  } else if (trimmed.toLowerCase().includes("nurse") || trimmed.toLowerCase().includes("vhw")) {
-    roleSelect.value = "vhw";
-  } else if (trimmed.toLowerCase().includes("admin")) {
+  } else if (trimmed.includes("admin")) {
     roleSelect.value = "admin";
+  } else if (trimmed.includes("nurse") || trimmed.includes("vhw") || trimmed === "anjali.vhw@gmail.com") {
+    roleSelect.value = "vhw";
+  } else if (trimmed.endsWith("@villagemed.in") || trimmed.startsWith("doc.")) {
+    roleSelect.value = "doctor";
   }
 };
 
 // Authentication
-window.handleLogin = async function(e) {
+window.handleLogin = async function(e, isQuickDemo = false) {
   if (e) e.preventDefault();
   const emailInput = document.getElementById("login-email");
   const passwordInput = document.getElementById("login-password");
@@ -1890,26 +1918,25 @@ window.handleLogin = async function(e) {
   const AUTHORIZED_ADMINS = (db && db.authConfig && db.authConfig.admins) || ["admin@villagemed.in", "admin@gmail.com", "dharaneeshsk.it24@bitsathy.ac.in", "tvillage.admin.demo@gmail.com"];
   const AUTHORIZED_VHWS = (db && db.authConfig && db.authConfig.vhws) || ["vhw@villagemed.in", "anjali.vhw@gmail.com", "nurse@villagemed.in"];
 
-  // Intelligent auto-role detection
+  // Intelligent auto-role detection: Check admin and VHW before checking doctor @villagemed.in domain
   const digitsOnly = email.replace(/[\s\-\(\)\+]/g, "");
   const isPhone = digitsOnly.length >= 7 && /^\d+$/.test(digitsOnly);
-  const isDoctorEmail = email.toLowerCase().endsWith("@villagemed.in") || (db.doctors || []).some(d => d.email.toLowerCase() === email.toLowerCase());
-  const isVHW = AUTHORIZED_VHWS.some(v => email.toLowerCase() === v.toLowerCase()) || email.toLowerCase().includes("nurse") || email.toLowerCase().includes("vhw");
   const isAdmin = AUTHORIZED_ADMINS.some(a => email.toLowerCase() === a.toLowerCase()) || email.toLowerCase().includes("admin");
+  const isVHW = AUTHORIZED_VHWS.some(v => email.toLowerCase() === v.toLowerCase()) || email.toLowerCase().includes("nurse") || email.toLowerCase().includes("vhw");
+  const isDoctorEmail = !isAdmin && !isVHW && (email.toLowerCase().endsWith("@villagemed.in") || (db.doctors || []).some(d => d.email.toLowerCase() === email.toLowerCase()) || email.toLowerCase().startsWith("doc."));
 
-  if (isPhone) {
-    // Phone numbers are ALWAYS patients (e.g. 9876543210 -> Sarah Mitchell)
-    role = "patient";
-    if (roleSelect) roleSelect.value = "patient";
-  } else if (isDoctorEmail) {
-    role = "doctor";
-    if (roleSelect) roleSelect.value = "doctor";
+  if (isAdmin) {
+    role = "admin";
+    if (roleSelect) roleSelect.value = "admin";
   } else if (isVHW) {
     role = "vhw";
     if (roleSelect) roleSelect.value = "vhw";
-  } else if (isAdmin) {
-    role = "admin";
-    if (roleSelect) roleSelect.value = "admin";
+  } else if (isDoctorEmail) {
+    role = "doctor";
+    if (roleSelect) roleSelect.value = "doctor";
+  } else if (isPhone) {
+    role = "patient";
+    if (roleSelect) roleSelect.value = "patient";
   }
 
   // 1. Authorize Admin
@@ -1995,8 +2022,14 @@ window.handleLogin = async function(e) {
     return false;
   };
 
-  // If signing in with a phone number or non-email, bypass Supabase email validation directly to local database
-  if (isPhone || !email.includes("@")) {
+  const isDemoPassword = password === "password" || password === "password123" || password === "admin123" || isQuickDemo || !password;
+  const isKnownDemoAccount = isPhone || !email.includes("@") ||
+                             AUTHORIZED_ADMINS.includes(email.toLowerCase()) ||
+                             AUTHORIZED_VHWS.includes(email.toLowerCase()) ||
+                             (db.doctors || DEFAULT_DOCTORS).some(d => d.email.toLowerCase() === email.toLowerCase());
+
+  // If signing in with demo credentials, phone number, or quick demo button, bypass directly to local database
+  if (isPhone || !email.includes("@") || isQuickDemo || (isDemoPassword && isKnownDemoAccount)) {
     if (performLocalLogin()) return;
   }
 
@@ -2082,7 +2115,7 @@ window.quickFillLogin = function(role, email, password) {
   if (passwordInput) passwordInput.value = password;
   if (roleSelect) roleSelect.value = role;
 
-  window.handleLogin();
+  window.handleLogin(null, true);
 };
 
 // --- TRIAGE URGENCY EVALUATOR ---
@@ -4167,7 +4200,7 @@ async function refreshConsultationStateFromCloud() {
 }
 
 async function refreshConsultationsFromSupabase() {
-  const backendSynced = await refreshDbFromBackend();
+  const backendSynced = await refreshDbFromBackend(true);
   if (backendSynced) return true;
 
   if (!supabase) return false;
@@ -5369,13 +5402,22 @@ function loadAdminDashboard() {
   if (currentRole !== "admin") return;
 
   // Sync metrics
-  document.getElementById("adm-stat-villages").innerText = `${db.villages.length} Clinics`;
-  document.getElementById("adm-stat-doctors").innerText = `${db.doctors.length} Doctors`;
-  document.getElementById("adm-stat-calls").innerText = `${db.consultations.length} Logs`;
+  const villages = db.villages || DEFAULT_VILLAGES;
+  const doctors = db.doctors || DEFAULT_DOCTORS;
+  const consultations = db.consultations || DEFAULT_CONSULTATIONS;
+  const failovers = db.failoverLogs || DEFAULT_FAILOVER_LOGS;
+
+  const elVillages = document.getElementById("adm-stat-villages");
+  if (elVillages) elVillages.innerText = `${villages.length} Clinics`;
+  const elDoctors = document.getElementById("adm-stat-doctors");
+  if (elDoctors) elDoctors.innerText = `${doctors.length} Doctors`;
+  const elCalls = document.getElementById("adm-stat-calls");
+  if (elCalls) elCalls.innerText = `${consultations.length} Logs`;
   
   // Calculate total failovers from DB logs
-  const totalFailures = db.failoverLogs.low + db.failoverLogs.audio;
-  document.getElementById("adm-stat-failovers").innerText = `${totalFailures} Failures`;
+  const totalFailures = (failovers.low || 0) + (failovers.audio || 0);
+  const elFailovers = document.getElementById("adm-stat-failovers");
+  if (elFailovers) elFailovers.innerText = `${totalFailures} Failures`;
 
   // Render CRUD tables
   renderAdminVillages();
@@ -5593,18 +5635,19 @@ function renderAdminLogs() {
   }
 
   db.consultations.forEach(c => {
+    const fState = c.failoverState || "HD Video";
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${c.id}</td>
-      <td>${c.village}</td>
-      <td>${c.doctorName}</td>
-      <td>${c.patientName}</td>
+      <td>${c.id || "N/A"}</td>
+      <td>${c.village || "Village Clinic A"}</td>
+      <td>${c.doctorName || "Dr. Vikram"}</td>
+      <td>${c.patientName || "Patient"}</td>
       <td>
-        <span class="badge ${c.failoverState.includes("HD") ? 'badge-success' : c.failoverState.includes("Low") ? 'badge-warning' : 'badge-critical'}">
-          ${c.failoverState}
+        <span class="badge ${fState.includes("HD") ? 'badge-success' : fState.includes("Low") ? 'badge-warning' : 'badge-critical'}">
+          ${fState}
         </span>
       </td>
-      <td>${c.diagnosis}</td>
+      <td>${c.diagnosis || "General Checkup"}</td>
     `;
     tbody.appendChild(tr);
   });
