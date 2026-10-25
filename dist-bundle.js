@@ -1088,7 +1088,12 @@ var VillageMed = (function (exports, React, ReactDOM) {
         }
         if (Array.isArray(body.db.patients) && body.db.patients.length > 0) db.patients = body.db.patients;
         if (Array.isArray(body.db.doctors) && body.db.doctors.length > 0) db.doctors = body.db.doctors;
-        if (Array.isArray(body.db.consultations)) db.consultations = body.db.consultations;
+        if (Array.isArray(body.db.consultations)) {
+          const cMap = new Map();
+          (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+          body.db.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+          db.consultations = Array.from(cMap.values());
+        }
         if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
         localStorage.setItem("telehealth_db", JSON.stringify(db));
         console.info("[DB] Centralized database state synced from backend.");
@@ -1284,10 +1289,69 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       appSocket.on("consultation_ended", (data) => {
         console.info("[Socket] consultation_ended:", data);
-        showToast("Consultation session completed.", "info");
+        if (data && data.consultation) {
+          db.consultations = db.consultations || [];
+          const con = data.consultation;
+          const conKey = con.id || con.token;
+          const cIdx = db.consultations.findIndex(c => (c.id && c.id === conKey) || (c.token && c.token === con.token));
+          if (cIdx >= 0) {
+            db.consultations[cIdx] = { ...db.consultations[cIdx], ...con };
+          } else {
+            db.consultations.push(con);
+          }
+
+          // Also update patient history in db.patients
+          if (con.patientId || con.patientName) {
+            const pat = (db.patients || []).find(p => p.id === con.patientId || p.name === con.patientName);
+            if (pat) {
+              if (!Array.isArray(pat.history)) pat.history = [];
+              const exists = pat.history.some(h => h.id === con.id || (h.date === con.date && h.diagnosis === con.diagnosis));
+              if (!exists) {
+                pat.history.push({
+                  id: con.id,
+                  date: con.date || new Date().toISOString().split("T")[0],
+                  clinic: con.specialty || "General Medicine",
+                  diagnosis: con.diagnosis || "Consultation Completed",
+                  medicines: con.medicines || "",
+                  doctor: con.doctorName || "Doctor"
+                });
+              }
+            }
+          }
+          localStorage.setItem("telehealth_db", JSON.stringify(db));
+        }
+        showToast("Consultation session completed. Prescription saved.", "info");
         if (activeCall && activeCall.token === data.token) {
-          window.leaveConsultation();
+          window.leaveConsultation(data.consultation);
         } else {
+          refreshCurrentDashboard();
+        }
+      });
+
+      appSocket.on("consultations_updated", (newConsultations) => {
+        console.info("[Socket] consultations_updated received from server");
+        if (Array.isArray(newConsultations)) {
+          const cMap = new Map();
+          (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+          newConsultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+          db.consultations = Array.from(cMap.values());
+          localStorage.setItem("telehealth_db", JSON.stringify(db));
+          refreshCurrentDashboard();
+        }
+      });
+
+      appSocket.on("consultation_saved", (newConsultation) => {
+        console.info("[Socket] consultation_saved received from server:", newConsultation);
+        if (newConsultation && (newConsultation.id || newConsultation.token)) {
+          db.consultations = db.consultations || [];
+          const conKey = newConsultation.id || newConsultation.token;
+          const cIdx = db.consultations.findIndex(c => (c.id && c.id === conKey) || (c.token && c.token === newConsultation.token));
+          if (cIdx >= 0) {
+            db.consultations[cIdx] = { ...db.consultations[cIdx], ...newConsultation };
+          } else {
+            db.consultations.push(newConsultation);
+          }
+          localStorage.setItem("telehealth_db", JSON.stringify(db));
           refreshCurrentDashboard();
         }
       });
@@ -1873,10 +1937,25 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Sync across tabs/windows so view updates when appointments change.
     window.addEventListener("storage", (event) => {
       if (event.key !== "telehealth_db" || !event.newValue) return;
-      const updatedDb = JSON.parse(event.newValue);
-      if (!updatedDb || !Array.isArray(updatedDb.appointments)) return;
-
-      db.appointments = updatedDb.appointments;
+      let updatedDb = null;
+      try {
+        updatedDb = JSON.parse(event.newValue);
+      } catch (e) {
+        return;
+      }
+      if (!updatedDb) return;
+      if (Array.isArray(updatedDb.appointments)) {
+        db.appointments = updatedDb.appointments;
+      }
+      if (Array.isArray(updatedDb.consultations)) {
+        const cMap = new Map();
+        (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+        updatedDb.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+        db.consultations = Array.from(cMap.values());
+      }
+      if (Array.isArray(updatedDb.patients)) {
+        db.patients = updatedDb.patients;
+      }
       if (activeCall && activeCall.token) {
         const activeApp = db.appointments.find(a => a.token === activeCall.token);
         if (activeApp && Array.isArray(activeApp.chat)) {
@@ -2034,7 +2113,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
           if (error) throw error;
         }
         if (tableName === "consultations" || !tableName) {
-          const { error } = await supabase.from("consultations").upsert(db.consultations);
+          const sanitizedConsultations = (db.consultations || []).map(c => ({
+            ...c,
+            referral: typeof c.referral === "boolean" ? c.referral : (c.referral ? true : false)
+          }));
+          const { error } = await supabase.from("consultations").upsert(sanitizedConsultations);
           if (error) throw error;
         }
         console.log(`Supabase synced successfully: ${tableName || 'all tables'}`);
@@ -2136,6 +2219,15 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     // Load dashboards based on role
     if (roleName === "patient") {
+      try {
+        const cached = JSON.parse(localStorage.getItem("telehealth_db"));
+        if (cached && Array.isArray(cached.consultations)) {
+          const cMap = new Map();
+          (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+          cached.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+          db.consultations = Array.from(cMap.values());
+        }
+      } catch (e) {}
       if (supabase) refreshAppointmentsFromSupabase();
       loadPatientDashboard();
     } else if (roleName === "vhw") {
@@ -2728,10 +2820,89 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Consultation history
     const historyTbody = document.getElementById("pat-history-tbody");
     historyTbody.innerHTML = "";
-    const historical = db.consultations.filter(c =>
-      (c.status === "completed" || !c.status) &&
-      (c.patientId === currentUser.id || (!c.patientId && c.patientName === currentUser.name))
+
+    // Always merge latest consultations from localStorage cache
+    try {
+      const cached = JSON.parse(localStorage.getItem("telehealth_db"));
+      if (cached && Array.isArray(cached.consultations) && cached.consultations.length > 0) {
+        const cMap = new Map();
+        (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+        cached.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+        db.consultations = Array.from(cMap.values());
+      }
+    } catch (e) {}
+
+    const curId = (currentUser.id || "").toString().trim();
+    const curProfileId = (currentUser.profileId || "").toString().trim();
+    const curNormId = curId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    const curName = (currentUser.name || "").toString().trim().toLowerCase();
+
+    const isMyConsultation = (c) => {
+      if (!c) return false;
+      const isCompleted = (!c.status || c.status.toLowerCase() === "completed");
+      if (!isCompleted) return false;
+
+      const cPatId = (c.patientId || "").toString().trim();
+      const cNormId = cPatId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      const cPatName = (c.patientName || "").toString().trim().toLowerCase();
+
+      // 1. Direct ID or normalized ID match (e.g. pat-1 vs pat1)
+      if (curId && cPatId && (cPatId === curId || cNormId === curNormId)) return true;
+      if (curProfileId && cPatId && (cPatId === curProfileId || cNormId === curProfileId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase())) return true;
+
+      // 2. Name match (case-insensitive)
+      if (curName && cPatName && (cPatName === curName || curName.includes(cPatName) || cPatName.includes(curName))) return true;
+
+      // 3. Match via consultation token in appointments
+      if (c.token) {
+        const matchApp = (db.appointments || []).find(a => a.token === c.token);
+        if (matchApp) {
+          const aPatId = (matchApp.patientId || "").toString().trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, "");
+          const aPatName = (matchApp.patientName || "").toString().trim().toLowerCase();
+          if (aPatId && (aPatId === curNormId || aPatId === curProfileId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase())) return true;
+          if (aPatName && (aPatName === curName || curName.includes(aPatName))) return true;
+        }
+      }
+
+      return false;
+    };
+
+    let historical = (db.consultations || []).filter(isMyConsultation);
+
+    // If patient's profile has past visits in patient.history, synthesize any that might not be in db.consultations
+    const patRecord = (db.patients || []).find(p =>
+      (curId && p.id === curId) ||
+      (curNormId && (p.id || "").toLowerCase().replace(/[^a-zA-Z0-9]/g, "") === curNormId) ||
+      (curName && (p.name || "").toLowerCase() === curName)
     );
+    if (patRecord && Array.isArray(patRecord.history)) {
+      patRecord.history.forEach((h, hIdx) => {
+        const alreadyIncluded = historical.some(c =>
+          (h.id && c.id === h.id) ||
+          (c.date === h.date && (c.diagnosis === h.diagnosis || c.doctorName === (h.doctor || h.doctorName)))
+        );
+        if (!alreadyIncluded) {
+          historical.push({
+            id: h.id || `hist-${patRecord.id}-${hIdx}`,
+            token: h.token || `HIST-${hIdx + 1}`,
+            date: h.date,
+            doctorName: h.doctor || h.doctorName || "Attending Physician",
+            diagnosis: h.diagnosis || h.clinic || "Clinical Checkup",
+            medicines: h.medicines || "",
+            status: "completed",
+            patientId: patRecord.id,
+            patientName: patRecord.name
+          });
+        }
+      });
+    }
+
+    // Sort newest first by completion timestamp or date
+    historical.sort((a, b) => {
+      const tA = new Date(a.completedAt || a.date || 0).getTime();
+      const tB = new Date(b.completedAt || b.date || 0).getTime();
+      return tB - tA;
+    });
     
     if (historical.length === 0) {
       historyTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding: 24px;">No past consultation reports found</td></tr>`;
@@ -4519,8 +4690,17 @@ var VillageMed = (function (exports, React, ReactDOM) {
         return false;
       }
 
-      if (data) {
-        db.consultations = data;
+      if (data && Array.isArray(data)) {
+        const cMap = new Map();
+        (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+        try {
+          const localCached = JSON.parse(localStorage.getItem("telehealth_db"));
+          if (localCached && Array.isArray(localCached.consultations)) {
+            localCached.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+          }
+        } catch (e) {}
+        data.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+        db.consultations = Array.from(cMap.values());
         localStorage.setItem("telehealth_db", JSON.stringify(db));
         return true;
       }
@@ -5409,7 +5589,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
     updateNetworkUI();
   };
 
-  window.leaveConsultation = function() {
+  window.leaveConsultation = function(incomingConsultation = null) {
     if (!activeCall) return;
 
     // Stop local camera
@@ -5442,15 +5622,45 @@ var VillageMed = (function (exports, React, ReactDOM) {
       leaveAgoraRoom();
     }
 
-    // Restore Waiting status in db
-    const idx = db.appointments.findIndex(a => a.token === activeCall.token);
-    if (idx >= 0 && db.appointments[idx].status === "Active") {
-      db.appointments[idx].status = "Waiting";
+    // If a completed consultation is provided, ensure it's registered
+    if (incomingConsultation && incomingConsultation.id) {
+      db.consultations = db.consultations || [];
+      const conKey = incomingConsultation.id || incomingConsultation.token;
+      const cIdx = db.consultations.findIndex(c => (c.id && c.id === conKey) || (c.token && c.token === incomingConsultation.token));
+      if (cIdx >= 0) {
+        db.consultations[cIdx] = { ...db.consultations[cIdx], ...incomingConsultation };
+      } else {
+        db.consultations.push(incomingConsultation);
+      }
     }
-    saveDB();
+
+    // Merge any consultations from localStorage to avoid overwriting newer reports
+    try {
+      const cached = JSON.parse(localStorage.getItem("telehealth_db"));
+      if (cached && Array.isArray(cached.consultations)) {
+        const cMap = new Map();
+        (db.consultations || []).forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, c); });
+        cached.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
+        db.consultations = Array.from(cMap.values());
+      }
+    } catch (e) {}
 
     const leavingToken = activeCall ? activeCall.token : null;
     const leavingRole = activeCall ? activeCall.role : null;
+    const hasCompletedConsultation = incomingConsultation ||
+      (db.consultations || []).some(c => c.token === leavingToken || (activeCall?.patient?.id && c.patientId === activeCall.patient.id && c.date === new Date().toISOString().split("T")[0]));
+
+    const idx = leavingToken ? db.appointments.findIndex(a => a.token === leavingToken) : -1;
+    if (idx >= 0) {
+      if (hasCompletedConsultation) {
+        db.appointments[idx].status = "Completed";
+        db.appointments[idx].completedAt = new Date().toISOString();
+      } else if (db.appointments[idx].status === "Active") {
+        db.appointments[idx].status = "Waiting";
+      }
+    }
+    saveDB();
+
     if (appSocket && appSocket.connected && leavingToken) {
       try {
         appSocket.emit("leave_consultation", {
@@ -5485,7 +5695,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
       loadPatientDashboard();
     }
 
-    showToast("Call disconnected", "danger");
+    if (hasCompletedConsultation) {
+      showToast("Consultation complete! Your digital prescription report has been saved to Consultation History.", "success");
+    } else {
+      showToast("Call disconnected", "warning");
+    }
   };
 
   // --- PRESCRIPTION BUILDER ---
@@ -5639,14 +5853,21 @@ var VillageMed = (function (exports, React, ReactDOM) {
     db.consultations.push(newConsultation);
 
     // Archive Patient History Record
-    const patIndex = db.patients.findIndex(p => p.id === activeCall.patient.id);
+    let patIndex = db.patients.findIndex(p => p.id === activeCall.patient.id);
+    if (patIndex < 0 && activeCall.patient.name) {
+      patIndex = db.patients.findIndex(p => p.name && p.name.trim().toLowerCase() === activeCall.patient.name.trim().toLowerCase());
+    }
     if (patIndex >= 0) {
+      if (!db.patients[patIndex].history) db.patients[patIndex].history = [];
       db.patients[patIndex].history.push({
+        id: conId,
         date: new Date().toISOString().split("T")[0],
-        clinic: currentUser.specialty,
+        clinic: currentUser.specialty || "Tele-Consultation",
         diagnosis,
         medicines: medsSummary,
-        doctor: currentUser.name
+        doctor: currentUser.name,
+        doctorName: currentUser.name,
+        token: activeCall.token
       });
     }
 
@@ -5718,41 +5939,86 @@ var VillageMed = (function (exports, React, ReactDOM) {
   };
 
   window.viewDigitalPrescriptionPopup = function(conId) {
-    const con = db.consultations.find(c => c.id === conId);
-    if (!con) return;
+    let con = db.consultations.find(c => c.id === conId || c.token === conId);
+    if (!con) {
+      try {
+        const local = JSON.parse(localStorage.getItem("telehealth_db") || "{}");
+        if (local.consultations) {
+          con = local.consultations.find(c => c.id === conId || c.token === conId);
+        }
+      } catch (e) {}
+    }
+    if (!con && db.patients) {
+      for (const p of db.patients) {
+        if (p.history) {
+          const found = p.history.find(h => h.id === conId || h.token === conId);
+          if (found) {
+            con = {
+              id: found.id || conId,
+              token: found.token || conId,
+              village: p.village || "Smart Dispensary",
+              doctorName: found.doctor || found.doctorName || "Consultant Doctor",
+              patientName: p.name,
+              date: found.date,
+              medicines: found.medicines || "Standard prescribed regimen",
+              diagnosis: found.diagnosis || "Consultation Completed",
+              referral: false
+            };
+            break;
+          }
+        }
+      }
+    }
+    if (!con) {
+      showToast("Prescription details could not be found.", "warning");
+      return;
+    }
 
     const modalContent = document.getElementById("modal-pres-print-content");
+    if (!modalContent) return;
+
+    const medItems = Array.isArray(con.medicines)
+      ? con.medicines
+      : (typeof con.medicines === "string" ? con.medicines.split(/,\s*/).filter(Boolean) : []);
+    const medsListHtml = medItems.length > 0
+      ? medItems.map(m => `<li><span class="med-name">${m}</span></li>`).join("")
+      : `<li><span class="med-name">${con.medicines || "Standard prescribed regimen"}</span></li>`;
+
+    const referralDisplay = con.referral
+      ? (typeof con.referral === "string" ? `YES (${con.referral})` : "YES (Priority Escalation)")
+      : "NO";
+
     modalContent.innerHTML = `
     <div class="prescription-preview-panel" style="border:none; box-shadow:none; padding:10px;">
       <div>
         <div class="prescription-header">
           <div class="dispensary-meta">
             <h4>VILLAGEMED SMART DISPENSARY</h4>
-            <p>${con.village} Clinic, Smart Village Network</p>
+            <p>${con.village || 'Smart Village'} Clinic, Smart Village Network</p>
           </div>
           <div class="doctor-stamp">
-            <div class="doc-name">${con.doctorName}</div>
+            <div class="doc-name">${con.doctorName || 'Consultant MD'}</div>
             <div style="font-size: 10px; color: var(--text-muted);">Consultant MD</div>
           </div>
         </div>
 
         <div class="prescription-meta-grid">
-          <div class="meta-field"><span>Patient:</span> <span>${con.patientName}</span></div>
-          <div class="meta-field"><span>Date:</span> <span>${con.date}</span></div>
-          <div class="meta-field"><span>Record ID:</span> <span>${con.id}</span></div>
+          <div class="meta-field"><span>Patient:</span> <span>${con.patientName || 'Patient'}</span></div>
+          <div class="meta-field"><span>Date:</span> <span>${con.date || ''}</span></div>
+          <div class="meta-field"><span>Record ID:</span> <span>${con.id || con.token || 'Rx'}</span></div>
         </div>
 
         <div class="prescription-body">
           <h5>Rx (Prescribed Medications)</h5>
           <ul class="prescription-meds-list">
-            ${con.medicines.split(", ").map(m => `<li><span class="med-name">${m}</span></li>`).join("")}
+            ${medsListHtml}
           </ul>
 
           <h5>Diagnosis Summary</h5>
-          <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500;">${con.diagnosis}</div>
+          <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500;">${con.diagnosis || 'General Checkup'}</div>
 
           <h5>Referral Escalation</h5>
-          <div style="font-size: 12px; margin-bottom: 16px;">Escalated to Specialist Center: <strong>${con.referral ? "YES (Priority Escalation)" : "NO"}</strong></div>
+          <div style="font-size: 12px; margin-bottom: 16px;">Escalated to Specialist Center: <strong>${referralDisplay}</strong></div>
         </div>
       </div>
 
@@ -5763,7 +6029,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     </div>
   `;
 
-    document.getElementById("pres-view-modal").classList.add("active");
+    const modalEl = document.getElementById("pres-view-modal");
+    if (modalEl) modalEl.classList.add("active");
   };
 
   window.closePresModal = function() {

@@ -344,4 +344,70 @@ test("End-to-End Smart Consultation Queue & Appointment Booking Multi-Role Workf
     const finishedApp = updatedAppts.data.appointments.find(a => a.token === consultationToken);
     assert.equal(finishedApp.status, "Completed", "Appointment status must be updated to 'Completed'");
   });
+
+  await t.test("STAGE 9: Patient dashboard consultation history stores and returns the consultation report", async () => {
+    // 1. Fetch consultations from server
+    const consRes = await makeRequest(testServer, "GET", "/api/consultations");
+    assert.equal(consRes.status, 200);
+    assert.ok(consRes.data.success);
+    assert.ok(Array.isArray(consRes.data.consultations));
+
+    // 2. Find the completed consultation for test patient
+    const savedCon = consRes.data.consultations.find(c => c.token === consultationToken || c.patientId === testPatientId);
+    assert.ok(savedCon, "Completed consultation report must be stored in server consultations");
+    assert.equal(savedCon.patientId, testPatientId);
+    assert.equal(savedCon.diagnosis, "Mild tension headache and dehydration");
+    assert.equal(savedCon.prescription, "Hydration and Rest");
+
+    // 3. Test real-time consultation completion event delivery to patient socket
+    const patientReportPromise = new Promise((resolve) => {
+      const h1 = (con) => {
+        if (con && (con.token === "token-live-check" || con.patientId === testPatientId)) {
+          patientSocket.off("consultation_saved", h1);
+          resolve(con);
+        }
+      };
+      const h2 = (allCons) => {
+        if (Array.isArray(allCons)) {
+          const found = allCons.find(c => c.token === "token-live-check" || c.patientId === testPatientId);
+          if (found) {
+            patientSocket.off("consultations_updated", h2);
+            resolve(found);
+          }
+        }
+      };
+      patientSocket.on("consultation_saved", h1);
+      patientSocket.on("consultations_updated", h2);
+    });
+
+    // Doctor socket emits consultation_ended
+    doctorSocket.emit("consultation_ended", {
+      token: "token-live-check",
+      consultation: {
+        id: "cons-live-check",
+        token: "token-live-check",
+        doctorId: testDoctorId,
+        patientId: testPatientId,
+        patientName: testPatientName,
+        diagnosis: "Seasonal allergies",
+        medicines: "Cetirizine 10mg",
+        status: "completed",
+        date: new Date().toISOString().split("T")[0]
+      }
+    });
+
+    const receivedReport = await Promise.race([
+      patientReportPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout waiting for real-time consultation event")), 2500))
+    ]);
+
+    assert.ok(receivedReport, "Patient socket must receive consultation report event in real-time");
+    assert.equal(receivedReport.patientId, testPatientId);
+
+    // 4. Verify consultation is present in db.consultations
+    const stored = db.consultations.find(c => c.token === "token-live-check");
+    assert.ok(stored, "Consultation must be stored in db.consultations");
+    assert.equal(stored.diagnosis, "Seasonal allergies");
+  });
 });
+

@@ -80,12 +80,18 @@ const DEFAULT_DOCTOR_SCHEDULES = {
   "doc-5": { workStart: "09:00", workEnd: "17:00", breaks: [{ start: "13:00", end: "14:00" }], workDays: [1,2,3,4,5,6], slotDurationMins: 15 }
 };
 
+const DEFAULT_CONSULTATIONS = [
+  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology", status: "completed" },
+  { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false, status: "completed" },
+  { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false, status: "completed" }
+];
+
 let db = {
   users: [],
   doctors: [],
   patients: [],
   appointments: [...DEFAULT_APPOINTMENTS],
-  consultations: [],
+  consultations: [...DEFAULT_CONSULTATIONS],
   villages: ["Village Clinic A", "Village Clinic B", "Village Clinic C"],
   failoverLogs: { hd: 0, low: 0, audio: 0 },
   agoraConfig: {
@@ -121,10 +127,14 @@ function loadDatabase() {
       if (!Array.isArray(db.appointments) || db.appointments.length === 0) {
         db.appointments = [...DEFAULT_APPOINTMENTS];
       }
-      console.log(`[DB] Centralized database loaded successfully (${db.appointments.length} appointments, ${db.patients.length} patients).`);
+      if (!Array.isArray(db.consultations) || db.consultations.length === 0) {
+        db.consultations = [...DEFAULT_CONSULTATIONS];
+      }
+      console.log(`[DB] Centralized database loaded successfully (${db.appointments.length} appointments, ${db.patients.length} patients, ${db.consultations.length} consultations).`);
     } else {
       console.warn(`[DB] Database file not found at ${DB_FILE_PATH}, creating default.`);
       db.appointments = [...DEFAULT_APPOINTMENTS];
+      db.consultations = [...DEFAULT_CONSULTATIONS];
       saveDatabaseToFile();
     }
   } catch (err) {
@@ -420,11 +430,32 @@ io.on("connection", (socket) => {
       }
 
       if (consultation && consultation.id) {
-        const cIdx = db.consultations.findIndex(c => c.id === consultation.id);
+        const cIdx = db.consultations.findIndex(c => c.id === consultation.id || (c.token && c.token === consultation.token));
         if (cIdx >= 0) {
-          db.consultations[cIdx] = consultation;
+          db.consultations[cIdx] = { ...db.consultations[cIdx], ...consultation };
         } else {
           db.consultations.push(consultation);
+        }
+
+        // Also update patient history in db.patients
+        const targetPatId = consultation.patientId;
+        const targetPatName = consultation.patientName;
+        if (targetPatId || targetPatName) {
+          const pat = db.patients.find(p => (targetPatId && p.id === targetPatId) || (targetPatName && p.name === targetPatName));
+          if (pat) {
+            if (!Array.isArray(pat.history)) pat.history = [];
+            const exists = pat.history.some(h => h.id === consultation.id || (h.date === consultation.date && h.diagnosis === consultation.diagnosis));
+            if (!exists) {
+              pat.history.push({
+                id: consultation.id,
+                date: consultation.date || new Date().toISOString().split("T")[0],
+                clinic: consultation.specialty || "General Medicine",
+                diagnosis: consultation.diagnosis || "Consultation Completed",
+                medicines: consultation.medicines || consultation.prescription || "",
+                doctor: consultation.doctorName || "Doctor"
+              });
+            }
+          }
         }
       }
 
@@ -436,6 +467,10 @@ io.on("connection", (socket) => {
         timestamp: Date.now()
       });
 
+      io.emit("consultations_updated", db.consultations);
+      if (consultation) {
+        io.emit("consultation_saved", consultation);
+      }
       io.emit("appointments_updated", db.appointments);
     } catch (err) {
       console.error("[Event] consultation_ended error:", err.message);
@@ -1237,11 +1272,32 @@ app.post("/api/consultations", (req, res) => {
       return res.status(400).json({ success: false, error: "Missing consultation ID" });
     }
 
-    const cIdx = db.consultations.findIndex(c => c.id === consultation.id);
+    const cIdx = db.consultations.findIndex(c => c.id === consultation.id || (c.token && c.token === consultation.token));
     if (cIdx >= 0) {
-      db.consultations[cIdx] = consultation;
+      db.consultations[cIdx] = { ...db.consultations[cIdx], ...consultation };
     } else {
       db.consultations.push(consultation);
+    }
+
+    // Also update patient history in db.patients
+    const targetPatId = consultation.patientId;
+    const targetPatName = consultation.patientName;
+    if (targetPatId || targetPatName) {
+      const pat = db.patients.find(p => (targetPatId && p.id === targetPatId) || (targetPatName && p.name === targetPatName));
+      if (pat) {
+        if (!Array.isArray(pat.history)) pat.history = [];
+        const exists = pat.history.some(h => h.id === consultation.id || (h.date === consultation.date && h.diagnosis === consultation.diagnosis));
+        if (!exists) {
+          pat.history.push({
+            id: consultation.id,
+            date: consultation.date || new Date().toISOString().split("T")[0],
+            clinic: consultation.specialty || "General Medicine",
+            diagnosis: consultation.diagnosis || "Consultation Completed",
+            medicines: consultation.medicines || consultation.prescription || "",
+            doctor: consultation.doctorName || "Doctor"
+          });
+        }
+      }
     }
 
     // Update appointment status to Completed
@@ -1254,6 +1310,8 @@ app.post("/api/consultations", (req, res) => {
     }
 
     saveDatabaseToFile();
+    io.emit("consultations_updated", db.consultations);
+    io.emit("consultation_saved", consultation);
     io.emit("appointments_updated", db.appointments);
 
     res.status(201).json({ success: true, consultation });
