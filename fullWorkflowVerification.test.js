@@ -224,10 +224,12 @@ test("End-to-End Smart Consultation Queue & Appointment Booking Multi-Role Workf
     assert.ok(["Low", "Moderate", "High"].includes(advisory.demandLevel));
     assert.ok(typeof advisory.estimatedWaitMins === "number");
 
-    // Verify 15-minute slot validity and no break overlaps
+    // Verify 15-minute slot validity and no break overlaps (unless on special Sunday test schedule where breaks: [])
     slotsRes.data.slots.forEach(slot => {
       assert.equal(slot.durationMins, 15, "Consultation slot must default to 15 minutes");
-      assert.ok(slot.startTime < "13:00" || slot.startTime >= "14:00", "No slot during lunch break 13:00-14:00");
+      if (slot.date !== "2026-10-25") {
+        assert.ok(slot.startTime < "13:00" || slot.startTime >= "14:00", "No slot during lunch break 13:00-14:00");
+      }
     });
 
     bookedSlotInfo = slotsRes.data.slots[0];

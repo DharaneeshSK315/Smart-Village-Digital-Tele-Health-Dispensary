@@ -81,9 +81,9 @@ const DEFAULT_DOCTOR_SCHEDULES = {
 };
 
 const DEFAULT_CONSULTATIONS = [
-  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology", status: "completed" },
-  { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false, status: "completed" },
-  { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false, status: "completed" }
+  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", advice: "Low sodium diet, avoid strenuous exercise, monitor BP weekly.", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology", status: "completed" },
+  { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", advice: "Strict sugar-free diet, regular blood glucose checkup, 30 min daily walking.", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false, status: "completed" },
+  { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", advice: "Steam inhalation twice daily, drink warm fluids, complete full antibiotic course.", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false, status: "completed" }
 ];
 
 let db = {

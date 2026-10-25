@@ -399,9 +399,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
   ];
 
   const DEFAULT_CONSULTATIONS = [
-    { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
-    { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false },
-    { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false }
+    { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", advice: "Low sodium diet, avoid strenuous exercise, monitor BP weekly.", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
+    { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", advice: "Strict sugar-free diet, regular blood glucose checkup, 30 min daily walking.", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false },
+    { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", advice: "Steam inhalation twice daily, drink warm fluids, complete full antibiotic course.", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false }
   ];
 
   const DEFAULT_FAILOVER_LOGS = {
@@ -5864,6 +5864,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
         date: new Date().toISOString().split("T")[0],
         clinic: currentUser.specialty || "Tele-Consultation",
         diagnosis,
+        advice,
         medicines: medsSummary,
         doctor: currentUser.name,
         doctorName: currentUser.name,
@@ -5962,6 +5963,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
               date: found.date,
               medicines: found.medicines || "Standard prescribed regimen",
               diagnosis: found.diagnosis || "Consultation Completed",
+              advice: found.advice || "Drink plenty of water, avoid spicy food, take medications as prescribed, and consult dispensary if symptoms persist.",
               referral: false
             };
             break;
@@ -5987,6 +5989,10 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const referralDisplay = con.referral
       ? (typeof con.referral === "string" ? `YES (${con.referral})` : "YES (Priority Escalation)")
       : "NO";
+
+    const adviceDisplay = (con.advice && con.advice.trim())
+      ? con.advice.trim()
+      : "Drink plenty of water, avoid spicy/oily food, take prescribed medications on time, and consult dispensary if symptoms persist.";
 
     modalContent.innerHTML = `
     <div class="prescription-preview-panel" style="border:none; box-shadow:none; padding:10px;">
@@ -6016,6 +6022,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
           <h5>Diagnosis Summary</h5>
           <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500;">${con.diagnosis || 'General Checkup'}</div>
+
+          <h5>Special Instructions / General Advice</h5>
+          <div style="font-size: 12px; margin-bottom: 16px; font-weight: 500; color: #1e293b; line-height: 1.5; white-space: pre-wrap;">${adviceDisplay}</div>
 
           <h5>Referral Escalation</h5>
           <div style="font-size: 12px; margin-bottom: 16px;">Escalated to Specialist Center: <strong>${referralDisplay}</strong></div>
