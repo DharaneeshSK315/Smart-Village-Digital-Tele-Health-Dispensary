@@ -982,7 +982,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
   let appSocket = null;
   let isSocketConnecting = false;
 
-  const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-telehealth.onrender.com";
+  const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-digital-tele-health-7kzs.onrender.com";
 
   function getBackendUrl() {
     // 1. Check URL query parameters: ?backend=... or ?server=...

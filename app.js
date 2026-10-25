@@ -661,7 +661,7 @@ function stopLocalWebcam() {
 let appSocket = null;
 let isSocketConnecting = false;
 
-export const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-telehealth.onrender.com";
+export const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-digital-tele-health-7kzs.onrender.com";
 
 export function getBackendUrl() {
   // 1. Check URL query parameters: ?backend=... or ?server=...
