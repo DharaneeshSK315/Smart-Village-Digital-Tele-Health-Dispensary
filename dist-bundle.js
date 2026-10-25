@@ -918,6 +918,21 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     localWebcamStream = acquiredStream;
 
+    // Immediately bind local media tracks to peerConnection if already initialized
+    if (peerConnection && acquiredStream) {
+      try {
+        const senders = (typeof peerConnection.getSenders === "function") ? peerConnection.getSenders() : [];
+        acquiredStream.getTracks().forEach(track => {
+          const sender = senders.find(s => s.track && s.track.kind === track.kind);
+          if (sender && typeof sender.replaceTrack === "function") {
+            sender.replaceTrack(track).catch(e => console.warn("[Peer] replaceTrack warning:", e));
+          } else {
+            try { peerConnection.addTrack(track, acquiredStream); } catch(e){}
+          }
+        });
+      } catch(e) {}
+    }
+
     if (localContainer) {
       attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
       localContainer.style.display = "block";
@@ -1599,7 +1614,13 @@ var VillageMed = (function (exports, React, ReactDOM) {
       return;
     }
 
-    if (!peerConnection) return;
+    if (!peerConnection) {
+      if (data.type === "description" || data.type === "candidate") {
+        if (!window._pendingPeerSignals) window._pendingPeerSignals = [];
+        window._pendingPeerSignals.push(data);
+      }
+      return;
+    }
     const isPolite = (peerLocalRole === "patient" || peerLocalRole === "vhw");
 
     try {
@@ -1638,6 +1659,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
           } finally {
             peerMakingOffer = false;
           }
+        } else if (peerConnection.signalingState === "have-local-offer" && peerConnection.localDescription) {
+          // Re-transmit our existing local offer to newly connected peer
+          sendPeerSignal({ type: "description", description: peerConnection.localDescription });
         }
       }
     } catch (err) {
@@ -1695,9 +1719,18 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Add tracks from local webcam/simulated stream
     if (localWebcamStream) {
       localWebcamStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localWebcamStream);
-        console.info(`[Peer] Published local ${track.kind} track to peerConnection`);
+        try {
+          peerConnection.addTrack(track, localWebcamStream);
+          console.info(`[Peer] Published local ${track.kind} track to peerConnection`);
+        } catch (e) {}
       });
+    }
+
+    // Drain queued peer signals received before peerConnection finished initializing
+    if (window._pendingPeerSignals && window._pendingPeerSignals.length > 0) {
+      const queue = [...window._pendingPeerSignals];
+      window._pendingPeerSignals = [];
+      queue.forEach(sig => handlePeerSignal(sig));
     }
 
     peerConnection.onicecandidate = (event) => {
@@ -4630,7 +4663,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
     if (docTag) docTag.innerText = patName;
 
     const pipLabel = document.getElementById("doc-pip-label");
-    if (pipLabel) pipLabel.innerText = currentUser ? currentUser.name : "Dr. Vikram";
+    if (pipLabel) pipLabel.innerText = currentUser ? `${currentUser.name} (You)` : "Dr. Vikram (You)";
 
     const initialsEl = document.getElementById("doc-patient-initials");
     if (initialsEl) {
@@ -4859,9 +4892,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const specEl = document.getElementById("pat-session-doctor-spec");
     if (specEl) specEl.innerText = docSpec;
     const tagEl = document.getElementById("pat-call-tag-name");
-    if (tagEl) tagEl.innerText = patName;
+    if (tagEl) tagEl.innerText = docName;
+    const tagRole = document.getElementById("pat-call-tag-role") || document.querySelector("#pat-patient-tag .tag-role");
+    if (tagRole) tagRole.innerText = "Doctor";
     const pipEl = document.getElementById("pat-pip-label");
-    if (pipEl) pipEl.innerText = docName;
+    if (pipEl) pipEl.innerText = `${patName} (You)`;
     const audioDocName = document.getElementById("pat-call-doc-audio-name");
     if (audioDocName) audioDocName.innerText = `${docName} (Audio-Only Mode)`;
     const initialsEl = document.getElementById("pat-doctor-initials");
@@ -4904,8 +4939,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
   function shouldUseAgora() {
     if (!agoraConfig || !agoraConfig.appid) return false;
-    const isPlaceholder = agoraConfig.appid.trim() === "aab8b3f972274fcb87cc25048d089e94";
-    return Boolean(agoraConfig.enabled && !agoraConfig.lastFail && !isPlaceholder);
+    return Boolean(agoraConfig.enabled !== false && !agoraConfig.lastFail);
   }
 
   function startCallLoop() {
@@ -6633,6 +6667,27 @@ var VillageMed = (function (exports, React, ReactDOM) {
                 window.addEventListener("pointerdown", resumeAudioOnGesture, { once: true });
               }
             }
+          } else if (mediaType === "video") {
+            if (!user.videoTrack) {
+              await agoraClient.subscribe(user, mediaType);
+            }
+            remoteUsers.set(String(user.uid), user);
+
+            if (user.videoTrack) {
+              const prefix = getAgoraRolePrefix(role);
+              const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+              const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
+              const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+              if (remoteContainer) {
+                remoteContainer.style.display = "block";
+                remoteContainer.innerHTML = "";
+                user.videoTrack.play(remoteContainer);
+              }
+              if (mainCanvas) mainCanvas.style.display = "none";
+              if (fallback) fallback.style.display = "none";
+              console.log(`[AGORA] Remote video stream connected for UID: ${user.uid}`);
+              showToast("Remote video feed connected via Agora!", "success");
+            }
           }
         } catch (subscribeErr) {
           console.error(`[AGORA] Remote subscription failed for UID ${user.uid} (${mediaType}):`, subscribeErr);
@@ -6662,6 +6717,13 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       agoraClient.on("user-unpublished", (user, mediaType) => {
         console.log(`[AGORA] user-unpublished: ${user.uid} mediaType: ${mediaType}`);
+        if (mediaType === "video") {
+          const prefix = getAgoraRolePrefix(role);
+          const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+          const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
+          if (remoteContainer) remoteContainer.style.display = "none";
+          if (mainCanvas) mainCanvas.style.display = "block";
+        }
       });
 
       agoraClient.on("user-left", (user) => {
@@ -6756,7 +6818,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       localAudioTrack = audioTrack;
 
-      // Prepare audio tracks to publish
+      // Prepare media tracks to publish (Audio + Video)
       const tracksToPublish = [];
       if (localAudioTrack) {
         const isMicActive = (activeCall && typeof activeCall.micActive === "boolean") ? activeCall.micActive : true;
@@ -6773,14 +6835,45 @@ var VillageMed = (function (exports, React, ReactDOM) {
         tracksToPublish.push(localAudioTrack);
       }
 
+      // Create and publish local video track for Agora RTC
+      let videoTrack = null;
+      try {
+        if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
+          const nativeTrack = localWebcamStream.getVideoTracks()[0];
+          if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
+            videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
+            console.log("[AGORA] Created Agora custom video track from local webcam");
+          }
+        }
+        if (!videoTrack && typeof AgoraRTC.createCameraVideoTrack === "function") {
+          videoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "720p" });
+          console.log("[AGORA] Created Agora camera video track");
+        }
+      } catch (vidErr) {
+        console.warn("[AGORA] Agora video track creation note:", vidErr);
+      }
+
+      localVideoTrack = videoTrack;
+      if (localVideoTrack) {
+        const isCamActive = (activeCall && typeof activeCall.camActive === "boolean") ? activeCall.camActive : true;
+        try {
+          if (typeof localVideoTrack.setEnabled === "function") {
+            await localVideoTrack.setEnabled(isCamActive);
+          }
+        } catch (trackStateErr) {
+          console.warn("[AGORA] Error setting local video track active state:", trackStateErr);
+        }
+        tracksToPublish.push(localVideoTrack);
+      }
+
       if (tracksToPublish.length > 0) {
         await agoraClient.publish(tracksToPublish);
-        console.log(`[AGORA] Published local audio track`);
+        console.log(`[AGORA] Published local tracks (count=${tracksToPublish.length})`);
         updateNetworkUI();
-        showToast("Realtime audio active in Agora session!", "success");
+        showToast("Realtime audio & video active in Agora session!", "success");
       } else {
         updateNetworkUI();
-        showToast("Agora audio joined. Microphone track unavailable.", "warning");
+        showToast("Agora session joined. Waiting for media devices.", "warning");
       }
 
       // Catch up on any users already published in the channel
@@ -6790,6 +6883,10 @@ var VillageMed = (function (exports, React, ReactDOM) {
           if (remoteUser.hasAudio) {
             console.log(`[AGORA] Catchup subscribing remote audio for UID: ${remoteUser.uid}`);
             await subscribeToRemoteUser(remoteUser, "audio");
+          }
+          if (remoteUser.hasVideo) {
+            console.log(`[AGORA] Catchup subscribing remote video for UID: ${remoteUser.uid}`);
+            await subscribeToRemoteUser(remoteUser, "video");
           }
         }
       }
