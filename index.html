@@ -532,50 +532,59 @@
         </div>
       </div>
 
-      <!-- Active Patient Videocall Frame (Initially hidden, loads on call start) -->
-      <div class="card col-12" id="pat-telehealth-box" style="display: none;">
-          <div class="card-title-bar">
-            <h3>🎥 Live Video Consultation</h3>
+      <!-- Active Patient Consultation Suite (VillageMed Tele-Health Consultation Suite) -->
+      <div class="card col-12 doc-card doc-live-suite-card" id="pat-telehealth-box" style="display: none;">
+        <!-- Consultation Suite Header -->
+        <div class="card-title-bar doc-consult-header">
+          <div class="doc-consult-brand">
+            <div class="doc-brand-title">
+              <h3>🎥 VillageMed Tele-Health Consultation Suite</h3>
+              <span class="doc-consult-sub">Village Clinic A • Smart Village Network • Tele-Health Suite</span>
+            </div>
+          </div>
+          <div class="doc-consult-header-right">
+            <div class="doc-profile-pill">
+              <span class="doc-profile-avatar">👨‍⚕️</span>
+              <div class="doc-profile-info">
+                <span class="doc-name" id="pat-session-doctor-name">Dr. Abinesh V</span>
+                <span class="doc-spec" id="pat-session-doctor-spec">MD, General Medicine</span>
+              </div>
+            </div>
+            <span class="live-session-pill"><span class="pulse-dot"></span> Live Session</span>
+            <span class="call-duration-timer" id="pat-call-timer">⏱ 00:00:00</span>
+            <button class="btn-action" onclick="toggleAutoNetworkFluctuation()"><span id="pat-auto-fluctuate-indicator">🔄 Auto-Fluctuate: OFF</span></button>
             <button class="btn-action danger" onclick="leaveConsultation()">Hang Up</button>
           </div>
-          
-          <div class="telemedicine-suite">
-            <!-- Camera Permission Help Strip (shown when browser blocks webcam) -->
+        </div>
+
+        <!-- 2-Column Consultation Grid -->
+        <div class="doc-consultation-grid">
+          <!-- Column 1: Video Call Viewport & Network Telemetry -->
+          <div class="doc-col-video">
+            <!-- Camera Permission Strip -->
             <div class="cam-permission-strip" id="pat-cam-perm-strip" style="display: none;">
               <span>🔒 Browser blocked camera. Showing Simulated Medical Feed.</span>
+              <button class="strip-btn" onclick="window.retryRealWebcamFromModal()" style="margin-right: 6px;">🔄 Switch to Real Camera</button>
               <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
             </div>
-            <!-- Call Feed Viewport -->
-            <div class="call-viewport" id="pat-viewport-container">
+
+            <div class="call-viewport doc-call-viewport" id="pat-viewport-container">
               <div class="main-feed-container">
-                <div class="patient-floating-badge" id="pat-doctor-tag">
+                <div class="patient-floating-badge" id="pat-patient-tag">
                   <span class="green-dot">●</span>
-                  <span id="pat-call-tag-name">Dr. Abinesh V</span>
-                  <span class="tag-role">Consulting Physician</span>
+                  <span id="pat-call-tag-name">Sarah Mitchell</span>
+                  <span class="tag-role">Patient</span>
                 </div>
 
-                <!-- Simulated Remote doctor Webcam -->
+                <!-- Main remote Doctor Webcam canvas / video -->
                 <canvas id="pat-remote-canvas" class="main-canvas"></canvas>
-                <!-- Real Remote doctor Webcam (Agora) -->
                 <div id="pat-remote-video-container" class="main-canvas" style="display:none; background-color:#1e293b;"></div>
-                
-                <!-- Telemetry HUD Overlay -->
-                <div class="telemetry-hud" id="pat-telemetry-hud">
-                  <div class="hud-header">📡 Live Network Telemetry</div>
-                  <div class="hud-grid">
-                    <div class="hud-item"><span>Latency</span> <strong id="pat-hud-latency">18 ms</strong></div>
-                    <div class="hud-item"><span>Loss</span> <strong id="pat-hud-loss">0%</strong></div>
-                    <div class="hud-item"><span>FPS</span> <strong id="pat-hud-fps">30</strong></div>
-                    <div class="hud-item"><span>Upload</span> <strong id="pat-hud-upload">2.8 Mbps</strong></div>
-                    <div class="hud-item"><span>Download</span> <strong id="pat-hud-download">5.1 Mbps</strong></div>
-                  </div>
-                  <div class="hud-prediction-bar">
-                    <div>AI: <span id="pat-hud-prediction" class="pred-good">GOOD</span></div>
-                    <div>Rec: <strong id="pat-hud-rec">HD Video</strong></div>
-                  </div>
+
+                <div class="recording-status-overlay" id="pat-recording-status" style="display: none;">
+                  <span class="ai-pulse"></span>
+                  <span>REC SECURE: <span id="pat-rec-timer">00:00</span></span>
                 </div>
 
-                <!-- Voice Translation Overlay -->
                 <div class="translation-transcript-box" id="pat-translation-overlay" style="display: none;">
                   <span class="translation-original" id="pat-trans-orig">Doctor: ...</span>
                   <span class="translation-arrow">➔</span>
@@ -584,9 +593,9 @@
 
                 <!-- Voice avatar fallback when video fails -->
                 <div class="remote-avatar-fallback" id="pat-remote-audio-fallback">
-                  <div class="remote-avatar-circle" id="pat-doctor-initials">DV</div>
-                  <h4 style="color: white; margin-bottom: 4px;">Dr. Vikram (Audio-Only Mode)</h4>
-                  <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">Low-bandwidth audio stream active</p>
+                  <div class="remote-avatar-circle" id="pat-doctor-initials">AV</div>
+                  <h4 id="pat-call-doc-audio-name" style="color: white; margin-bottom: 4px;">Dr. Abinesh V (Audio-Only Mode)</h4>
+                  <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">Low-bandwidth audio stream active. Video closed to sustain link.</p>
                   <div class="audio-waves-container">
                     <div class="wave-bar"></div>
                     <div class="wave-bar"></div>
@@ -597,17 +606,17 @@
                 </div>
 
                 <!-- Local Patient PIP webcam -->
-                <div class="local-pip-feed pat-local-pip" id="pat-local-pip-box">
+                <div class="local-pip-feed doc-local-pip" id="pat-local-pip-box">
                   <canvas id="pat-local-canvas" class="local-pip-canvas"></canvas>
                   <div id="pat-local-video-container" class="local-pip-canvas" style="display:none; background-color:#334155;"></div>
-                  <div class="pip-label" id="pat-pip-label">You (Patient)</div>
+                  <div class="pip-label" id="pat-pip-label">Dr. Abinesh V</div>
                 </div>
               </div>
 
-              <!-- Controls -->
+              <!-- Call Controls Bar at Bottom of Video -->
               <div class="doc-call-controls-bar">
                 <div class="doc-left-status">
-                  <span class="quality-label" id="pat-conn-text">📶 720p HD • Full Video</span>
+                  <span class="quality-label" id="pat-conn-text">Excellent (1080p HD) • Full video</span>
                   <div class="signal-bar-group" id="pat-sig-bars" style="display: none;">
                     <div class="sig-bar active"></div>
                     <div class="sig-bar active"></div>
@@ -619,14 +628,24 @@
                 <div class="doc-center-btns">
                   <button class="btn-circle active" id="pat-mic-toggle" onclick="toggleAudioState('pat')" title="Toggle Mic">🎙️</button>
                   <button class="btn-circle active" id="pat-cam-toggle" onclick="toggleVideoState('pat')" title="Toggle Camera">📷</button>
+                  <button class="btn-circle active" id="pat-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
                   <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Call">📵</button>
                 </div>
 
                 <div class="doc-right-tools">
+                  <div class="translator-selector-strip" style="margin-right: 8px;">
+                    <span>📢 Language:</span>
+                    <select id="pat-patient-lang" onchange="window.updateTranslatorSettings()" class="translate-select">
+                      <option value="ta">Tamil</option>
+                      <option value="hi">Hindi</option>
+                      <option value="te">Telugu</option>
+                      <option value="en" selected>English</option>
+                    </select>
+                  </div>
                   <div class="simulator-controls">
                     <select id="pat-net-sim" onchange="simulateNetworkChange(this.value)">
-                      <option value="good" selected>720p HD</option>
-                      <option value="excellent">1080p HD</option>
+                      <option value="good">720p HD</option>
+                      <option value="excellent" selected>1080p HD</option>
                       <option value="fair">480p SD</option>
                       <option value="poor">360p Low-Res</option>
                       <option value="critical">Audio-only</option>
@@ -634,47 +653,84 @@
                   </div>
                 </div>
               </div>
-            </div>         </div>
-              </div>
             </div>
 
-            <!-- Sidebar (Chat + Shared Files) -->
-            <div class="telehealth-sidebar">
-              <div class="sidebar-tab-headers">
-                <button class="sidebar-tab-btn active" id="pat-tab-chat" onclick="switchCallTab('pat', 'chat')">Chat</button>
-                <button class="sidebar-tab-btn" id="pat-tab-files" onclick="switchCallTab('pat', 'files')">Vitals & Files</button>
+            <!-- Network Telemetry Panel Under Video -->
+            <div class="doc-telemetry-panel" id="pat-telemetry-panel">
+              <div class="telemetry-panel-header">
+                <div class="telemetry-panel-title">
+                  <span class="green-dot">●</span>
+                  <strong>Network Telemetry</strong>
+                </div>
+                <span class="telemetry-badge-good" id="pat-hud-prediction">GOOD</span>
               </div>
-              <div class="sidebar-tab-content">
-                <!-- Chat Tab -->
-                <div class="tab-pane active" id="pat-pane-chat">
-                  <div class="chat-history" id="pat-chat-box">
-                    <!-- Dynamic chat -->
+
+              <div class="doc-network-telemetry-grid">
+                <div class="tel-stat-item"><span>Latency</span><strong id="pat-hud-latency">19 ms</strong></div>
+                <div class="tel-stat-item"><span>Packet Loss</span><strong id="pat-hud-loss">0.2%</strong></div>
+                <div class="tel-stat-item"><span>FPS</span><strong id="pat-hud-fps">30</strong></div>
+                <div class="tel-stat-item"><span>Upload</span><strong id="pat-hud-upload">2.7</strong></div>
+                <div class="tel-stat-item"><span>Download</span><strong id="pat-hud-download">3.0</strong></div>
+                <div class="tel-stat-item"><span>Video Quality</span><strong id="pat-hud-rec">Excellent (1080p HD)</strong></div>
+              </div>
+
+              <!-- Auto Failover Pipeline Visualizer -->
+              <div class="telemetry-failover-pipeline">
+                <span class="failover-label">Auto Failover:</span>
+                <div class="pipeline-steps">
+                  <span class="pipeline-step step-good active" id="pat-failover-step-good">GOOD <small>720p HD</small></span>
+                  <span class="pipeline-arrow">➔</span>
+                  <span class="pipeline-step step-poor" id="pat-failover-step-poor">POOR <small>360p</small></span>
+                  <span class="pipeline-arrow">➔</span>
+                  <span class="pipeline-step step-critical" id="pat-failover-step-critical">CRITICAL <small>Audio Only</small></span>
+                </div>
+              </div>
+
+              <div class="telemetry-status-banner" id="pat-telemetry-status-text">
+                Full Video Active: All systems nominal. Video + Audio streaming.
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 2: Chat & Vitals Tabs -->
+          <div class="doc-col-chat">
+            <div class="doc-chat-card doc-sidebar-tab-box">
+              <div class="doc-chat-tabs-header doc-tab-switcher">
+                <button class="doc-tab-switcher-btn active" id="pat-tab-chat" onclick="switchCallTab('pat', 'chat')">💬 Chat</button>
+                <button class="doc-tab-switcher-btn" id="pat-tab-files" onclick="switchCallTab('pat', 'files')">🩺 Vitals</button>
+              </div>
+
+              <div class="doc-tab-body">
+                <!-- Chat Tab Pane -->
+                <div class="tab-pane active doc-chat-pane" id="pat-pane-chat">
+                  <div class="doc-chat-encryption-bar">
+                    <span class="doc-e2e-badge">🔒 E2E Encrypted</span>
                   </div>
-                  <div class="chat-input-bar">
-                    <input type="text" id="pat-chat-input" class="chat-input" placeholder="Type message..." onkeydown="if(event.key === 'Enter') sendChatMessage('pat')">
-                    <button class="chat-send-btn" onclick="sendChatMessage('pat')">➔</button>
+                  <div class="chat-history doc-chat-history" id="pat-chat-box">
+                    <!-- Dynamic chat bubbles -->
+                  </div>
+                  <div class="doc-chat-input-row">
+                    <input type="text" id="pat-chat-input" class="doc-chat-input" placeholder="Type a message..." onkeydown="if(event.key === 'Enter') sendChatMessage('pat')">
+                    <button class="doc-chat-send-btn" onclick="sendChatMessage('pat')" title="Send Message">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
                   </div>
                 </div>
-                <!-- Files Tab -->
-                <div class="tab-pane" id="pat-pane-files">
-                  <div class="shared-files-section" style="margin-bottom: 16px;">
-                    <h4>Consultation Vitals</h4>
-                    <div class="vitals-grid" style="grid-template-columns: repeat(2, 1fr); gap: 8px;" id="pat-call-vitals-box">
-                      <!-- Filled by JS -->
+
+                <!-- Vitals Tab Pane -->
+                <div class="tab-pane doc-files-pane" id="pat-pane-files">
+                  <div class="doc-vitals-card" style="border:none; padding:0; box-shadow:none; background:transparent;">
+                    <div class="doc-vital-tiles-grid" id="pat-call-vitals-box">
+                      <!-- Filled dynamically -->
                     </div>
                   </div>
-                  <div class="shared-files-section">
-                    <h4>Shared Images / Reports</h4>
-                    <div class="file-sharing-grid" id="pat-call-files-box">
-                      <!-- File lists -->
-                    </div>
-                  </div>
+                  <div class="file-sharing-grid" id="pat-call-files-box" style="margin-top: 12px;"></div>
                 </div>
               </div>
             </div>
-
           </div>
         </div>
+      </div>
       </div>
     </section>
 
@@ -1379,6 +1435,7 @@
                   <!-- Camera Permission Strip -->
                   <div class="cam-permission-strip" id="doc-cam-perm-strip" style="display: none;">
                     <span>🔒 Browser blocked camera. Showing Simulated Medical Feed.</span>
+                    <button class="strip-btn" onclick="window.retryRealWebcamFromModal()" style="margin-right: 6px;">🔄 Switch to Real Camera</button>
                     <button class="strip-btn" onclick="window.showCameraPermissionModal()">How to Allow ➔</button>
                   </div>
                   <div class="call-viewport doc-call-viewport" id="doc-viewport-container">

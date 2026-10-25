@@ -178,5 +178,93 @@ test("Consultation Slot Selection & Date Picker Verification", async (t) => {
     assert.equal(bookRes2.data.conflict, true);
   });
 
+  await t.test("6. Special Testing Schedule for Sunday, 25 October 2026: 06:00 to 22:00 in 15-min intervals", async () => {
+    const res = await makeRequest(testServer, "GET", "/api/slots?doctorId=doc-1&date=2026-10-25&all=true");
+    assert.equal(res.status, 200);
+    assert.equal(res.data.success, true);
+    assert.equal(res.data.selectedDate, "2026-10-25");
+    assert.ok(Array.isArray(res.data.slots));
+    assert.ok(res.data.slots.length > 0, "Sunday 25 October 2026 must have available slots for video testing");
+
+    const nowMs = Date.now();
+    const firstSlot = res.data.slots[0];
+    const lastSlot = res.data.slots[res.data.slots.length - 1];
+
+    // Verify all slots are strictly 15 minutes long and within 06:00 to 22:00
+    res.data.slots.forEach(slot => {
+      assert.equal(slot.date, "2026-10-25");
+      assert.equal(slot.durationMins, 15);
+      assert.ok(slot.startTime >= "06:00", `Slot start ${slot.startTime} must be >= 06:00`);
+      assert.ok(slot.endTime <= "22:00", `Slot end ${slot.endTime} must be <= 22:00`);
+      const slotEndEpoch = parseISTTime(slot.date, slot.endTime);
+      assert.ok(slotEndEpoch > nowMs, `Slot ${slot.slotId} must not be a finished/past slot`);
+    });
+
+    // Verify final interval ends at 22:00
+    assert.equal(lastSlot.endTime, "22:00", "Final slot of the day must end at 22:00 (10:00 PM)");
+    assert.equal(lastSlot.startTime, "21:45", "Final slot must be 21:45 - 22:00");
+  });
+
+  await t.test("7. Special Schedule strictly applies ONLY to Sunday, 25 October 2026", async () => {
+    // Next Sunday: 2026-11-01 must have 0 slots
+    const nextSundayRes = await makeRequest(testServer, "GET", "/api/slots?doctorId=doc-1&date=2026-11-01&all=true");
+    assert.equal(nextSundayRes.status, 200);
+    assert.equal(nextSundayRes.data.success, true);
+    assert.equal(nextSundayRes.data.slots.length, 0, "Other Sundays (e.g. 2026-11-01) must return 0 slots");
+
+    // Standard weekday: 2026-10-26 (Monday) must preserve normal schedule (09:00 - 17:00 with lunch break)
+    const mondayRes = await makeRequest(testServer, "GET", "/api/slots?doctorId=doc-1&date=2026-10-26&all=true");
+    assert.equal(mondayRes.status, 200);
+    assert.equal(mondayRes.data.success, true);
+    assert.ok(mondayRes.data.slots.length > 0);
+    mondayRes.data.slots.forEach(slot => {
+      assert.ok(slot.startTime >= "09:00", "Normal weekday slots start at 09:00");
+      assert.ok(slot.endTime <= "17:00", "Normal weekday slots end at 17:00");
+      assert.ok(slot.startTime < "13:00" || slot.startTime >= "14:00", "Must observe 13:00-14:00 lunch break");
+    });
+  });
+
+  await t.test("8. Patient can book video consultation slot on 2026-10-25 and appears on Doctor Dashboard", async () => {
+    const slotsRes = await makeRequest(testServer, "GET", "/api/slots?doctorId=doc-1&date=2026-10-25&all=true");
+    assert.ok(slotsRes.data.slots.length > 0);
+    const targetSlot = slotsRes.data.slots[0];
+
+    const patId = `pat-oct25-test-${Date.now()}`;
+    const token = `VIL-A-${Math.floor(100 + Math.random() * 900)}`;
+
+    // Create consultation request with recorded vitals
+    db.appointments.push({
+      token,
+      patientId: patId,
+      patientName: "Special Sunday Patient",
+      assignedDoctorId: "doc-1",
+      status: "Waiting for Doctor Queue",
+      vitals: { bpSys: 120, bpDia: 80, hr: 72, spo2: 98, temp: 98.6 }
+    });
+
+    const bookRes = await makeRequest(testServer, "POST", "/api/slots/book", {
+      doctorId: "doc-1",
+      patientId: patId,
+      patientName: "Special Sunday Patient",
+      date: targetSlot.date,
+      startTime: targetSlot.startTime,
+      endTime: targetSlot.endTime,
+      token
+    });
+
+    assert.equal(bookRes.status, 201, "Booking on 2026-10-25 must succeed");
+    assert.equal(bookRes.data.success, true);
+    assert.equal(bookRes.data.appointment.status, "Appointment Confirmed");
+    assert.equal(bookRes.data.appointment.scheduledDate, "2026-10-25");
+    assert.equal(bookRes.data.appointment.scheduledStartTime, targetSlot.startTime);
+
+    // Verify appointment is saved in db.appointments for the doctor dashboard
+    const savedApp = db.appointments.find(a => a.token === token);
+    assert.ok(savedApp);
+    assert.equal(savedApp.assignedDoctorId, "doc-1");
+    assert.equal(savedApp.status, "Appointment Confirmed");
+    assert.equal(savedApp.scheduledDate, "2026-10-25");
+  });
+
   testServer.close();
 });

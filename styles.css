@@ -3752,8 +3752,8 @@ body:has(#view-doctor.active),
 .doc-chat-input {
   flex: 1;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 7px 10px;
+  border-radius: 20px;
+  padding: 8px 14px;
   font-size: 12px;
   outline: none;
 }
@@ -3766,7 +3766,7 @@ body:has(#view-doctor.active),
   background-color: #2563eb;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 50%;
   width: 34px;
   height: 34px;
   display: flex;
@@ -3774,6 +3774,7 @@ body:has(#view-doctor.active),
   justify-content: center;
   cursor: pointer;
   transition: background-color 0.2s;
+  flex-shrink: 0;
 }
 
 .doc-chat-send-btn:hover {
@@ -3831,6 +3832,16 @@ body:has(#view-doctor.active),
 .tile-spo2 {
   background-color: #f0fdfa;
   border: 1px solid #99f6e4;
+}
+
+.tile-sugar {
+  background-color: #fdf2f8;
+  border: 1px solid #fbcfe8;
+}
+
+.tile-pain {
+  background-color: #f5f3ff;
+  border: 1px solid #ddd6fe;
 }
 
 .tile-icon-circle {

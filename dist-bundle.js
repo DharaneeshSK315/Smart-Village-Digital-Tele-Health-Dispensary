@@ -430,7 +430,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
   const authGuard = createAuthGuard();
 
   // Agora Audio State
-  let agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+  let agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
   let agoraClient = null;
   let localAudioTrack = null;
   let localVideoTrack = null;
@@ -646,9 +646,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
       return { stream, type: "hardware", hasAudio: true };
     } catch (err1) {
       console.warn("[Webcam] Attempt 1 (video+audio constraints) failed:", err1.name, err1.message);
-      if (err1.name === "NotAllowedError" || err1.name === "PermissionDeniedError") {
-        throw err1;
-      }
     }
 
     // Attempt 2: Bare video: true, audio: true
@@ -864,6 +861,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
         // User explicitly requested real camera
         if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
           showToast("Camera permission blocked. Click the 🔒 icon in your browser address bar to Allow Camera.", "warning");
+          if (typeof window.showCameraPermissionModal === "function") {
+            window.showCameraPermissionModal();
+          }
         } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
           showToast("No physical webcam detected on this device.", "warning");
         } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
@@ -1913,14 +1913,13 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Load Agora Config
     agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
     if (!agoraConfig || !agoraConfig.appid) {
-      agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+      agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
       localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
     }
 
-    // Retry the bundled Agora configuration after an earlier client-side failure.
-    if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.enabled) {
-      agoraConfig.enabled = true;
-      delete agoraConfig.lastFail;
+    // Placeholder Agora App ID is not a real Agora Cloud project; disable to avoid gateway errors
+    if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94") {
+      agoraConfig.enabled = false;
       localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
     }
 
@@ -4290,6 +4289,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     docCallStartTime = Date.now();
     const timerEl = document.getElementById("doc-call-timer");
     if (timerEl) timerEl.innerText = "⏱ 00:00:00";
+    const patTimerEl = document.getElementById("pat-call-timer");
+    if (patTimerEl) patTimerEl.innerText = "⏱ 00:00:00";
 
     docCallTimerInterval = setInterval(() => {
       if (!activeCall) {
@@ -4300,8 +4301,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
       const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, "0");
       const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, "0");
       const secs = String(elapsedSec % 60).padStart(2, "0");
+      const timeFormatted = `⏱ ${hrs}:${mins}:${secs}`;
       const el = document.getElementById("doc-call-timer");
-      if (el) el.innerText = `⏱ ${hrs}:${mins}:${secs}`;
+      if (el) el.innerText = timeFormatted;
+      const patEl = document.getElementById("pat-call-timer");
+      if (patEl) patEl.innerText = timeFormatted;
     }, 1000);
   }
 
@@ -4312,6 +4316,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     }
     const el = document.getElementById("doc-call-timer");
     if (el) el.innerText = "⏱ 00:00:00";
+    const patEl = document.getElementById("pat-call-timer");
+    if (patEl) patEl.innerText = "⏱ 00:00:00";
   }
 
   window.startDoctorConsultation = function(token) {
@@ -4577,6 +4583,30 @@ var VillageMed = (function (exports, React, ReactDOM) {
     console.log("[Patient] Initializing call state with token:", activeApp.token);
     initSimulatedCallState(activeApp.token, "patient");
     
+    // Populate consultation header and tags for patient suite
+    const docName = activeApp.doctorName || "Dr. Abinesh V";
+    const docSpec = activeApp.specialty || "MD, General Medicine";
+    const patName = activeApp.patientName || (currentUser ? currentUser.name : "Sarah Mitchell");
+
+    const docEl = document.getElementById("pat-session-doctor-name");
+    if (docEl) docEl.innerText = docName;
+    const specEl = document.getElementById("pat-session-doctor-spec");
+    if (specEl) specEl.innerText = docSpec;
+    const tagEl = document.getElementById("pat-call-tag-name");
+    if (tagEl) tagEl.innerText = patName;
+    const pipEl = document.getElementById("pat-pip-label");
+    if (pipEl) pipEl.innerText = docName;
+    const audioDocName = document.getElementById("pat-call-doc-audio-name");
+    if (audioDocName) audioDocName.innerText = `${docName} (Audio-Only Mode)`;
+    const initialsEl = document.getElementById("pat-doctor-initials");
+    if (initialsEl) {
+      const initials = docName.replace(/^Dr\.\s*/i, "").split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+      initialsEl.innerText = initials || "AV";
+    }
+
+    // Start live consultation call timer
+    startDocCallTimer();
+
     activeCallCard.style.display = "none";
     telehealthBox.style.display = "block";
     telehealthBox.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4608,7 +4638,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
   function shouldUseAgora() {
     if (!agoraConfig || !agoraConfig.appid) return false;
-    return agoraConfig.enabled && !agoraConfig.lastFail;
+    const isPlaceholder = agoraConfig.appid.trim() === "aab8b3f972274fcb87cc25048d089e94";
+    return Boolean(agoraConfig.enabled && !agoraConfig.lastFail && !isPlaceholder);
   }
 
   function startCallLoop() {
@@ -4703,33 +4734,82 @@ var VillageMed = (function (exports, React, ReactDOM) {
     if (!vitalsContainer || !filesContainer) return;
 
     const app = db.appointments.find(a => a.token === activeCall.token);
-    if (!app || !app.vitals) return;
+    const vitals = (app && app.vitals) ? app.vitals : { hr: 75, temp: 98.6, bpSystolic: 120, bpDiastolic: 80, spo2: 98, sugar: 110, pain: 0 };
+
+    if (role === "pat") {
+      vitalsContainer.innerHTML = `
+      <div class="doc-vital-tile tile-hr">
+        <div class="tile-icon-circle">❤️</div>
+        <div class="tile-meta">
+          <span class="tile-label">Heart Rate</span>
+          <div class="tile-value"><strong>${vitals.hr || 75}</strong> <small>bpm</small></div>
+        </div>
+      </div>
+      <div class="doc-vital-tile tile-temp">
+        <div class="tile-icon-circle">🌡️</div>
+        <div class="tile-meta">
+          <span class="tile-label">Temperature</span>
+          <div class="tile-value"><strong>${vitals.temp || 98.6}</strong> <small>°F</small></div>
+        </div>
+      </div>
+      <div class="doc-vital-tile tile-bp">
+        <div class="tile-icon-circle">🩺</div>
+        <div class="tile-meta">
+          <span class="tile-label">Blood Pressure</span>
+          <div class="tile-value"><strong>${vitals.bpSystolic || 120}/${vitals.bpDiastolic || 80}</strong> <small>mmHg</small></div>
+        </div>
+      </div>
+      <div class="doc-vital-tile tile-spo2">
+        <div class="tile-icon-circle">🫁</div>
+        <div class="tile-meta">
+          <span class="tile-label">SpO2</span>
+          <div class="tile-value"><strong>${vitals.spo2 || 98}</strong> <small>%</small></div>
+        </div>
+      </div>
+      <div class="doc-vital-tile tile-sugar">
+        <div class="tile-icon-circle">🩸</div>
+        <div class="tile-meta">
+          <span class="tile-label">Blood Sugar</span>
+          <div class="tile-value"><strong>${vitals.sugar || 110}</strong> <small>mg/dL</small></div>
+        </div>
+      </div>
+      <div class="doc-vital-tile tile-pain">
+        <div class="tile-icon-circle">⚡</div>
+        <div class="tile-meta">
+          <span class="tile-label">Pain Level</span>
+          <div class="tile-value"><strong>${vitals.pain !== undefined ? vitals.pain : 0}</strong> <small>/10</small></div>
+        </div>
+      </div>
+    `;
+      renderCallFiles();
+      return;
+    }
 
     vitalsContainer.innerHTML = `
     <div class="vital-box">
       <span class="vital-label">Blood Pressure</span>
-      <div class="vital-value">${app.vitals.bpSystolic}/${app.vitals.bpDiastolic} <span>mmHg</span></div>
+      <div class="vital-value">${vitals.bpSystolic}/${vitals.bpDiastolic} <span>mmHg</span></div>
     </div>
     <div class="vital-box">
       <span class="vital-label">Blood Sugar</span>
-      <div class="vital-value">${app.vitals.sugar} <span>mg/dL</span></div>
+      <div class="vital-value">${vitals.sugar} <span>mg/dL</span></div>
     </div>
     <div class="vital-box">
       <span class="vital-label">SpO2</span>
-      <div class="vital-value">${app.vitals.spo2} <span>%</span></div>
+      <div class="vital-value">${vitals.spo2} <span>%</span></div>
     </div>
     <div class="vital-box">
       <span class="vital-label">Heart Rate</span>
-      <div class="vital-value">${app.vitals.hr} <span>BPM</span></div>
+      <div class="vital-value">${vitals.hr} <span>BPM</span></div>
     </div>
   `;
 
     // Apply visual warning classes inside tabs
     const boxes = vitalsContainer.querySelectorAll(".vital-box");
-    evaluateTriageUrgency(app.vitals);
-    
-    if (app.vitals.spo2 < 92) boxes[2].classList.add("abnormal");
-    if (app.vitals.bpSystolic > 140) boxes[0].classList.add("warning");
+    if (boxes.length >= 4) {
+      if (vitals.spo2 < 92) boxes[2].classList.add("abnormal");
+      if (vitals.bpSystolic > 140) boxes[0].classList.add("warning");
+    }
 
     // Files list
     renderCallFiles();
@@ -5035,9 +5115,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
     activeCall.autoFluctuate = !activeCall.autoFluctuate;
 
     const btnText = document.getElementById("doc-auto-fluctuate-indicator");
+    const patBtnText = document.getElementById("pat-auto-fluctuate-indicator");
 
     if (activeCall.autoFluctuate) {
-      btnText.innerText = "🔄 Auto-Fluctuate: ON";
+      if (btnText) btnText.innerText = "🔄 Auto-Fluctuate: ON";
+      if (patBtnText) patBtnText.innerText = "🔄 Auto-Fluctuate: ON";
       showToast("Automatic bandwidth fluctuation enabled. Monitoring network environment...", "info");
       
       let step = 0;
@@ -5051,7 +5133,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
         simulateNetworkChange(qualities[step]);
       }, 15000); // changes every 15s
     } else {
-      btnText.innerText = "🔄 Auto-Fluctuate: OFF";
+      if (btnText) btnText.innerText = "🔄 Auto-Fluctuate: OFF";
+      if (patBtnText) patBtnText.innerText = "🔄 Auto-Fluctuate: OFF";
       clearInterval(fluctuationTimer);
       simulateNetworkChange("good");
     }
@@ -5283,13 +5366,17 @@ var VillageMed = (function (exports, React, ReactDOM) {
         btn.innerText = "📷";
       }
 
-      if (localWebcamStream && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
+      if (localWebcamStream && !localWebcamStream._isVirtual && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
         localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
         if (localContainer) localContainer.style.display = "block";
         if (localCanvas) localCanvas.style.display = "none";
         showToast("Camera turned ON", "info");
       } else {
-        await initNativeWebcam(role);
+        // User requested camera activation: attempt real hardware webcam acquisition
+        const resStream = await initNativeWebcam(role, true);
+        if (resStream && !resStream._isVirtual) {
+          showToast("Real webcam connected! Live video active.", "success");
+        }
         if (peerConnection && localWebcamStream) {
           const videoTrack = localWebcamStream.getVideoTracks()[0];
           if (videoTrack) {
@@ -6110,6 +6197,11 @@ var VillageMed = (function (exports, React, ReactDOM) {
   }
 
   async function joinAgoraRoomInternal(role) {
+    if (!shouldUseAgora()) {
+      console.info("[Agora] Agora audio skipped (disabled or unconfigured). Direct WebRTC peer connection active.");
+      return;
+    }
+
     if (typeof AgoraRTC === "undefined") {
       showToast("Agora Web SDK failed to load. Check internet or ad-blocker.", "danger");
       return;
@@ -6222,7 +6314,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       agoraClient.on("connection-state-change", (curState, revState) => {
         if (curState === "DISCONNECTED" || curState === "FAILED") {
-          showToast("Agora audio connection lost. Reconnecting voice link...", "danger");
+          if (!agoraConfig.lastFail) {
+            console.warn("[AGORA] Connection state change:", curState);
+          }
         } else if (curState === "CONNECTED") {
           showToast("Agora audio connection established.", "success");
         }
@@ -6339,6 +6433,10 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     } catch (err) {
       console.error("Agora Audio Error:", err);
+      agoraConfig.lastFail = true;
+      agoraConfig.enabled = false;
+      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+
       if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
         console.warn("Agora permission issue detected", err);
       }
@@ -6351,13 +6449,12 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       const invalidKey = err.message && (err.message.includes("invalid vendor key") || err.message.includes("can not find appid") || err.message.includes("invalid App ID") || err.message.includes("invalid appid"));
       if (invalidKey) {
-        showToast("Invalid Agora App ID detected. Please verify your App ID in the Agora console and re-save the config.", "danger");
-        console.error("Agora invalid vendor key error detected", err);
+        console.warn("Agora App ID is unconfigured or invalid. Seamlessly using direct peer audio & video.");
+        showToast("Agora unconfigured. Using high-quality direct peer audio & video.", "info");
+      } else {
+        console.warn("Agora audio connection issue:", err);
+        showToast(`Agora Audio: ${err.message || "Connection error"}. Using direct peer audio.`, "info");
       }
-
-      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-      console.warn("Agora audio connection issue:", err);
-      showToast(`Agora Audio: ${err.message || "Connection error"}.`, "warning");
     }
   }
 
@@ -6532,7 +6629,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     const viewport = document.getElementById(`${role}-viewport-container`);
     if (viewport) {
-      const roleSpecificClass = role === "doc" ? "doc-call-viewport" : "";
+      const roleSpecificClass = (role === "doc" || role === "pat") ? "doc-call-viewport" : "";
       viewport.className = `call-viewport ${roleSpecificClass} ${state.class}`.trim();
     }
 
@@ -6590,6 +6687,32 @@ var VillageMed = (function (exports, React, ReactDOM) {
     if (docLabel) {
       docLabel.innerText = `${state.label} • ${statusText}`;
     }
+
+    // Update failover pipeline steps and telemetry status banner for both doc and pat
+    ["doc", "pat"].forEach(prefix => {
+      const stepGood = document.getElementById(prefix === "doc" ? "failover-step-good" : "pat-failover-step-good");
+      const stepPoor = document.getElementById(prefix === "doc" ? "failover-step-poor" : "pat-failover-step-poor");
+      const stepCritical = document.getElementById(prefix === "doc" ? "failover-step-critical" : "pat-failover-step-critical");
+      const statusBanner = document.getElementById(`${prefix}-telemetry-status-text`);
+
+      const q = activeCall.networkQuality;
+      if (stepGood && stepPoor && stepCritical) {
+        stepGood.classList.remove("active");
+        stepPoor.classList.remove("active");
+        stepCritical.classList.remove("active");
+
+        if (q === "excellent" || q === "good") {
+          stepGood.classList.add("active");
+          if (statusBanner) statusBanner.innerText = "Full Video Active: All systems nominal. Video + Audio streaming.";
+        } else if (q === "critical") {
+          stepCritical.classList.add("active");
+          if (statusBanner) statusBanner.innerText = "Severe Degradation: Dynamic audio-only failover enabled. Video disabled.";
+        } else {
+          stepPoor.classList.add("active");
+          if (statusBanner) statusBanner.innerText = "Bandwidth Constrained: Adaptive 360p video compression active to maintain link.";
+        }
+      }
+    });
   }
 
   window.showCameraPermissionModal = function() {
@@ -6640,9 +6763,20 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const modal = document.getElementById("cam-perm-modal-overlay");
     if (modal) modal.remove();
     showToast("Requesting physical webcam access...", "info");
-    const role = activeCall ? activeCall.role : "doctor";
+    const role = activeCall ? activeCall.role : "patient";
     const stream = await initNativeWebcam(role, true);
     if (stream && !stream._isVirtual) {
+      if (peerConnection && localWebcamStream) {
+        const videoTrack = localWebcamStream.getVideoTracks()[0];
+        if (videoTrack) {
+          const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
+          if (sender) {
+            sender.replaceTrack(videoTrack).catch(() => {});
+          } else {
+            peerConnection.addTrack(videoTrack, localWebcamStream);
+          }
+        }
+      }
       showToast("Real webcam connected successfully!", "success");
       updateNetworkUI();
     }
@@ -7676,10 +7810,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
     return false;
   }
 
-  // Client-side genuine 15-minute consultation slot generator (Offline, GitHub Pages & local fallback)
-  function generateClientAvailableSlots(doctorId = "doc-1", targetDate = null) {
-    const doc = (db.doctors || []).find(d => d.id === doctorId) || (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS.find(d => d.id === doctorId) : null) || { name: "Dr. Abinesh V", specialty: "General Medicine" };
-    const schedule = (db.doctorSchedules || {})[doctorId] || {
+  // Client doctor schedule resolver with special testing support for Sunday, 25 October 2026
+  function getClientDoctorScheduleForDate(doctorId, dateStr) {
+    const baseSchedule = (db.doctorSchedules || {})[doctorId] || {
       workStart: "09:00",
       workEnd: "17:00",
       breaks: [{ start: "13:00", end: "14:00" }],
@@ -7687,18 +7820,39 @@ var VillageMed = (function (exports, React, ReactDOM) {
       slotDurationMins: 15
     };
 
-    const slotDurationMins = Number(schedule.slotDurationMins) || 15;
-    const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
+    // Special schedule strictly for Sunday, 25 October 2026 only
+    if (dateStr === "2026-10-25") {
+      if (Array.isArray(baseSchedule.workDays) && !baseSchedule.workDays.includes(0) && !baseSchedule.workDays.includes(6)) {
+        return baseSchedule;
+      }
+      return {
+        workStart: "06:00",
+        workEnd: "22:00",
+        breaks: [],
+        workDays: [0, 1, 2, 3, 4, 5, 6],
+        slotDurationMins: 15,
+        isSpecialTestSchedule: true
+      };
+    }
+
+    return baseSchedule;
+  }
+
+  // Client-side genuine 15-minute consultation slot generator (Offline, GitHub Pages & local fallback)
+  function generateClientAvailableSlots(doctorId = "doc-1", targetDate = null) {
+    const doc = (db.doctors || []).find(d => d.id === doctorId) || (typeof DEFAULT_DOCTORS !== "undefined" ? DEFAULT_DOCTORS.find(d => d.id === doctorId) : null) || { name: "Dr. Abinesh V", specialty: "General Medicine" };
     const nowMs = Date.now();
-    const searchFromMs = nowMs + 5 * 60 * 1000;
     const todayIST = getTodayISTDate();
 
     // Helper to generate slots for a single date
     function getSlotsForDay(dateStr, limit = 100) {
       if (!dateStr || dateStr < todayIST) return [];
       const dow = getClientDayOfWeekIST(dateStr);
+      const schedule = getClientDoctorScheduleForDate(doctorId, dateStr);
       if (!schedule.workDays.includes(dow)) return [];
 
+      const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+      const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
       const workStartMs = parseClientISTTime(dateStr, schedule.workStart);
       const workEndMs = parseClientISTTime(dateStr, schedule.workEnd);
       const daySlots = [];
@@ -7707,8 +7861,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
       while (cursor + SLOT_DURATION_MS <= workEndMs && daySlots.length < limit) {
         const slotEnd = cursor + SLOT_DURATION_MS;
 
-        // Skip past slots today
-        if (dateStr === todayIST && cursor < searchFromMs) {
+        // Skip if slot has already finished today (do not display past slots)
+        if (dateStr === todayIST && slotEnd <= nowMs) {
           cursor = slotEnd;
           continue;
         }
@@ -7763,7 +7917,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
       const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + offset, 12, 0, 0));
       const dateStr = targetDay.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
       const dow = getClientDayOfWeekIST(dateStr);
-      if (!schedule.workDays.includes(dow)) continue;
+      const daySchedule = getClientDoctorScheduleForDate(doctorId, dateStr);
+      if (!daySchedule.workDays.includes(dow)) continue;
 
       const daySlots = getSlotsForDay(dateStr, 100);
       const [yy, mm, dd] = dateStr.split("-").map(Number);
@@ -7824,7 +7979,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
         window.activeConsultationRequestToken = consultationToken;
       }
 
-      const selectedDate = targetDate || currentPatientSelectedDate;
+      const selectedDate = targetDate || currentPatientSelectedDate || getTodayISTDate();
       const dateQuery = selectedDate ? `&date=${encodeURIComponent(selectedDate)}` : '';
       let data = null;
 

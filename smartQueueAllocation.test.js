@@ -10,7 +10,8 @@ const {
   getDayOfWeekIST,
   isSlotConflicting,
   generateAvailableSlots,
-  getAIAdvisory
+  getAIAdvisory,
+  DEFAULT_DOCTOR_SCHEDULES
 } = require("./server.js");
 
 // Helper to perform HTTP requests against the Express app
@@ -49,6 +50,9 @@ test("Smart Consultation Queue & Appointment Allocation System", async (t) => {
   let testServer = null;
 
   t.before(async () => {
+    // Reset doctor schedules to defaults
+    db.doctorSchedules = JSON.parse(JSON.stringify(DEFAULT_DOCTOR_SCHEDULES));
+
     // Clean up any test artifacts from prior runs
     db.appointments = (db.appointments || []).filter(
       a => !a.patientId?.startsWith("pat-test-") && !a.patientId?.startsWith("pat-resched-") && !a.patientId?.startsWith("pat-cancel-") && !a.patientId?.startsWith("pat-flow-")
@@ -99,19 +103,24 @@ test("Smart Consultation Queue & Appointment Allocation System", async (t) => {
       assert.ok(slot.endTime);
       assert.ok(slot.date);
 
-      // Verify slot is never within break hours (13:00 to 14:00)
-      assert.ok(
-        slot.startTime < "13:00" || slot.startTime >= "14:00",
-        `Slot ${slot.startTime} must not overlap with break period 13:00-14:00`
-      );
+      if (slot.date === "2026-10-25") {
+        // Special testing date 2026-10-25: 06:00 to 22:00
+        assert.ok(slot.startTime >= "06:00", `Slot start ${slot.startTime} must be >= 06:00`);
+        assert.ok(slot.endTime <= "22:00", `Slot end ${slot.endTime} must be <= 22:00`);
+      } else {
+        // Standard schedule: not during break (13:00 to 14:00)
+        assert.ok(
+          slot.startTime < "13:00" || slot.startTime >= "14:00",
+          `Slot ${slot.startTime} must not overlap with break period 13:00-14:00`
+        );
+        // Verify slot is within normal working hours (09:00 to 17:00)
+        assert.ok(slot.startTime >= "09:00", `Slot start ${slot.startTime} must be >= 09:00`);
+        assert.ok(slot.endTime <= "17:00", `Slot end ${slot.endTime} must be <= 17:00`);
 
-      // Verify slot is within working hours (09:00 to 17:00)
-      assert.ok(slot.startTime >= "09:00", `Slot start ${slot.startTime} must be >= 09:00`);
-      assert.ok(slot.endTime <= "17:00", `Slot end ${slot.endTime} must be <= 17:00`);
-
-      // Verify slot is not on Sunday (day 0)
-      const day = getDayOfWeekIST(slot.date);
-      assert.notEqual(day, 0, "Slot must not fall on Sunday");
+        // Verify slot is not on general Sunday (day 0)
+        const day = getDayOfWeekIST(slot.date);
+        assert.notEqual(day, 0, "Slot must not fall on Sunday");
+      }
     });
   });
 

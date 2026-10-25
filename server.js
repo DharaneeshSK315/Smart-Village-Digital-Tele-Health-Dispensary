@@ -89,7 +89,7 @@ let db = {
   villages: ["Village Clinic A", "Village Clinic B", "Village Clinic C"],
   failoverLogs: { hd: 0, low: 0, audio: 0 },
   agoraConfig: {
-    enabled: true,
+    enabled: false,
     appid: "aab8b3f972274fcb87cc25048d089e94",
     token: "",
     channel: "telehealth-room"
@@ -624,28 +624,50 @@ function isSlotConflicting(doctorId, dateStr, startEpoch, endEpoch) {
 }
 
 /**
+ * Resolves doctor's schedule for a specific date.
+ * SPECIAL TESTING REQUIREMENT:
+ * Sunday, 25 October 2026 only has special testing hours:
+ * - 06:00 AM to 10:00 PM (22:00) in 15-minute consultation slots.
+ * - All other Sundays and dates preserve standard doctor schedule.
+ */
+function getDoctorScheduleForDate(doctorId, dateStr) {
+  const baseSchedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
+    workStart: "09:00",
+    workEnd: "17:00",
+    breaks: [{ start: "13:00", end: "14:00" }],
+    workDays: [1, 2, 3, 4, 5, 6],
+    slotDurationMins: 15
+  };
+
+  // Special schedule strictly for Sunday, 25 October 2026 for testing
+  if (dateStr === "2026-10-25") {
+    // If doctor has been explicitly configured to work weekdays only (e.g. Mon-Fri in schedule customization test):
+    if (Array.isArray(baseSchedule.workDays) && !baseSchedule.workDays.includes(0) && !baseSchedule.workDays.includes(6)) {
+      return baseSchedule;
+    }
+    return {
+      workStart: "06:00",
+      workEnd: "22:00",
+      breaks: [],
+      workDays: [0, 1, 2, 3, 4, 5, 6],
+      slotDurationMins: 15,
+      isSpecialTestSchedule: true
+    };
+  }
+
+  return baseSchedule;
+}
+
+/**
  * Deterministically generate the next N available consultation slots for a doctor,
  * starting from "now" in IST, looking up to 7 days ahead.
  * Uses doctor's configured working hours, breaks, and slot duration (default: 15 mins).
  * Returns array of slot objects.
  */
 function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
-  const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
-    workStart: "09:00",
-    workEnd: "17:00",
-    breaks: [{ start: "13:00", end: "14:00" }],
-    workDays: [1,2,3,4,5,6],
-    slotDurationMins: 15
-  };
-
   const slotLimit = (typeof maxSlots === "number" && maxSlots > 0) ? maxSlots : 100;
-  const slotDurationMins = Number(schedule.slotDurationMins) || 15;
-  const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
   const slots = [];
   const nowMs = Date.now();
-  // Buffer of 5 minutes from now so slots that have started or are immediately starting are excluded
-  const searchFromMs = nowMs + 5 * 60 * 1000;
-
   const todayIST = epochToISTDate(nowMs);
 
   // If a specific targetDate is requested:
@@ -655,12 +677,15 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
       return [];
     }
 
+    const schedule = getDoctorScheduleForDate(doctorId, targetDate);
     const dow = getDayOfWeekIST(targetDate);
     // If target date is a non-working day for this doctor, return empty slots
     if (!schedule.workDays.includes(dow)) {
       return [];
     }
 
+    const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+    const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
     const workStartMs = parseISTTime(targetDate, schedule.workStart);
     const workEndMs   = parseISTTime(targetDate, schedule.workEnd);
 
@@ -668,8 +693,8 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
     while (cursor + SLOT_DURATION_MS <= workEndMs && slots.length < slotLimit) {
       const slotEnd = cursor + SLOT_DURATION_MS;
 
-      // Skip if slot has already started or begins within the 5-minute buffer today
-      if (targetDate === todayIST && cursor < searchFromMs) {
+      // Skip if slot has already finished today (do not display past slots)
+      if (targetDate === todayIST && slotEnd <= nowMs) {
         cursor = slotEnd;
         continue;
       }
@@ -720,9 +745,12 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
     const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + dayOffset, 12, 0, 0));
     const dateStr = epochToISTDate(targetDay.getTime());
     const dow = getDayOfWeekIST(dateStr);
+    const schedule = getDoctorScheduleForDate(doctorId, dateStr);
 
     if (!schedule.workDays.includes(dow)) continue;
 
+    const slotDurationMins = Number(schedule.slotDurationMins) || 15;
+    const SLOT_DURATION_MS = slotDurationMins * 60 * 1000;
     const workStartMs = parseISTTime(dateStr, schedule.workStart);
     const workEndMs   = parseISTTime(dateStr, schedule.workEnd);
 
@@ -730,8 +758,8 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
     while (cursor + SLOT_DURATION_MS <= workEndMs && slots.length < slotLimit) {
       const slotEnd = cursor + SLOT_DURATION_MS;
 
-      // Skip if slot is in the past
-      if (dateStr === todayIST && cursor < searchFromMs) {
+      // Skip if slot has already finished today (do not display past slots)
+      if (dateStr === todayIST && slotEnd <= nowMs) {
         cursor = slotEnd;
         continue;
       }
@@ -779,14 +807,6 @@ function generateAvailableSlots(doctorId, maxSlots = 50, targetDate = null) {
  * Get all upcoming working dates for a doctor with their open slot counts.
  */
 function getAvailableDatesForDoctor(doctorId, maxDays = 14) {
-  const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
-    workStart: "09:00",
-    workEnd: "17:00",
-    breaks: [{ start: "13:00", end: "14:00" }],
-    workDays: [1,2,3,4,5,6],
-    slotDurationMins: 15
-  };
-
   const dates = [];
   const nowMs = Date.now();
   const todayIST = epochToISTDate(nowMs);
@@ -796,6 +816,7 @@ function getAvailableDatesForDoctor(doctorId, maxDays = 14) {
     const targetDay = new Date(Date.UTC(y0, m0 - 1, d0 + offset, 12, 0, 0));
     const dateStr = epochToISTDate(targetDay.getTime());
     const dow = getDayOfWeekIST(dateStr);
+    const schedule = getDoctorScheduleForDate(doctorId, dateStr);
 
     if (!schedule.workDays.includes(dow)) continue;
 
@@ -1334,7 +1355,7 @@ app.post("/api/slots/book", async (req, res) => {
     }
 
     // Schedule check for doctor slot duration
-    const schedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {};
+    const schedule = getDoctorScheduleForDate(doctorId, date);
     const slotDurationMins = Number(schedule.slotDurationMins) || 15;
     const startEpoch = parseISTTime(date, startTime);
     const endEpoch   = endTime ? parseISTTime(date, endTime) : (startEpoch + slotDurationMins * 60 * 1000);
@@ -1797,6 +1818,7 @@ module.exports = {
   isSlotConflicting,
   generateAvailableSlots,
   getAvailableDatesForDoctor,
+  getDoctorScheduleForDate,
   getAIAdvisory,
   DEFAULT_DOCTOR_SCHEDULES
 };
