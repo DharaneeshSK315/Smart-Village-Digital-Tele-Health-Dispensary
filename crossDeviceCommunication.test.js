@@ -1,297 +1,397 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("http");
-const express = require("express");
-const { Server } = require("socket.io");
-const { io: Client } = require("socket.io-client");
+const { io: ioClient } = require("socket.io-client");
+const { app, server, db } = require("./server.js");
+const { classifyChatBubble, canReceiveChatMessage } = require("./consultationChat.js");
 
-test("Cross-Device Tele-Health Communication Architecture", async (t) => {
-  // 1. Setup isolated test server on dynamic port
-  const app = express();
-  app.use(express.json());
-  const server = http.createServer(app);
-  const io = new Server(server, { cors: { origin: "*" } });
+function makeRequest(serverInstance, method, path, body = null) {
+  return new Promise((resolve, reject) => {
+    const address = serverInstance.address();
+    const port = address.port;
+    const postData = body ? JSON.stringify(body) : "";
 
-  const testDb = {
-    appointments: [],
-    consultations: []
-  };
-
-  io.on("connection", (socket) => {
-    socket.on("join_role", ({ role, userId }) => {
-      if (role) socket.join(`role:${role}`);
-      if (userId) socket.join(`user:${userId}`);
-    });
-
-    socket.on("join_consultation", ({ token }) => {
-      if (token) socket.join(`consultation:${token}`);
-    });
-
-    socket.on("token_requested", (payload) => {
-      const appData = payload && payload.appointment ? payload.appointment : payload;
-      testDb.appointments.push(appData);
-      io.to("role:vhw").to("role:doctor").emit("token_requested", {
-        token: appData.token,
-        appointment: appData
+    const req = http.request({
+      hostname: "127.0.0.1",
+      port,
+      path,
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(postData)
+      }
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => { data += chunk; });
+      res.on("end", () => {
+        let json = null;
+        try { json = JSON.parse(data); } catch (e) { json = data; }
+        resolve({ status: res.statusCode, headers: res.headers, data: json });
       });
-      io.emit("appointments_updated", testDb.appointments);
     });
 
-    socket.on("vitals_recorded", (payload) => {
-      const { token, vitals, urgency, patientId } = payload;
-      const idx = testDb.appointments.findIndex(a => a.token === token);
-      if (idx >= 0) {
-        testDb.appointments[idx].vitals = vitals;
-        testDb.appointments[idx].urgency = urgency;
-      }
-      io.to("role:doctor").emit("patient_added_to_queue", {
-        token,
-        urgency,
-        appointment: idx >= 0 ? testDb.appointments[idx] : null
+    req.on("error", reject);
+    if (postData) req.write(postData);
+    req.end();
+  });
+}
+
+test("Multi-Device Cross-Communication Architecture & Workflows", async (t) => {
+  let testServer = null;
+  let serverPort = null;
+  let socketUrl = null;
+
+  // Sockets representing separate physical laptops/devices
+  let laptopPatientA = null;  // Laptop A: Patient 1 (pat-device-a)
+  let laptopVhwB = null;      // Laptop B: Village Health Worker (vhw-1)
+  let laptopDoctorC = null;   // Laptop C: Doctor (doc-1)
+  let laptopPatientD = null;  // Laptop D: Patient 2 (pat-device-d)
+
+  const token = "VIL-TEST-CROSS-901";
+  const patAId = "pat-device-a";
+  const patAName = "Suresh Patel";
+  const patDId = "pat-device-d";
+  const patDName = "Meera Kumari";
+  const doctorId = "doc-1";
+  const doctorName = "Dr. Vikram";
+
+  t.before(async () => {
+    // Clean up test records
+    db.appointments = (db.appointments || []).filter(
+      a => a.token !== token && !a.patientId?.startsWith("pat-device-")
+    );
+
+    await new Promise((resolve) => {
+      testServer = server.listen(0, "127.0.0.1", () => {
+        serverPort = testServer.address().port;
+        socketUrl = `http://127.0.0.1:${serverPort}`;
+        resolve();
       });
-      if (patientId) {
-        io.to(`user:${patientId}`).emit("vitals_recorded", { token, vitals, urgency });
-      }
     });
 
-    socket.on("consultation_requested", (payload) => {
-      const { token, doctorId, doctorName, patientId } = payload;
-      const idx = testDb.appointments.findIndex(a => a.token === token);
-      if (idx >= 0) testDb.appointments[idx].status = "Active";
-      io.to(`user:${patientId}`).to(`consultation:${token}`).emit("consultation_requested", payload);
-    });
+    // 1. Laptop A: Patient 1
+    laptopPatientA = ioClient(socketUrl, { transports: ["websocket"], forceNew: true });
+    await new Promise(r => laptopPatientA.on("connect", r));
+    laptopPatientA.emit("join_role", { role: "patient", userId: patAId, userName: patAName });
 
-    socket.on("consultation_accepted", (payload) => {
-      io.to(`consultation:${payload.token}`).to("role:doctor").emit("consultation_accepted", payload);
-    });
+    // 2. Laptop B: Health Worker
+    laptopVhwB = ioClient(socketUrl, { transports: ["websocket"], forceNew: true });
+    await new Promise(r => laptopVhwB.on("connect", r));
+    laptopVhwB.emit("join_role", { role: "vhw", userId: "vhw-1", userName: "Nurse Anjali" });
 
-    socket.on("chat_message", (payload) => {
-      const msg = payload && payload.chatMsg ? payload.chatMsg : payload;
-      if (!msg || !msg.consultationId) return;
-      if (msg.senderRole === "ai" || msg.sender === "ai") return; // reject AI bot
-      const idx = testDb.appointments.findIndex(a => a.token === msg.consultationId);
-      if (idx >= 0) {
-        if (!testDb.appointments[idx].chat) testDb.appointments[idx].chat = [];
-        testDb.appointments[idx].chat.push(msg);
-      }
-      socket.to(`consultation:${msg.consultationId}`).emit("chat_message", msg);
-    });
+    // 3. Laptop C: Doctor
+    laptopDoctorC = ioClient(socketUrl, { transports: ["websocket"], forceNew: true });
+    await new Promise(r => laptopDoctorC.on("connect", r));
+    laptopDoctorC.emit("join_role", { role: "doctor", userId: doctorId, userName: doctorName });
 
-    socket.on("peer_signal", (data) => {
-      const targetToken = data.senderToken || data.token;
-      if (targetToken) {
-        socket.to(`consultation:${targetToken}`).emit("peer_signal", data);
-      }
-    });
+    // 4. Laptop D: Patient 2 (for multi-user isolation tests)
+    laptopPatientD = ioClient(socketUrl, { transports: ["websocket"], forceNew: true });
+    await new Promise(r => laptopPatientD.on("connect", r));
+    laptopPatientD.emit("join_role", { role: "patient", userId: patDId, userName: patDName });
 
-    socket.on("consultation_ended", (payload) => {
-      const idx = testDb.appointments.findIndex(a => a.token === payload.token);
-      if (idx >= 0) testDb.appointments[idx].status = "Completed";
-      io.to(`consultation:${payload.token}`).emit("consultation_ended", payload);
-    });
+    await new Promise(r => setTimeout(r, 60));
   });
 
-  await new Promise((resolve) => server.listen(0, resolve));
-  const port = server.address().port;
-  const serverUrl = `http://localhost:${port}`;
+  t.after(async () => {
+    if (laptopPatientA) laptopPatientA.disconnect();
+    if (laptopVhwB) laptopVhwB.disconnect();
+    if (laptopDoctorC) laptopDoctorC.disconnect();
+    if (laptopPatientD) laptopPatientD.disconnect();
+    if (testServer) {
+      await new Promise(r => testServer.close(r));
+    }
+  });
 
-  // 2. Connect 3 simulated clients representing 3 distinct physical devices
-  const clientPatient = Client(serverUrl);
-  const clientHw = Client(serverUrl);
-  const clientDoctor = Client(serverUrl);
-
-  await Promise.all([
-    new Promise(r => clientPatient.on("connect", r)),
-    new Promise(r => clientHw.on("connect", r)),
-    new Promise(r => clientDoctor.on("connect", r))
-  ]);
-
-  clientPatient.emit("join_role", { role: "patient", userId: "pat-999" });
-  clientHw.emit("join_role", { role: "vhw", userId: "vhw-1" });
-  clientDoctor.emit("join_role", { role: "doctor", userId: "doc-1" });
-
-  await new Promise(r => setTimeout(r, 50));
-
-  await t.test("Patient token request is delivered to Health Worker and Doctor in real time", async () => {
-    const token = "VIL-A-789";
+  // =========================================================================
+  // TEST CASE 1: Patient to Health Worker (Cross-Device Token Request)
+  // =========================================================================
+  await t.test("Test Case 1: Patient token request appears on Health Worker dashboard without page refresh", async () => {
     const booking = {
       token,
-      patientId: "pat-999",
-      patientName: "Ramesh Kumar",
-      symptoms: "High fever and persistent cough",
+      consultationRequestId: token,
+      patientId: patAId,
+      patientName: patAName,
+      assignedDoctorId: doctorId,
+      symptoms: "High fever, mild dehydration",
       urgency: "Normal",
-      status: "Waiting"
+      status: "Vitals Pending",
+      vitals: null
     };
 
-    const hwReceivedPromise = new Promise((resolve) => {
-      clientHw.once("token_requested", (data) => resolve(data));
+    const vhwReceivedPromise = new Promise((resolve) => {
+      laptopVhwB.once("token_requested", (data) => resolve(data));
     });
 
-    clientPatient.emit("token_requested", { appointment: booking });
+    // Patient emits token_requested from Laptop A
+    laptopPatientA.emit("token_requested", { appointment: booking });
 
-    const received = await hwReceivedPromise;
+    const received = await vhwReceivedPromise;
     assert.equal(received.token, token);
-    assert.equal(received.appointment.patientName, "Ramesh Kumar");
-    assert.equal(testDb.appointments.length, 1);
+    assert.equal(received.appointment.patientName, patAName);
+
+    // Confirm stored in shared backend database
+    const saved = db.appointments.find(a => a.token === token);
+    assert.ok(saved, "Appointment must be persisted in shared database");
+    assert.equal(saved.status, "Vitals Pending");
   });
 
-  await t.test("Health worker vitals recording reaches Doctor queue and Patient dashboard", async () => {
-    const token = "VIL-A-789";
-    const vitals = { bpSystolic: 135, bpDiastolic: 88, hr: 82, spo2: 97, temp: 101.2 };
+  // =========================================================================
+  // TEST CASE 2: Health Worker to Doctor (Cross-Device Vitals & Queue Triage)
+  // =========================================================================
+  await t.test("Test Case 2: Health worker vitals recording updates shared DB and reaches Doctor Queue", async () => {
+    const vitalsData = {
+      bpSystolic: 128,
+      bpDiastolic: 84,
+      bp: "128/84",
+      temp: 38.2,
+      temperature: 38.2,
+      hr: 82,
+      pulse: 82,
+      spo2: 97,
+      sugar: 115,
+      pain: 2
+    };
 
     const docQueuePromise = new Promise((resolve) => {
-      clientDoctor.once("patient_added_to_queue", (data) => resolve(data));
+      laptopDoctorC.once("patient_added_to_queue", (data) => resolve(data));
     });
 
     const patVitalsPromise = new Promise((resolve) => {
-      clientPatient.once("vitals_recorded", (data) => resolve(data));
+      laptopPatientA.once("vitals_recorded", (data) => resolve(data));
     });
 
-    clientHw.emit("vitals_recorded", {
+    // Health worker on Laptop B submits vitals via REST API
+    const res = await makeRequest(testServer, "POST", "/api/vitals", {
       token,
-      vitals,
-      urgency: "High Warning",
-      patientId: "pat-999"
+      patientId: patAId,
+      vitals: vitalsData,
+      urgency: "Moderate",
+      specialty: "General Medicine"
     });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.data.success, true);
 
     const [docData, patData] = await Promise.all([docQueuePromise, patVitalsPromise]);
     assert.equal(docData.token, token);
-    assert.equal(docData.urgency, "High Warning");
+    assert.equal(docData.status, "Waiting for Doctor Queue");
     assert.equal(patData.token, token);
-    assert.equal(patData.vitals.spo2, 97);
+
+    // Verify stored in shared database
+    const appRecord = db.appointments.find(a => a.token === token);
+    assert.equal(appRecord.status, "Waiting for Doctor Queue");
+    assert.equal(appRecord.vitals.spo2, 97);
   });
 
-  await t.test("Doctor 'Start Call' triggers real-time consultation_requested on Patient device", async () => {
-    const token = "VIL-A-789";
-
+  // =========================================================================
+  // TEST CASE 3: Doctor to Patient (Call Request, Acceptance & Agora Video/Audio)
+  // =========================================================================
+  await t.test("Test Case 3: Doctor starts consultation -> Patient receives incoming call -> Agora token generated", async () => {
     const patCallPromise = new Promise((resolve) => {
-      clientPatient.once("consultation_requested", (data) => resolve(data));
+      laptopPatientA.once("consultation_requested", (data) => resolve(data));
     });
 
-    clientDoctor.emit("consultation_requested", {
+    // Doctor on Laptop C clicks "Start Call"
+    laptopDoctorC.emit("consultation_requested", {
       token,
-      doctorId: "doc-1",
-      doctorName: "Dr. Vikram",
-      patientId: "pat-999"
+      doctorId,
+      doctorName,
+      patientId: patAId
     });
 
     const callReq = await patCallPromise;
     assert.equal(callReq.token, token);
-    assert.equal(callReq.doctorName, "Dr. Vikram");
-    assert.equal(testDb.appointments[0].status, "Active");
-  });
+    assert.equal(callReq.doctorName, doctorName);
+    assert.equal(callReq.patientId, patAId);
 
-  await t.test("Patient 'Join Consultation' triggers consultation_accepted on Doctor device", async () => {
-    const token = "VIL-A-789";
-    clientPatient.emit("join_consultation", { token, role: "patient" });
-    clientDoctor.emit("join_consultation", { token, role: "doctor" });
+    // Patient on Laptop A joins the consultation room
+    laptopPatientA.emit("join_consultation", { token, role: "patient", userId: patAId });
+    laptopDoctorC.emit("join_consultation", { token, role: "doctor", userId: doctorId });
 
     await new Promise(r => setTimeout(r, 40));
 
+    // Patient accepts call -> Doctor receives consultation_accepted
     const docAcceptedPromise = new Promise((resolve) => {
-      clientDoctor.once("consultation_accepted", (data) => resolve(data));
+      laptopDoctorC.once("consultation_accepted", (data) => resolve(data));
     });
 
-    clientPatient.emit("consultation_accepted", {
+    laptopPatientA.emit("consultation_accepted", {
       token,
-      patientId: "pat-999",
-      patientName: "Ramesh Kumar"
+      patientId: patAId,
+      patientName: patAName
     });
 
     const accepted = await docAcceptedPromise;
     assert.equal(accepted.token, token);
-    assert.equal(accepted.patientName, "Ramesh Kumar");
+    assert.equal(accepted.patientName, patAName);
+
+    // Verify Agora token endpoint generates valid scoped room credentials without leaking secrets
+    const agoraRes = await makeRequest(testServer, "GET", `/api/agora/token?channel=telehealth-${token}&role=patient&token=${token}&userId=${patAId}`);
+    assert.equal(agoraRes.status, 200);
+    assert.equal(agoraRes.data.success, true);
+    assert.equal(agoraRes.data.channel, `telehealth-${token}`);
+    assert.ok(agoraRes.data.token, "Agora token must be generated");
+    assert.ok(agoraRes.data.appid, "Agora App ID must be present");
+    assert.equal(agoraRes.data.appCertificate, undefined, "Server secret AGORA_APP_CERTIFICATE must NEVER be leaked to client");
   });
 
-  await t.test("Doctor and Patient exchange two-way real-time chat messages across devices", async () => {
-    const token = "VIL-A-789";
-
-    // 1. Doctor to Patient
+  // =========================================================================
+  // TEST CASE 4: Doctor-Patient Chat (Real-time Messaging & Database Persistence)
+  // =========================================================================
+  await t.test("Test Case 4: Doctor and Patient exchange two-way chat messages and persist in DB", async () => {
+    // 1. Doctor sends message to Patient
     const docMsg = {
-      id: "msg_doc_101",
+      id: "msg_doc_cross_1",
       consultationId: token,
-      senderId: "doc-1",
-      senderName: "Dr. Vikram",
+      senderId: doctorId,
+      senderName: doctorName,
       senderRole: "doctor",
-      text: "Hello Ramesh, I see your vitals. How are you feeling?",
-      time: "10:30 AM",
+      text: "Hello Suresh, I have reviewed your temperature reading of 38.2 C. How are you feeling right now?",
+      time: "10:45 AM",
       timestamp: Date.now()
     };
 
     const patReceivePromise = new Promise((resolve) => {
-      clientPatient.once("chat_message", (msg) => resolve(msg));
+      laptopPatientA.once("chat_message", (msg) => resolve(msg));
     });
 
-    clientDoctor.emit("chat_message", docMsg);
+    laptopDoctorC.emit("chat_message", docMsg);
     const patReceived = await patReceivePromise;
     assert.equal(patReceived.id, docMsg.id);
     assert.equal(patReceived.text, docMsg.text);
-    assert.equal(patReceived.senderRole, "doctor");
 
-    // 2. Patient to Doctor
-    const patReply = {
-      id: "msg_pat_102",
+    // Verify UI classification: For Patient A, doctor's message is a peer message (on left side)
+    const patClassification = classifyChatBubble(patReceived, patAId, "patient");
+    assert.equal(patClassification.isSelf, false, "Doctor message should be peer message for Patient");
+    assert.ok(patClassification.rowClass.includes("justify-start"), "Peer message must appear on the left");
+
+    // 2. Patient replies to Doctor
+    const patMsg = {
+      id: "msg_pat_cross_2",
       consultationId: token,
-      senderId: "pat-999",
-      senderName: "Ramesh Kumar",
+      senderId: patAId,
+      senderName: patAName,
       senderRole: "patient",
-      text: "Doctor, I have had fever and chills since yesterday.",
-      time: "10:31 AM",
-      timestamp: Date.now()
+      text: "Doctor, I am feeling shivering and body aches since this morning.",
+      time: "10:46 AM",
+      timestamp: Date.now() + 100
     };
 
     const docReceivePromise = new Promise((resolve) => {
-      clientDoctor.once("chat_message", (msg) => resolve(msg));
+      laptopDoctorC.once("chat_message", (msg) => resolve(msg));
     });
 
-    clientPatient.emit("chat_message", patReply);
+    laptopPatientA.emit("chat_message", patMsg);
     const docReceived = await docReceivePromise;
-    assert.equal(docReceived.id, patReply.id);
-    assert.equal(docReceived.text, patReply.text);
-    assert.equal(docReceived.senderRole, "patient");
+    assert.equal(docReceived.id, patMsg.id);
+    assert.equal(docReceived.text, patMsg.text);
 
-    // 3. Messages persisted in appointment
-    assert.equal(testDb.appointments[0].chat.length, 2);
+    // Verify UI classification: For Doctor, doctor's message is self (on right), patient's message is peer (on left)
+    const docBubbleClass = classifyChatBubble(docMsg, doctorId, "doctor");
+    assert.equal(docBubbleClass.isSelf, true, "Doctor's own message must appear on the right");
+    assert.ok(docBubbleClass.rowClass.includes("justify-end"));
+
+    // 3. Confirm both messages are permanently persisted in the shared database
+    const appInDb = db.appointments.find(a => a.token === token);
+    assert.ok(appInDb.chat, "Chat array must exist on appointment");
+    assert.equal(appInDb.chat.length, 2, "Both messages must be saved in shared database");
+    assert.equal(appInDb.chat[0].id, docMsg.id);
+    assert.equal(appInDb.chat[1].id, patMsg.id);
+
+    // 4. Test page refresh / state re-fetch restores messages
+    const dbRes = await makeRequest(testServer, "GET", "/api/db");
+    assert.equal(dbRes.status, 200);
+    const restoredApp = dbRes.data.db.appointments.find(a => a.token === token);
+    assert.ok(restoredApp, "Appointment must be retrievable from /api/db");
+    assert.equal(restoredApp.chat.length, 2, "Saved chat messages must be available after refresh");
   });
 
-  await t.test("WebRTC signaling (peer_signal) relays across devices", async () => {
-    const token = "VIL-A-789";
-    const sdpOffer = {
-      type: "description",
-      senderToken: token,
-      senderRole: "doctor",
-      description: { type: "offer", sdp: "v=0\r\no=- 123456 2 IN IP4 127.0.0.1..." }
+  // =========================================================================
+  // TEST CASE 5: Multiple Users Isolation (No Cross-Patient Contamination)
+  // =========================================================================
+  await t.test("Test Case 5: Consultation requests and personal vitals do NOT leak to unrelated patients", async () => {
+    let patDReceivedCall = false;
+    let patDReceivedVitals = false;
+
+    laptopPatientD.on("consultation_requested", (data) => {
+      if (data.token === token) patDReceivedCall = true;
+    });
+
+    laptopPatientD.on("vitals_recorded", (data) => {
+      if (data.token === token) patDReceivedVitals = true;
+    });
+
+    // Trigger a call to Patient A
+    laptopDoctorC.emit("consultation_requested", {
+      token,
+      doctorId,
+      doctorName,
+      patientId: patAId
+    });
+
+    // Record vitals for Patient A via API
+    await makeRequest(testServer, "POST", "/api/vitals", {
+      token,
+      patientId: patAId,
+      vitals: { bpSystolic: 120, bpDiastolic: 80, hr: 75, spo2: 98, temp: 36.8 },
+      urgency: "Normal"
+    });
+
+    await new Promise(r => setTimeout(r, 100));
+
+    // Patient D (Laptop D) should NOT have received Patient A's incoming call or personal vitals!
+    assert.equal(patDReceivedCall, false, "Patient 2 must NOT receive incoming consultation requests intended for Patient 1");
+    assert.equal(patDReceivedVitals, false, "Patient 2 must NOT receive personal vitals events of Patient 1");
+  });
+
+  // =========================================================================
+  // TEST CASE 6: Disconnection and Recovery
+  // =========================================================================
+  await t.test("Test Case 6: Disconnected client restores latest data, chat, and status upon reconnection", async () => {
+    // 1. Laptop A temporarily disconnects (simulating internet drop)
+    laptopPatientA.disconnect();
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(laptopPatientA.connected, false, "Patient A must be disconnected");
+
+    // 2. While Patient A is offline, doctor completes consultation and writes prescription
+    const consultationData = {
+      id: token,
+      token,
+      date: "2026-10-25",
+      patientId: patAId,
+      patientName: patAName,
+      doctorName,
+      diagnosis: "Acute Viral Bronchitis",
+      advice: "Adequate rest, hydration, steam inhalation",
+      medicines: "Paracetamol 650mg TDS",
+      status: "completed"
     };
 
-    const patSdpPromise = new Promise((resolve) => {
-      clientPatient.once("peer_signal", (data) => resolve(data));
-    });
-
-    clientDoctor.emit("peer_signal", sdpOffer);
-    const receivedSdp = await patSdpPromise;
-    assert.equal(receivedSdp.senderToken, token);
-    assert.equal(receivedSdp.description.type, "offer");
-  });
-
-  await t.test("Consultation ended is broadcast to all participants", async () => {
-    const token = "VIL-A-789";
-    const patEndedPromise = new Promise((resolve) => {
-      clientPatient.once("consultation_ended", (data) => resolve(data));
-    });
-
-    clientDoctor.emit("consultation_ended", {
+    laptopDoctorC.emit("consultation_ended", {
       token,
-      consultation: { id: "con-101", token, diagnosis: "Acute Viral Fever" }
+      consultation: consultationData
     });
 
-    const ended = await patEndedPromise;
-    assert.equal(ended.token, token);
-    assert.equal(testDb.appointments[0].status, "Completed");
-  });
+    await new Promise(r => setTimeout(r, 100));
 
-  // Cleanup
-  clientPatient.disconnect();
-  clientHw.disconnect();
-  clientDoctor.disconnect();
-  await new Promise(r => server.close(r));
+    // 3. Patient A reconnects to internet
+    laptopPatientA.connect();
+    await new Promise(r => laptopPatientA.on("connect", r));
+    laptopPatientA.emit("join_role", { role: "patient", userId: patAId, userName: patAName });
+
+    // 4. Client retrieves latest database state from /api/db upon reconnection
+    const syncRes = await makeRequest(testServer, "GET", "/api/db");
+    assert.equal(syncRes.status, 200);
+
+    const recoveredApp = syncRes.data.db.appointments.find(a => a.token === token);
+    assert.ok(recoveredApp, "Appointment must exist after reconnection");
+    assert.equal(recoveredApp.status, "Completed", "Latest status must be restored to Completed");
+
+    const recoveredCon = syncRes.data.db.consultations.find(c => c.token === token || c.id === token);
+    assert.ok(recoveredCon, "Consultation record must be restored");
+    assert.equal(recoveredCon.diagnosis, "Acute Viral Bronchitis");
+
+    // Saved chat messages are still preserved
+    assert.equal(recoveredApp.chat.length, 2, "Chat history must not be lost upon reconnection");
+  });
 });

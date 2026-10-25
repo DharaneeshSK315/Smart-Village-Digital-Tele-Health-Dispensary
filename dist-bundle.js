@@ -319,6 +319,25 @@ var VillageMed = (function (exports, React, ReactDOM) {
     };
   }
 
+  function mergeChatMessages(existingChat = [], incomingMessages = []) {
+    const list = Array.isArray(incomingMessages) ? incomingMessages : [incomingMessages];
+    const cleanList = filterCleanChat(list);
+    const cleanExisting = filterCleanChat(existingChat);
+    const map = new Map();
+
+    cleanExisting.forEach(m => {
+      if (m && m.id) map.set(m.id, m);
+    });
+
+    cleanList.forEach(m => {
+      if (m && m.id && !map.has(m.id)) {
+        map.set(m.id, m);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  }
+
   // Expose React and useState globally for interoperability
   if (typeof window !== 'undefined') {
     window.React = React;
@@ -963,27 +982,67 @@ var VillageMed = (function (exports, React, ReactDOM) {
   let appSocket = null;
   let isSocketConnecting = false;
 
+  const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-telehealth.onrender.com";
+
   function getBackendUrl() {
+    // 1. Check URL query parameters: ?backend=... or ?server=...
+    if (typeof window !== "undefined" && window.location && window.location.search) {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const queryBackend = params.get("backend") || params.get("server");
+        if (queryBackend && queryBackend.trim()) {
+          const cleaned = queryBackend.trim().replace(/\/+$/, "");
+          try {
+            if (typeof localStorage !== "undefined") {
+              localStorage.setItem("telehealth_backend_url", cleaned);
+            }
+          } catch (e) {}
+          return cleaned;
+        }
+      } catch (e) {}
+    }
+
+    // 2. Custom override explicitly saved in localStorage
     const custom = (typeof localStorage !== "undefined") ? localStorage.getItem("telehealth_backend_url") : null;
     if (custom && custom.trim()) {
       return custom.trim().replace(/\/+$/, "");
     }
 
+    // 3. Global window variable override
+    if (typeof window !== "undefined") {
+      const winBackend = window.__BACKEND_URL__ || window.BACKEND_URL || window.TELEHEALTH_BACKEND_URL;
+      if (winBackend && typeof winBackend === "string" && winBackend.trim()) {
+        return winBackend.trim().replace(/\/+$/, "");
+      }
+    }
+
+    // 4. Bundler environment variable (Vite)
     if (typeof ({ url: (_documentCurrentScript && _documentCurrentScript.tagName.toUpperCase() === 'SCRIPT' && _documentCurrentScript.src || new URL('dist-bundle.js', document.baseURI).href) }) !== "undefined" && undefined && undefined.VITE_BACKEND_URL) {
       return undefined.VITE_BACKEND_URL.replace(/\/+$/, "");
     }
 
+    // 5. Context-aware auto-discovery in browser environment
     if (typeof window !== "undefined") {
       const loc = window.location;
-      // Don't treat local file:/// URLs as web origin
       if (loc.protocol !== "file:") {
-        // Served directly by Node/Express server on Render / Railway or port 3001
-        if (loc.port === "3001" || (!loc.port && !loc.hostname.includes("github.io"))) {
+        const isStaticHost = loc.hostname.includes("github.io") || 
+                             loc.hostname.includes("vercel.app") || 
+                             loc.hostname.includes("netlify.app") || 
+                             loc.hostname.includes("pages.dev");
+
+        // Deployed Node/Express backend directly serving frontend (Render, Railway, Fly.io, or port 3001)
+        if (loc.port === "3001" || (!loc.port && !isStaticHost)) {
           return loc.origin;
         }
-        // Accessing via LAN IP on local Wi-Fi (e.g. 192.168.x.x:5173 or 10.x.x.x:5173)
-        if (loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1" && !loc.hostname.includes("github.io")) {
+
+        // LAN IP on local Wi-Fi (e.g. 192.168.x.x:5173 or 10.x.x.x:5173) -> connect to backend on port 3001
+        if (loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1" && !isStaticHost) {
           return `http://${loc.hostname}:3001`;
+        }
+
+        // When hosted on an HTTPS static host (e.g. GitHub Pages, Vercel), avoid blocked mixed-content to http://localhost
+        if (isStaticHost && loc.protocol === "https:") {
+          return DEFAULT_PRODUCTION_BACKEND_URL;
         }
       }
     }
@@ -1097,6 +1156,16 @@ var VillageMed = (function (exports, React, ReactDOM) {
         if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
         localStorage.setItem("telehealth_db", JSON.stringify(db));
         console.info("[DB] Centralized database state synced from backend.");
+
+        // Restore and merge active consultation chat messages upon reconnection
+        if (activeCall && activeCall.token) {
+          const currentActiveApp = (db.appointments || []).find(a => a.token === activeCall.token);
+          if (currentActiveApp && Array.isArray(currentActiveApp.chat)) {
+            activeCall.chat = mergeChatMessages(activeCall.chat || [], currentActiveApp.chat);
+            syncChatBox();
+          }
+        }
+
         if (!skipDashboardRefresh) {
           refreshCurrentDashboard();
         }
@@ -1211,13 +1280,19 @@ var VillageMed = (function (exports, React, ReactDOM) {
           saveDB();
         }
         if (currentRole === "patient") {
-          sendBrowserAndAppNotification(
-            "Consultation Ready for Scheduling",
-            "Your consultation is ready for scheduling. Please select one of the available appointment slots.",
-            "info"
+          const isCurrentPatient = currentUser && (
+            currentUser.id === data.patientId ||
+            (data.appointment && data.appointment.patientId === currentUser.id)
           );
-          showToast("Your consultation is ready for scheduling. Please select one of the available appointment slots.", "success");
-          loadPatientDashboard();
+          if (isCurrentPatient) {
+            sendBrowserAndAppNotification(
+              "Consultation Ready for Scheduling",
+              "Your consultation is ready for scheduling. Please select one of the available appointment slots.",
+              "info"
+            );
+            showToast("Your consultation is ready for scheduling. Please select one of the available appointment slots.", "success");
+            loadPatientDashboard();
+          }
         } else if (currentRole === "doctor") {
           renderDoctorQueue();
           renderDoctorAppointments();
@@ -1229,7 +1304,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
       // 4. Consultation Requested (Doctor clicked "Start Call" -> Patient receives incoming call!)
       appSocket.on("consultation_requested", (data) => {
         console.info("[Socket] consultation_requested received:", data);
-        playConsultationChime();
 
         if (data && data.token) {
           let app = db.appointments.find(a => a.token === data.token);
@@ -1254,6 +1328,17 @@ var VillageMed = (function (exports, React, ReactDOM) {
         }
 
         if (currentRole === "patient") {
+          const isTargetPatient = currentUser && (
+            currentUser.id === data.patientId ||
+            (data.appointment && data.appointment.patientId === currentUser.id) ||
+            (currentUser.name && data.appointment && data.appointment.patientName === currentUser.name)
+          );
+          if (!isTargetPatient) {
+            console.info("[Socket] Ignoring incoming call not addressed to this patient session.");
+            return;
+          }
+
+          playConsultationChime();
           showToast(`Incoming Consultation Call from ${data.doctorName || "Doctor"}!`, "success");
           loadPatientDashboard();
           const card = document.getElementById("pat-active-call-card");
@@ -3474,7 +3559,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     // Persist vitals to server API
     try {
-      await fetch("/api/vitals", {
+      const backend = getBackendUrl();
+      await fetch(`${backend}/api/vitals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6609,7 +6695,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
       let token = (agoraConfig.token || "").trim() || null;
 
       try {
-        const tokenRes = await fetch(`/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(consultationId)}&userId=${encodeURIComponent(currentUser ? currentUser.id : 'user')}`);
+        const backend = getBackendUrl();
+        const tokenRes = await fetch(`${backend}/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(consultationId)}&userId=${encodeURIComponent(currentUser ? currentUser.id : 'user')}`);
         if (tokenRes.ok) {
           const tokenData = await tokenRes.json();
           if (tokenData.channel) channel = tokenData.channel;
@@ -7867,9 +7954,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       // 1. Try calling the backend API if we have an active server (and not on static github.io where /api returns HTML)
       try {
         const backend = getBackendUrl();
-        const apiUrl = (backend && !window.location.hostname.includes("github.io")) 
-          ? `${backend}/api/consultations/request` 
-          : `/api/consultations/request`;
+        const apiUrl = `${backend}/api/consultations/request`;
 
         const res = await fetch(apiUrl, {
           method: "POST",
@@ -8014,7 +8099,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
   // Check screening status manually for patient
   window.checkPatientVitalsStatus = async function() {
     try {
-      const res = await fetch("/api/consultations");
+      const backend = getBackendUrl();
+      const res = await fetch(`${backend}/api/consultations`);
       const contentType = res.headers.get("content-type") || "";
       if (res.ok && contentType.includes("application/json")) {
         const data = await res.json();
@@ -8261,9 +8347,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       try {
         const backend = getBackendUrl();
-        const apiUrl = (backend && !window.location.hostname.includes("github.io"))
-          ? `${backend}/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`
-          : `/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`;
+        const apiUrl = `${backend}/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`;
 
         const res = await fetch(apiUrl);
         const contentType = res.headers.get("content-type") || "";
@@ -8845,9 +8929,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       let resStatus = 0;
       try {
         const backend = getBackendUrl();
-        const apiUrl = (backend && !window.location.hostname.includes("github.io")) 
-          ? `${backend}/api/slots/book` 
-          : `/api/slots/book`;
+        const apiUrl = `${backend}/api/slots/book`;
 
         const res = await fetch(apiUrl, {
           method: "POST",
@@ -9012,9 +9094,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
       let data = null;
       try {
         const backend = getBackendUrl();
-        const apiUrl = (backend && !window.location.hostname.includes("github.io"))
-          ? `${backend}/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`
-          : `/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`;
+        const apiUrl = `${backend}/api/slots?doctorId=${encodeURIComponent(doctorId)}&all=true${dateQuery}`;
 
         const res = await fetch(apiUrl);
         const contentType = res.headers.get("content-type") || "";
@@ -9103,7 +9183,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     try {
       let data = null;
       try {
-        const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(activeApp.assignedDoctorId || 'doc-1')}`);
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/slots?doctorId=${encodeURIComponent(activeApp.assignedDoctorId || 'doc-1')}`);
         const contentType = res.headers.get("content-type") || "";
         if (res.ok && contentType.includes("application/json")) {
           data = await res.json();
@@ -9171,7 +9252,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
       let data = null;
       let resStatus = 200;
       try {
-        const res = await fetch(`/api/appointments/${encodeURIComponent(activeApp.token)}/reschedule`, {
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/appointments/${encodeURIComponent(activeApp.token)}/reschedule`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ newSlot: selectedPatientRescheduleSlot })
@@ -9257,9 +9339,10 @@ var VillageMed = (function (exports, React, ReactDOM) {
     saveDB();
 
     // Call server cancel endpoint for each token
+    const backend = getBackendUrl();
     for (const token of tokensToCancel) {
       try {
-        await fetch(`/api/appointments/${encodeURIComponent(token)}/cancel`, {
+        await fetch(`${backend}/api/appointments/${encodeURIComponent(token)}/cancel`, {
           method: "POST",
           headers: { "Content-Type": "application/json" }
         });
@@ -9291,7 +9374,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const doctorId = (doctorSelect && doctorSelect.value) ? doctorSelect.value : ((currentUser && currentUser.role === "doctor") ? currentUser.id : "doc-1");
 
     try {
-      const res = await fetch(`/api/doctor/schedule/${encodeURIComponent(doctorId)}`);
+      const backend = getBackendUrl();
+      const res = await fetch(`${backend}/api/doctor/schedule/${encodeURIComponent(doctorId)}`);
       const contentType = res.headers.get("content-type") || "";
       if (!res.ok || !contentType.includes("application/json")) return;
       const data = await res.json();
@@ -9375,7 +9459,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     try {
       let data = null;
       try {
-        const res = await fetch(`/api/doctor/schedule/${encodeURIComponent(doctorId)}`, {
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/doctor/schedule/${encodeURIComponent(doctorId)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -9426,7 +9511,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     try {
       let data = null;
       try {
-        const res = await fetch(`/api/slots?doctorId=${encodeURIComponent(app.assignedDoctorId || 'doc-1')}`);
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/slots?doctorId=${encodeURIComponent(app.assignedDoctorId || 'doc-1')}`);
         const contentType = res.headers.get("content-type") || "";
         if (res.ok && contentType.includes("application/json")) {
           data = await res.json();
@@ -9489,7 +9575,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
       let data = null;
       let resStatus = 200;
       try {
-        const res = await fetch(`/api/appointments/${encodeURIComponent(doctorRescheduleTargetToken)}/reschedule`, {
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/appointments/${encodeURIComponent(doctorRescheduleTargetToken)}/reschedule`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ newSlot: selectedDoctorRescheduleSlot })
@@ -9551,7 +9638,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     try {
       let data = null;
       try {
-        const res = await fetch(`/api/appointments/${encodeURIComponent(token)}/cancel`, {
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/appointments/${encodeURIComponent(token)}/cancel`, {
           method: "POST",
           headers: { "Content-Type": "application/json" }
         });
@@ -9684,7 +9772,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
     autoSyncInterval = setInterval(async () => {
       if (document.hidden) return;
       try {
-        const res = await fetch("/api/appointments");
+        const backend = getBackendUrl();
+        const res = await fetch(`${backend}/api/appointments`);
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok || !contentType.includes("application/json")) return;
         const data = await res.json();
@@ -9721,6 +9810,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
   }
   initTelehealthAutoSync();
 
+  exports.DEFAULT_PRODUCTION_BACKEND_URL = DEFAULT_PRODUCTION_BACKEND_URL;
   exports.PatientConsultationSlotsComponent = PatientConsultationSlotsComponent;
   exports.getBackendUrl = getBackendUrl;
   exports.usePatientSlotState = usePatientSlotState;

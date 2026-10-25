@@ -95,10 +95,10 @@ let db = {
   villages: ["Village Clinic A", "Village Clinic B", "Village Clinic C"],
   failoverLogs: { hd: 0, low: 0, audio: 0 },
   agoraConfig: {
-    enabled: false,
-    appid: "aab8b3f972274fcb87cc25048d089e94",
-    token: "",
-    channel: "telehealth-room"
+    enabled: process.env.AGORA_ENABLED === "true" || false,
+    appid: process.env.AGORA_APP_ID || "aab8b3f972274fcb87cc25048d089e94",
+    token: process.env.AGORA_TOKEN || "",
+    channel: process.env.AGORA_CHANNEL || "telehealth-room"
   },
   doctorSchedules: JSON.parse(JSON.stringify(DEFAULT_DOCTOR_SCHEDULES)),
   bookedSlots: []  // [{ slotId, doctorId, date, startTime, endTime, token, patientId, patientName, status }]
@@ -356,18 +356,19 @@ io.on("connection", (socket) => {
       const updatedApp = db.appointments[idx];
       const targetPatientId = (updatedApp && updatedApp.patientId) ? updatedApp.patientId : patientId;
 
-      // Target the patient device directly via user room, role:patient room, and consultation room
-      io.to("role:patient")
-        .to(`user:${targetPatientId}`)
-        .to(`consultation:${token}`)
-        .emit("consultation_requested", {
-          token,
-          doctorId,
-          doctorName: doctorName || "Doctor",
-          patientId: targetPatientId,
-          appointment: updatedApp,
-          timestamp: Date.now()
-        });
+      // Target the patient device directly via personal room and consultation room (prevent cross-patient alerts)
+      const targetEmitter = targetPatientId
+        ? io.to(`user:${targetPatientId}`).to(`consultation:${token}`)
+        : io.to(`consultation:${token}`).to("role:patient");
+
+      targetEmitter.emit("consultation_requested", {
+        token,
+        doctorId,
+        doctorName: doctorName || "Doctor",
+        patientId: targetPatientId,
+        appointment: updatedApp,
+        timestamp: Date.now()
+      });
 
       io.emit("appointments_updated", db.appointments);
     } catch (err) {
@@ -1213,8 +1214,9 @@ app.post("/api/vitals", (req, res) => {
     };
     if (appRecord.patientId) {
       io.to(`user:${appRecord.patientId}`).emit("vitals_recorded", vitalsEventPayload);
+    } else {
+      io.to(`consultation:${appRecord.token}`).emit("vitals_recorded", vitalsEventPayload);
     }
-    io.emit("vitals_recorded", vitalsEventPayload);
 
     io.emit("appointments_updated", db.appointments);
     res.json({ success: true, appointment: appRecord, token: appRecord.token });
@@ -1785,10 +1787,10 @@ app.get("/api/agora/token", (req, res) => {
   try {
     const { channel, role, token: appToken, userId } = req.query;
     const roomChannel = channel || (appToken ? `telehealth-${appToken}` : db.agoraConfig.channel || "telehealth-room");
-    const appid = db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
+    const appid = process.env.AGORA_APP_ID || db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
 
     const crypto = require("crypto");
-    const secret = "vm-telehealth-dispensary-secure-key-2026";
+    const secret = process.env.AGORA_APP_CERTIFICATE || "vm-telehealth-dispensary-secure-key-2026";
     const expireTimestamp = Math.floor(Date.now() / 1000) + 7200; // 2 hour validity
     const uidStr = String(userId || `${role || "user"}_${Math.floor(Math.random() * 10000)}`);
     const serverSignature = crypto.createHmac("sha256", secret)
@@ -1799,7 +1801,7 @@ app.get("/api/agora/token", (req, res) => {
       success: true,
       appid,
       channel: roomChannel,
-      token: db.agoraConfig.token || serverSignature,
+      token: process.env.AGORA_TOKEN || db.agoraConfig.token || serverSignature,
       uid: uidStr,
       role: role || "patient",
       consultationToken: appToken || null,
@@ -1854,12 +1856,23 @@ if (fs.existsSync(distPath)) {
 // START SERVER
 // -------------------------------------------------------------
 if (require.main === module) {
+  const os = require("os");
   server.listen(PORT, "0.0.0.0", () => {
     console.log("=================================================================");
     console.log(`  Smart Village Tele-Health Shared Server is RUNNING`);
     console.log(`  Port: ${PORT}`);
     console.log(`  Local: http://localhost:${PORT}`);
-    console.log(`  Network: Listening on 0.0.0.0:${PORT} for cross-device access`);
+    try {
+      const nets = os.networkInterfaces();
+      for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+          if (net.family === "IPv4" && !net.internal) {
+            console.log(`  LAN Access (Wi-Fi/Network): http://${net.address}:${PORT}`);
+          }
+        }
+      }
+    } catch (e) {}
+    console.log(`  Cloud: Listening on 0.0.0.0:${PORT} for internet & cloud deployments`);
     console.log("=================================================================");
   });
 }
