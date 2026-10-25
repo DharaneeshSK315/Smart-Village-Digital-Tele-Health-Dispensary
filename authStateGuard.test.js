@@ -63,7 +63,7 @@ test('prevents session hijack if tab already has an active authenticated role', 
     shouldAutoRestoreSession({
       isSigningOut: false,
       event: 'SIGNED_IN',
-      session: { user: { email: 'sarah@villagemed.in' } },
+      session: { user: { email: 'dharaneesh@villagemed.in' } },
       currentRole: 'doctor',
       hasOAuthCallback: false
     }),
@@ -123,7 +123,7 @@ test('does not treat a completed appointment as active', () => {
 
 test('persists and retrieves session state within a tab storage container', () => {
   const tabStorage = createMockStorage();
-  const patientUser = { id: 'pat-1', name: 'Sarah Mitchell', role: 'patient' };
+  const patientUser = { id: 'pat-1', name: 'Dharaneesh', role: 'patient' };
 
   assert.equal(saveSessionState(patientUser, 'patient', tabStorage), true);
 
@@ -141,7 +141,7 @@ test('isolates authentication between multiple browser tabs independently', () =
   const tab1Storage = createMockStorage(); // Tab 1: Patient
   const tab2Storage = createMockStorage(); // Tab 2: Doctor
 
-  const patient = { id: 'pat-1', name: 'Sarah Mitchell' };
+  const patient = { id: 'pat-1', name: 'Dharaneesh' };
   const doctor = { id: 'doc-1', name: 'Dr. Vikram', specialty: 'General Medicine' };
 
   // Step 1: Sign in as Patient in Tab 1
@@ -156,7 +156,7 @@ test('isolates authentication between multiple browser tabs independently', () =
   // Step 3: Verify Tab 1 STILL retains its Patient session and is not altered by Tab 2
   const tab1After = loadSessionState(tab1Storage);
   assert.equal(tab1After.role, 'patient');
-  assert.equal(tab1After.user.name, 'Sarah Mitchell');
+  assert.equal(tab1After.user.name, 'Dharaneesh');
 
   // Step 4: Signing out of Tab 2 leaves Tab 1 completely unaffected
   clearSessionState(tab2Storage);

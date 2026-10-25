@@ -39,7 +39,7 @@ const DEFAULT_PATIENTS = [
   { id: "pat-5", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543211", village: "Village Clinic A", email: "dharaneesh@gmail.com", photo: "dharaneesh_portrait.jpg", history: [] },
   { id: "pat-9", name: "Meenakshi", age: 54, gender: "Female", phone: "9876543212", village: "Village Clinic B", photo: "patient_portrait.jpg", history: [] },
   { id: "pat-12", name: "Rajan Kumar", age: 34, gender: "Male", phone: "9876543213", village: "Village Clinic A", photo: "rajan_portrait.jpg", history: [] },
-  { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [
+  { id: "pat-1", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543210", village: "Village Clinic A", history: [
     { date: "2026-05-12", clinic: "Cardiology", diagnosis: "Mild Hypertension", medicines: "Metoprolol 50mg (1-0-1)", doctor: "Dr. Dharani" }
   ]},
   { id: "pat-2", name: "Fatima Al-Hassan", age: 61, gender: "Female", phone: "9845612307", village: "Village Clinic B", history: [
@@ -86,7 +86,7 @@ const DEFAULT_APPOINTMENTS = [
   {
     token: "VIL-A-745",
     patientId: "pat-1",
-    patientName: "Sarah Mitchell",
+    patientName: "Dharaneesh",
     symptoms: "Hypertension checkup, mild dizziness",
     urgency: "Normal",
     specialty: "General Medicine",
@@ -97,7 +97,7 @@ const DEFAULT_APPOINTMENTS = [
 ];
 
 const DEFAULT_CONSULTATIONS = [
-  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Sarah Mitchell", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", advice: "Low sodium diet, avoid strenuous exercise, monitor BP weekly.", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
+  { id: "VIL-A-800", token: "VIL-A-800", date: "30/08/2026", patientId: "pat-1", patientName: "Dharaneesh", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Mild Hypertension", advice: "Low sodium diet, avoid strenuous exercise, monitor BP weekly.", medicines: "Metoprolol 50mg (1-0-1)", failoverState: "HD Video", referral: "Cardiology" },
   { id: "VIL-B-712", token: "VIL-B-712", date: "30/08/2026", patientId: "pat-2", patientName: "Fatima Al-Hassan", village: "Village Clinic B", doctorName: "Dr. Priya", diagnosis: "Type 2 Diabetes Checkup", advice: "Strict sugar-free diet, regular blood glucose checkup, 30 min daily walking.", medicines: "Metformin 500mg (1-0-0)", failoverState: "HD Video", referral: false },
   { id: "VIL-A-655", token: "VIL-A-655", date: "29/08/2026", patientId: "pat-3", patientName: "James Rodriguez", village: "Village Clinic A", doctorName: "Dr. Vikram", diagnosis: "Acute Bronchitis", advice: "Steam inhalation twice daily, drink warm fluids, complete full antibiotic course.", medicines: "Azithromycin 500mg, Cough Syrup", failoverState: "HD Video", referral: false }
 ];
@@ -1941,7 +1941,7 @@ window.switchView = function(viewId, roleName) {
 
 window.quickLogin = function(role) {
   if (role === "patient") {
-    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", age: 67, gender: "Female", phone: "9876543210", village: "Village Clinic A", history: [] };
+    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543210", village: "Village Clinic A", history: [] };
   } else if (role === "vhw") {
     currentUser = { id: "vhw-1", name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email: "nurse@villagemed.in" };
   } else if (role === "doctor") {
@@ -4220,7 +4220,7 @@ window.startDoctorConsultation = function(token) {
       app = {
         token,
         patientId: "pat-1",
-        patientName: "Sarah Mitchell",
+        patientName: "Dharaneesh",
         status: "Active",
         assignedDoctorId: currentUser ? currentUser.id : "doc-1",
         symptoms: "General Tele-Health Consultation",
@@ -4435,7 +4435,7 @@ window.joinPatientCall = async function() {
   console.log("[Patient] All appointments:", db.appointments);
 
   if (!currentUser) {
-    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Sarah Mitchell", role: "patient" };
+    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Dharaneesh", role: "patient" };
     saveSessionState(currentUser, "patient");
   }
 
@@ -4484,7 +4484,7 @@ window.joinPatientCall = async function() {
   // Populate consultation header and tags for patient suite
   const docName = activeApp.doctorName || "Dr. Abinesh V";
   const docSpec = activeApp.specialty || "MD, General Medicine";
-  const patName = activeApp.patientName || (currentUser ? currentUser.name : "Sarah Mitchell");
+  const patName = activeApp.patientName || (currentUser ? currentUser.name : "Dharaneesh");
 
   const docEl = document.getElementById("pat-session-doctor-name");
   if (docEl) docEl.innerText = docName;
@@ -7288,7 +7288,7 @@ window.stopCallRecording = function() {
 function seedDefaultRecordings() {
   if (!db.recordings || db.recordings.length === 0) {
     db.recordings = [
-      { id: "REC-4109", date: "2026-06-30", patientId: "pat-1", patientName: "Sarah Mitchell", secureUrl: "sarah_mitchell_session_1.enc", duration: "03:45" },
+      { id: "REC-4109", date: "2026-06-30", patientId: "pat-1", patientName: "Dharaneesh", secureUrl: "dharaneesh_session_1.enc", duration: "03:45" },
       { id: "REC-8294", date: "2026-07-01", patientId: "pat-2", patientName: "Fatima", secureUrl: "fatima_session_3.enc", duration: "06:12" }
     ];
     saveDB();
@@ -7585,7 +7585,7 @@ window.handlePatientConsultationRequest = async function(event) {
   try {
     const payload = {
       patientId: (currentUser && currentUser.id) ? currentUser.id : "pat-1",
-      patientName: (currentUser && currentUser.name) ? currentUser.name : "Sarah Mitchell",
+      patientName: (currentUser && currentUser.name) ? currentUser.name : "Dharaneesh",
       doctorId,
       symptoms: symptoms || "General Consultation",
       urgency
@@ -8562,7 +8562,7 @@ window.confirmPatientSelectedSlot = async function() {
     slotId: selectedPatientSlot.slotId,
     doctorId: selectedPatientSlot.doctorId,
     patientId: curPatientId,
-    patientName: (currentUser && currentUser.name) ? currentUser.name : (activeApp?.patientName || "Sarah Mitchell"),
+    patientName: (currentUser && currentUser.name) ? currentUser.name : (activeApp?.patientName || "Dharaneesh"),
     date: selectedPatientSlot.date,
     startTime: selectedPatientSlot.startTime,
     endTime: selectedPatientSlot.endTime,
@@ -8667,7 +8667,7 @@ window.confirmPatientSelectedSlot = async function() {
     const bookedAppointment = {
       token: consultationToken,
       patientId: curPatientId || (currentUser ? currentUser.id : "pat-1"),
-      patientName: payload.patientName || (currentUser ? currentUser.name : "Sarah Mitchell"),
+      patientName: payload.patientName || (currentUser ? currentUser.name : "Dharaneesh"),
       assignedDoctorId: payload.doctorId || patientQueueDoctorId || "doc-1",
       scheduledDate: payload.date || getTodayISTDate(),
       scheduledStartTime: payload.startTime || "09:00",
