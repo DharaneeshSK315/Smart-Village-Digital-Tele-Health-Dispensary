@@ -1870,14 +1870,17 @@ app.get("/api/agora/token", (req, res) => {
     let agoraToken = null;
 
     // 1. Try server-side dynamic token generation using App Certificate (best option)
-    if (appCertificate && appCertificate.length > 10 && agoraTokenLib) {
+    // Agora App Certificates are exactly 32 hex characters
+    if (appCertificate && appCertificate.length >= 32 && agoraTokenLib) {
       const rtcRole = (role === "doctor") ? "publisher" : "publisher"; // Both publish video+audio
       agoraToken = generateAgoraToken(appid, appCertificate, channel, numericUid, rtcRole);
       if (agoraToken) {
-        console.log(`[Agora] Generated dynamic token for uid=${numericUid} channel=${channel} role=${role}`);
+        console.log(`[Agora] Generated dynamic token for uid=${numericUid} channel=${channel} role=${role} certLen=${appCertificate.length}`);
       } else {
-        console.warn("[Agora] Dynamic token generation failed, falling back to static token");
+        console.warn("[Agora] Dynamic token generation failed — check AGORA_APP_CERTIFICATE value, falling back to static token");
       }
+    } else if (appCertificate && appCertificate.length < 32) {
+      console.warn(`[Agora] AGORA_APP_CERTIFICATE too short (${appCertificate.length} chars, need 32) — did you copy the full certificate?`);
     }
 
     // 2. Fallback to static token from env var (may expire after ~24h)
@@ -1914,6 +1917,41 @@ app.get("/api/agora/token", (req, res) => {
 // Agora Configuration
 app.get("/api/agora/config", (req, res) => {
   res.json({ success: true, agoraConfig: db.agoraConfig });
+});
+
+// Agora Diagnostics — check if certificate and token generation are working
+app.get("/api/agora/diagnose", (req, res) => {
+  const appid = process.env.AGORA_APP_ID || db.agoraConfig.appid || "";
+  const appCertificate = process.env.AGORA_APP_CERTIFICATE || null;
+  const staticToken = process.env.AGORA_TOKEN ? process.env.AGORA_TOKEN.trim() : null;
+
+  let testToken = null;
+  let tokenError = null;
+  if (appCertificate && appCertificate.length >= 32 && agoraTokenLib) {
+    try {
+      const { RtcTokenBuilder, RtcRole } = agoraTokenLib;
+      const expireTs = Math.floor(Date.now() / 1000) + 3600;
+      testToken = RtcTokenBuilder.buildTokenWithUid(appid, appCertificate, "telehealth-room", 0, RtcRole.PUBLISHER, expireTs);
+    } catch (e) {
+      tokenError = e.message;
+    }
+  }
+
+  res.json({
+    appid: appid ? `${appid.substring(0, 8)}...` : "NOT SET",
+    certificateConfigured: !!(appCertificate && appCertificate.length >= 32),
+    certificateLength: appCertificate ? appCertificate.length : 0,
+    staticTokenConfigured: !!(staticToken && staticToken.length > 10),
+    staticTokenPrefix: staticToken ? staticToken.substring(0, 10) : null,
+    dynamicTokenGeneration: testToken ? "OK" : (tokenError || "FAILED - no certificate"),
+    dynamicTokenPrefix: testToken ? testToken.substring(0, 15) : null,
+    agoraTokenLibLoaded: !!agoraTokenLib,
+    recommendation: !appCertificate
+      ? "Set AGORA_APP_CERTIFICATE in Render env vars (32-char hex from Agora Console → Primary Certificate)"
+      : (appCertificate.length < 32
+        ? `Certificate too short (${appCertificate.length} chars, need 32) — check you copied the full value`
+        : (testToken ? "All OK — dynamic token generation working" : `Token generation error: ${tokenError}`))
+  });
 });
 
 app.post("/api/agora/config", (req, res) => {

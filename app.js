@@ -6825,33 +6825,42 @@ async function joinAgoraRoomInternal(role) {
     );
 
     if (looksLikeBadToken) {
-      console.warn("[Agora] Token/auth error. Clearing cached token and refreshing from server...");
+      console.warn("[Agora] Token/auth error:", err.message);
       agoraConfig.token = null;
       agoraConfig.lastFail = false;
-      // Re-fetch fresh token from server and retry once
+
+      // Retry ONCE with a fresh token fetched from server
       if (!agoraConfig._retried) {
-        agoraConfig._retried = true;
+        agoraConfig._retried = true;  // keep true until retry resolves
+        showToast("Agora auth error — fetching fresh token and retrying...", "info");
         setTimeout(async () => {
-          agoraConfig._retried = false;
           try {
             const backend = getBackendUrl();
             const res = await fetch(`${backend}/api/agora/token?role=${role}`, { cache: "no-store" });
             if (res.ok) {
               const data = await res.json();
-              if (data.token) {
+              if (data.token && data.token.length > 10) {
                 agoraConfig.token = data.token;
-                console.info("[Agora] Fresh token fetched, retrying join...");
+                console.info("[Agora] Fresh token fetched, retrying join...", { generatedDynamically: data.generatedDynamically });
+              } else {
+                console.warn("[Agora] Server returned no token — check AGORA_APP_CERTIFICATE in Render env vars.");
+                showToast("Agora: No valid token available. Check AGORA_APP_CERTIFICATE in Render settings.", "error");
+                agoraConfig._retried = false;
+                return;  // Don't retry if server can't generate a token
               }
             }
           } catch (fetchErr) {
             console.warn("[Agora] Could not fetch fresh token:", fetchErr.message);
           }
+          // _retried stays true — if this retry also fails, we show final error (not another loop)
           joinAgoraRoom(role);
-        }, 1500);
-        showToast("Agora auth error — fetching fresh token and retrying...", "info");
+        }, 2000);
         return;
       }
-      showToast("Agora token error. Please refresh the page.", "warning");
+      // Second failure after retry — give up gracefully, don't loop
+      agoraConfig._retried = false;
+      console.error("[Agora] Token still rejected after retry. Check AGORA_APP_CERTIFICATE in Render Dashboard.");
+      showToast("Agora connection failed. Please check App Certificate in Render settings and refresh.", "error");
       return;
     }
 
