@@ -1880,53 +1880,32 @@ async function initDB() {
 
   db.recordings = db.recordings || [];
 
-  // Load Agora Config
-  try {
-    agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
-  } catch (e) {
-    agoraConfig = null;
-  }
-  if (!agoraConfig || !agoraConfig.appid) {
-    agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: null, channel: "telehealth-room" };
-    try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
-  }
+  // Load Agora Config — ALWAYS start fresh from defaults, never use stale cached config.
+  // Stale localStorage tokens cause "Agora App ID invalid" false positives on reload.
+  localStorage.removeItem("agora_config");
+  agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: null, channel: "telehealth-room", lastFail: false };
 
-  // Always enable Agora — it is the primary RTC provider.
-  agoraConfig.enabled = true;
-  agoraConfig.channel = "telehealth-room"; // Fixed channel that matches the configured token
-  try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
-
-  // Fetch the configured token from the backend server (reads AGORA_TOKEN env var on Render)
-  // This ensures the latest token is always used without requiring a page reload.
+  // Fetch fresh token from server immediately so it's ready when consultation starts
   (async () => {
     try {
       const backend = getBackendUrl();
-      const cfgRes = await fetch(`${backend}/api/agora/config`, { cache: "no-store" });
-      if (cfgRes.ok) {
-        const cfgData = await cfgRes.json();
-        if (cfgData.agoraConfig) {
-          // Merge server config — server token takes priority over stale localStorage token
-          const serverCfg = cfgData.agoraConfig;
-          if (serverCfg.token && serverCfg.token.trim().length > 10) {
-            agoraConfig.token = serverCfg.token.trim();
-          }
-          if (serverCfg.appid) agoraConfig.appid = serverCfg.appid;
-          agoraConfig.enabled = true;
-          agoraConfig.channel = "telehealth-room";
-          try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
-          console.info("[Agora] Config synced from server:", { hasToken: !!agoraConfig.token, channel: agoraConfig.channel });
+      const tokenRes = await fetch(`${backend}/api/agora/token`, { cache: "no-store" });
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        if (tokenData.token && tokenData.token.length > 10) {
+          agoraConfig.token = tokenData.token;
+          console.info("[Agora] Fresh token fetched from server on startup.", { generatedDynamically: tokenData.generatedDynamically });
+        } else {
+          console.info("[Agora] Server has no token configured — will use App ID-only mode (requires Testing Mode in Agora Console).");
         }
+        if (tokenData.appid) agoraConfig.appid = tokenData.appid;
+        agoraConfig.channel = "telehealth-room";
+        agoraConfig.enabled = true;
       }
     } catch (cfgErr) {
-      console.warn("[Agora] Could not fetch config from server, using cached config:", cfgErr.message);
+      console.warn("[Agora] Could not fetch token from server:", cfgErr.message);
     }
   })();
-
-  if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
-    console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
-    agoraConfig.enabled = false;
-    try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
-  }
 
   if (supabase) {
     const realtimeChannel = supabase.channel("telehealth-live-updates");
@@ -6830,44 +6809,50 @@ async function joinAgoraRoomInternal(role) {
   } catch (err) {
     console.error("[Agora] Connection error:", err);
 
-    // Only permanently disable if App ID is truly invalid
-    const invalidAppId = err.message && (
+    // "invalid vendor key" / "can not find appid" can be caused by a bad token when the project
+    // uses Primary Certificate — do NOT permanently disable on this. Just log and retry fresh.
+    const looksLikeBadToken = err.message && (
       err.message.includes("invalid vendor key") ||
-      err.message.includes("can not find appid") ||
-      err.message.includes("invalid App ID") ||
-      err.message.includes("invalid appid")
-    );
-
-    if (invalidAppId) {
-      agoraConfig.lastFail = true;
-      try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch(e) {}
-      showToast("Agora App ID is invalid. Please check your Agora console settings.", "error");
-      return;
-    }
-
-    // Token/auth errors: clear token and retry with null (App ID-only mode)
-    const tokenError = err.message && (
       err.message.includes("CAN_NOT_GET_GATEWAY_SERVER") ||
       err.message.includes("invalid token") ||
       err.message.includes("authorized failed") ||
       err.message.includes("dynamic key expired") ||
       err.message.includes("ERR_TOKEN_EXPIRED") ||
-      err.message.includes("INVALID_TOKEN")
+      err.message.includes("INVALID_TOKEN") ||
+      err.message.includes("can not find appid") ||
+      err.message.includes("invalid App ID") ||
+      err.message.includes("invalid appid")
     );
-    if (tokenError) {
-      console.warn("[Agora] Token auth error. Retrying with null token (App ID-only mode)...");
+
+    if (looksLikeBadToken) {
+      console.warn("[Agora] Token/auth error. Clearing cached token and refreshing from server...");
       agoraConfig.token = null;
-      try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch(e) {}
-      // Retry once with null token
+      agoraConfig.lastFail = false;
+      // Re-fetch fresh token from server and retry once
       if (!agoraConfig._retried) {
         agoraConfig._retried = true;
-        setTimeout(() => {
+        setTimeout(async () => {
           agoraConfig._retried = false;
+          try {
+            const backend = getBackendUrl();
+            const res = await fetch(`${backend}/api/agora/token?role=${role}`, { cache: "no-store" });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.token) {
+                agoraConfig.token = data.token;
+                console.info("[Agora] Fresh token fetched, retrying join...");
+              }
+            }
+          } catch (fetchErr) {
+            console.warn("[Agora] Could not fetch fresh token:", fetchErr.message);
+          }
           joinAgoraRoom(role);
         }, 1500);
-        showToast("Retrying Agora connection in App ID-only mode...", "info");
+        showToast("Agora auth error — fetching fresh token and retrying...", "info");
         return;
       }
+      showToast("Agora token error. Please refresh the page.", "warning");
+      return;
     }
 
     // For other errors (mic permission, network, etc.) — show info but don't disable
