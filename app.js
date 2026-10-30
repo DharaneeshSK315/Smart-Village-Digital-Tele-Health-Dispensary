@@ -1899,8 +1899,16 @@ async function initDB() {
     try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
 
-  // Only disable placeholder App ID if NO token was provided and it was not explicitly configured
-  if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.token && agoraConfig.enabled === undefined) {
+  // Disable Agora if using the placeholder App ID without a token,
+  // OR if enabled but no valid token is present (avoids CAN_NOT_GET_GATEWAY_SERVER errors).
+  const hasRealToken = agoraConfig.token && typeof agoraConfig.token === "string" && agoraConfig.token.trim().length > 10;
+  const usesPlaceholderAppId = agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94";
+
+  if (!hasRealToken || (usesPlaceholderAppId && !hasRealToken)) {
+    // Force disabled — no valid token means Agora cannot authorize
+    if (agoraConfig.enabled) {
+      console.warn("[Agora] Disabling Agora: enabled flag is true but no valid token is configured. Using WebRTC peer connection.");
+    }
     agoraConfig.enabled = false;
     try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
@@ -4758,7 +4766,19 @@ window.joinVhwCall = function(token) {
 
 function shouldUseAgora() {
   if (!agoraConfig || !agoraConfig.appid) return false;
-  return Boolean(agoraConfig.enabled !== false && !agoraConfig.lastFail);
+  // Agora requires ALL of: enabled flag, a valid App ID, AND a non-empty token.
+  // Without a token, Agora throws CAN_NOT_GET_GATEWAY_SERVER / authorized failed.
+  // In that case we fall through to the direct WebRTC peer connection instead.
+  if (!agoraConfig.enabled) return false;
+  if (agoraConfig.lastFail) return false;
+  if (!validateAgoraAppId(agoraConfig.appid)) return false;
+  const hasToken = typeof agoraConfig.token === "string" && agoraConfig.token.trim().length > 10;
+  if (!hasToken) {
+    // Silently disable rather than crashing — WebRTC peer connection handles media
+    console.info("[Agora] Skipping Agora: no valid token configured. Direct WebRTC peer connection will handle media.");
+    return false;
+  }
+  return true;
 }
 
 function startCallLoop() {
