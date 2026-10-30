@@ -10,3 +10,12 @@ services:
         value: production
       - key: PORT
         value: 3001
+      # TURN relay credentials for WebRTC real-time video/audio through NAT/firewalls.
+      # Get free credentials at https://www.metered.ca/ (production) or leave blank for OpenRelay demo fallback.
+      - key: TURN_HOST
+        value: global.relay.metered.ca
+      - key: TURN_USERNAME
+        value: ""
+      - key: TURN_CREDENTIAL
+        value: ""
+

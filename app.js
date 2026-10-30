@@ -847,7 +847,26 @@ async function refreshDbFromBackend(skipDashboardRefresh = false) {
         body.db.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
         db.consultations = Array.from(cMap.values());
       }
-      if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
+      if (body.db.agoraConfig) {
+        let localConfig = null;
+        try { localConfig = JSON.parse(localStorage.getItem("agora_config")); } catch (e) {}
+        const serverToken = (body.db.agoraConfig.token && typeof body.db.agoraConfig.token === "string") ? body.db.agoraConfig.token.trim() : "";
+        const localToken = (localConfig && localConfig.token && typeof localConfig.token === "string") ? localConfig.token.trim() : "";
+        const currentToken = (agoraConfig && agoraConfig.token && typeof agoraConfig.token === "string") ? agoraConfig.token.trim() : "";
+        const effectiveToken = serverToken || localToken || currentToken || "";
+        const effectiveEnabled = body.db.agoraConfig.enabled !== undefined
+          ? body.db.agoraConfig.enabled
+          : (localConfig && localConfig.enabled !== undefined ? localConfig.enabled : (agoraConfig?.enabled || false));
+
+        agoraConfig = {
+          ...body.db.agoraConfig,
+          token: effectiveToken,
+          enabled: effectiveEnabled
+        };
+        db.agoraConfig = { ...agoraConfig };
+        try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
+        populateAgoraInputs();
+      }
       localStorage.setItem("telehealth_db", JSON.stringify(db));
       console.info("[DB] Centralized database state synced from backend.");
 
@@ -906,12 +925,16 @@ function initSocketConnection() {
 
   try {
     appSocket = io(backend, {
-      transports: ["websocket", "polling"],
+      // Start with polling so Render's HTTP proxy can establish the handshake,
+      // then upgrade to WebSocket. This prevents the silent WS failure on Render free tier.
+      transports: ["polling", "websocket"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1500,
       reconnectionDelayMax: 5000,
-      timeout: 10000
+      timeout: 20000,
+      upgrade: true,
+      rememberUpgrade: true
     });
 
     appSocket.on("connect", () => {
@@ -1171,8 +1194,19 @@ function initSocketConnection() {
     // 10. Agora Config Updated
     appSocket.on("agora_config_updated", (cfg) => {
       if (cfg) {
-        agoraConfig = cfg;
-        localStorage.setItem("agora_config", JSON.stringify(cfg));
+        let localToken = "";
+        try {
+          const stored = JSON.parse(localStorage.getItem("agora_config"));
+          if (stored && stored.token) localToken = stored.token.trim();
+        } catch (e) {}
+
+        agoraConfig = {
+          ...cfg,
+          token: (cfg.token && cfg.token.trim()) || localToken || (agoraConfig && agoraConfig.token) || ""
+        };
+        db.agoraConfig = { ...agoraConfig };
+        try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
+        populateAgoraInputs();
       }
     });
 
@@ -1374,6 +1408,8 @@ async function initPeerCall(token, role) {
   }
   window.addEventListener("storage", handlePeerStorageEvent);
 
+  // FIX 2: Join consultation room BEFORE creating RTCPeerConnection so that
+  // ICE candidates emitted immediately on negotiation are not missed by the server relay.
   if (appSocket && appSocket.connected) {
     try {
       appSocket.emit("join_consultation", {
@@ -1384,13 +1420,36 @@ async function initPeerCall(token, role) {
     } catch (e) {}
   }
 
+  // FIX 3: Fetch TURN credentials from backend.
+  // TURN relay is essential on Render (and behind NAT) because STUN alone cannot
+  // punch through symmetric NAT or proxy firewalls.
+  let iceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:global.stun.twilio.com:3478" }
+  ];
+
+  try {
+    const backendUrl = getBackendUrl();
+    const turnResp = await fetch(`${backendUrl}/api/turn-credentials`, { cache: "no-store" });
+    if (turnResp.ok) {
+      const turnData = await turnResp.json();
+      if (turnData.success && Array.isArray(turnData.iceServers) && turnData.iceServers.length > 0) {
+        iceServers = turnData.iceServers;
+        console.info(`[Peer] Loaded ICE server config: ${iceServers.length} servers (including TURN relay).`);
+      }
+    }
+  } catch (turnErr) {
+    console.warn("[Peer] Could not fetch TURN credentials, using STUN-only fallback:", turnErr.message);
+  }
+
   const pcConfig = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-      { urls: "stun:global.stun.twilio.com:3478" }
-    ]
+    iceServers,
+    // Use 'relay' only policy when all STUN attempts fail (last resort)
+    iceTransportPolicy: "all",
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require"
   };
 
   peerConnection = new RTCPeerConnection(pcConfig);
@@ -1418,6 +1477,13 @@ async function initPeerCall(token, role) {
     }
   };
 
+  peerConnection.onicecandidateerror = (event) => {
+    // Log TURN errors specifically to help diagnose relay failures
+    if (event.errorCode >= 300 && event.errorCode < 700) {
+      console.warn(`[Peer] TURN relay error ${event.errorCode}: ${event.errorText} for ${event.url}`);
+    }
+  };
+
   peerConnection.onnegotiationneeded = async () => {
     try {
       peerMakingOffer = true;
@@ -1431,6 +1497,12 @@ async function initPeerCall(token, role) {
     }
   };
 
+  // FIX 4 & 5: ontrack — attach remote stream robustly regardless of role prefix.
+  // The previous code hard-coded a prefix derived from the LOCAL role, which means
+  // on the doctor side it looked for "doc-remote-video-container" even though the
+  // DOM elements created for the doctor viewport use the "doc" prefix correctly.
+  // We now try both the local-role prefix AND the opposite-role prefix as fallback,
+  // and also guarantee audio plays even without a visible video container.
   peerConnection.ontrack = (event) => {
     console.info(`[Peer] Remote ${event.track.kind} track arrived!`);
     if (!remoteWebcamStream) {
@@ -1441,16 +1513,46 @@ async function initPeerCall(token, role) {
     remoteWebcamStream.addTrack(event.track);
 
     const prefix = getAgoraRolePrefix(role);
-    const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
-    const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
-    const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
 
-    if (remoteContainer) {
-      attachStreamToContainer(remoteWebcamStream, `${prefix}-remote-video-container`, false);
-      remoteContainer.style.display = "block";
+    // Try primary container (matches the local user's role prefix — how the DOM is structured)
+    const primaryContainerId = `${prefix}-remote-video-container`;
+    const primaryContainer = document.getElementById(primaryContainerId);
+
+    // Fallback: try opposite role prefix in case IDs are from the other side's perspective
+    const oppositePrefix = prefix === "doc" ? "pat" : (prefix === "pat" ? "doc" : "vhw");
+    const fallbackContainerId = `${oppositePrefix}-remote-video-container`;
+    const fallbackContainer = document.getElementById(fallbackContainerId);
+
+    const targetContainer = primaryContainer || fallbackContainer;
+    const usedContainerId = primaryContainer ? primaryContainerId : fallbackContainerId;
+    const mainCanvas = document.getElementById(`${prefix}-remote-canvas`) || document.getElementById(`${oppositePrefix}-remote-canvas`);
+    const fallbackAudio = document.getElementById(`${prefix}-remote-audio-fallback`) || document.getElementById(`${oppositePrefix}-remote-audio-fallback`);
+
+    if (targetContainer) {
+      attachStreamToContainer(remoteWebcamStream, usedContainerId, false);
+      targetContainer.style.display = "block";
+      if (mainCanvas) mainCanvas.style.display = "none";
+      if (fallbackAudio) fallbackAudio.style.display = "none";
+    } else {
+      // FIX 5: No video container found — create a hidden audio element to guarantee
+      // audio still plays even if the video UI element is absent.
+      console.warn(`[Peer] Remote video container not found (tried: ${primaryContainerId}, ${fallbackContainerId}). Creating audio fallback.`);
+      let hiddenAudio = document.getElementById("peer-remote-audio-fallback");
+      if (!hiddenAudio) {
+        hiddenAudio = document.createElement("audio");
+        hiddenAudio.id = "peer-remote-audio-fallback";
+        hiddenAudio.autoplay = true;
+        hiddenAudio.playsInline = true;
+        hiddenAudio.style.display = "none";
+        document.body.appendChild(hiddenAudio);
+      }
+      if (hiddenAudio.srcObject !== remoteWebcamStream) {
+        hiddenAudio.srcObject = remoteWebcamStream;
+      }
+      hiddenAudio.play().catch(() => {
+        if (activeCall) showAudioUnmutePrompt(activeCall.role);
+      });
     }
-    if (mainCanvas) mainCanvas.style.display = "none";
-    if (fallback) fallback.style.display = "none";
 
     playConsultationChime();
     updateNetworkUI();
@@ -1787,22 +1889,26 @@ async function initDB() {
   db.recordings = db.recordings || [];
 
   // Load Agora Config
-  agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
+  try {
+    agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
+  } catch (e) {
+    agoraConfig = null;
+  }
   if (!agoraConfig || !agoraConfig.appid) {
     agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
-    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
 
-  // Placeholder Agora App ID is not a real Agora Cloud project; disable to avoid gateway errors
-  if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94") {
+  // Only disable placeholder App ID if NO token was provided and it was not explicitly configured
+  if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94" && !agoraConfig.token && agoraConfig.enabled === undefined) {
     agoraConfig.enabled = false;
-    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
 
   if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
     console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
     agoraConfig.enabled = false;
-    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
 
   if (supabase) {
@@ -1832,21 +1938,35 @@ async function initDB() {
   // Populate UI inputs on load
   setTimeout(() => {
     populateAgoraInputs();
-  }, 300);
+  }, 100);
 }
 
 function populateAgoraInputs() {
+  let cfg = agoraConfig;
+  try {
+    const stored = JSON.parse(localStorage.getItem("agora_config"));
+    if (stored) {
+      cfg = { ...cfg, ...stored };
+      if (stored.token && stored.token.trim()) {
+        cfg.token = stored.token.trim();
+      }
+    }
+  } catch (e) {}
+
+  if (!cfg && db && db.agoraConfig) {
+    cfg = db.agoraConfig;
+  }
+  if (!cfg) return;
+
   const appidInput = document.getElementById("agora-appid");
   const tokenInput = document.getElementById("agora-token");
   const chanInput = document.getElementById("agora-channel");
   const enableCheck = document.getElementById("agora-enabled");
   
-  if (agoraConfig) {
-    if (appidInput) appidInput.value = agoraConfig.appid || "";
-    if (tokenInput) tokenInput.value = agoraConfig.token || "";
-    if (chanInput) chanInput.value = agoraConfig.channel || "telehealth-room";
-    if (enableCheck) enableCheck.checked = agoraConfig.enabled || false;
-  }
+  if (appidInput && cfg.appid !== undefined) appidInput.value = cfg.appid || "";
+  if (tokenInput && cfg.token !== undefined) tokenInput.value = cfg.token || "";
+  if (chanInput && cfg.channel !== undefined) chanInput.value = cfg.channel || "telehealth-room";
+  if (enableCheck && cfg.enabled !== undefined) enableCheck.checked = Boolean(cfg.enabled);
 }
 
 async function saveDB(tableName = null) {
@@ -6258,10 +6378,15 @@ if (typeof window !== "undefined") {
 }
 
 window.saveAgoraConfig = function() {
-  const appid = document.getElementById("agora-appid").value.trim();
-  const token = document.getElementById("agora-token").value.trim();
-  const channel = document.getElementById("agora-channel").value.trim() || "telehealth-room";
-  const enabled = document.getElementById("agora-enabled").checked;
+  const appidInput = document.getElementById("agora-appid");
+  const tokenInput = document.getElementById("agora-token");
+  const chanInput = document.getElementById("agora-channel");
+  const enableCheck = document.getElementById("agora-enabled");
+
+  const appid = appidInput ? appidInput.value.trim() : "";
+  const token = tokenInput ? tokenInput.value.trim() : "";
+  const channel = (chanInput ? chanInput.value.trim() : "") || "telehealth-room";
+  const enabled = enableCheck ? enableCheck.checked : false;
 
   if (enabled && !validateAgoraAppId(appid)) {
     showToast("Invalid Agora App ID. Please verify the App ID from your Agora console.", "warning");
@@ -6274,10 +6399,35 @@ window.saveAgoraConfig = function() {
     agoraConfig.lastFail = false;
   }
 
-  // Persist to localStorage and local DB cache
-  localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-  db.agoraConfig = agoraConfig;
-  saveDB();
+  // 1. Persist to localStorage immediately
+  try {
+    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+  } catch (e) {}
+
+  // 2. Persist to local DB cache
+  db.agoraConfig = { ...agoraConfig };
+  try {
+    localStorage.setItem("telehealth_db", JSON.stringify(db));
+  } catch (e) {}
+
+  // 3. Sync to backend shared server so it persists in database.json and across page reloads
+  try {
+    const backend = getBackendUrl();
+    fetch(`${backend}/api/agora/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(agoraConfig)
+    })
+    .then(res => res.json())
+    .then(data => {
+      console.info("[Agora] Backend successfully persisted Agora config:", data);
+    })
+    .catch(err => {
+      console.warn("[Agora] Could not sync Agora config to backend:", err.message);
+    });
+  } catch (backendErr) {
+    console.warn("[Agora] Backend sync exception:", backendErr);
+  }
 
   console.info("Agora config saved successfully", { appid, hasToken: !!token, channel, enabled });
   showToast("Agora audio configurations saved successfully!", "success");

@@ -169,8 +169,15 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  pingTimeout: 30000,
-  pingInterval: 10000
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  // Allow both Socket.IO v2 and v3/v4 clients (handles Render proxy quirks)
+  allowEIO3: true,
+  // Increase buffer for SDP offers which can be large
+  maxHttpBufferSize: 2e6,
+  // Prefer polling first so Render's HTTP proxy can establish the connection,
+  // then upgrade to WebSocket — this prevents the silent WS drop on Render free tier
+  transports: ["polling", "websocket"]
 });
 
 io.on("connection", (socket) => {
@@ -1831,6 +1838,88 @@ app.post("/api/agora/config", (req, res) => {
     res.json({ success: true, agoraConfig: db.agoraConfig });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// -------------------------------------------------------------
+// TURN CREDENTIALS ENDPOINT
+// Returns ICE server configuration (STUN + TURN) for WebRTC peers.
+// TURN is essential when both peers are behind NAT/firewalls (e.g. Render deployment).
+// Uses Metered free TURN by default; override via env vars for production.
+// -------------------------------------------------------------
+app.get("/api/turn-credentials", (req, res) => {
+  try {
+    // Primary: Use env-configured TURN servers (set these in Render dashboard)
+    const turnUser = process.env.TURN_USERNAME || "";
+    const turnCred = process.env.TURN_CREDENTIAL || "";
+    const turnHost = process.env.TURN_HOST || "global.relay.metered.ca";
+
+    const iceServers = [
+      // Public STUN servers (no auth needed)
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:global.stun.twilio.com:3478" },
+    ];
+
+    // Add TURN relay servers if credentials are configured
+    if (turnUser && turnCred) {
+      iceServers.push(
+        {
+          urls: `turn:${turnHost}:80`,
+          username: turnUser,
+          credential: turnCred
+        },
+        {
+          urls: `turn:${turnHost}:443`,
+          username: turnUser,
+          credential: turnCred
+        },
+        {
+          urls: `turns:${turnHost}:443`,
+          username: turnUser,
+          credential: turnCred
+        },
+        {
+          urls: `turn:${turnHost}:80?transport=tcp`,
+          username: turnUser,
+          credential: turnCred
+        }
+      );
+    } else {
+      // Fallback: free open TURN servers for development/demo (rate-limited)
+      // These work for demos but should be replaced with proper TURN in production
+      iceServers.push(
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:openrelay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turns:openrelay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      );
+    }
+
+    res.json({
+      success: true,
+      iceServers,
+      ttl: 86400
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
