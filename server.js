@@ -1849,11 +1849,11 @@ app.put("/api/doctor/schedule/:doctorId", (req, res) => {
 // GET /api/agora/token — Dynamically generates Agora RTC tokens server-side.
 // Uses AGORA_APP_CERTIFICATE env var for proper token generation (never expires manually).
 // Falls back to static AGORA_TOKEN env var if certificate not configured.
-// Channel is always "telehealth-room".
+// Channel defaults to the shared room, but consultation-specific channels are honored.
 app.get("/api/agora/token", (req, res) => {
   try {
-    const { role, userId } = req.query;
-    const channel = "telehealth-room";
+    const { role, userId, channel: requestedChannel } = req.query;
+    const channel = String(requestedChannel || "telehealth-room").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "telehealth-room";
     const appid = process.env.AGORA_APP_ID || db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
     const appCertificate = process.env.AGORA_APP_CERTIFICATE || null;
 
