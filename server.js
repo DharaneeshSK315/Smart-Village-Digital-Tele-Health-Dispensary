@@ -672,6 +672,9 @@ function isSlotConflicting(doctorId, dateStr, startEpoch, endEpoch) {
  * Sunday, 25 October 2026 only has special testing hours:
  * - 06:00 AM to 10:00 PM (22:00) in 15-minute consultation slots.
  * - All other Sundays and dates preserve standard doctor schedule.
+ *
+ * SPECIAL TESTING DAY — 30 October 2026 (Friday):
+ * - Full day open from 00:00 to 23:45 with no breaks for end-to-end testing.
  */
 function getDoctorScheduleForDate(doctorId, dateStr) {
   const baseSchedule = (db.doctorSchedules || {})[doctorId] || DEFAULT_DOCTOR_SCHEDULES[doctorId] || {
@@ -691,6 +694,18 @@ function getDoctorScheduleForDate(doctorId, dateStr) {
     return {
       workStart: "06:00",
       workEnd: "22:00",
+      breaks: [],
+      workDays: [0, 1, 2, 3, 4, 5, 6],
+      slotDurationMins: 15,
+      isSpecialTestSchedule: true
+    };
+  }
+
+  // Special extended schedule for 30 October 2026 — full day testing until midnight
+  if (dateStr === "2026-10-30") {
+    return {
+      workStart: "00:00",
+      workEnd: "23:45",
       breaks: [],
       workDays: [0, 1, 2, 3, 4, 5, 6],
       slotDurationMins: 15,
