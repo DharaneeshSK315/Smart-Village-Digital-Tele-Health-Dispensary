@@ -97,8 +97,8 @@ let db = {
   agoraConfig: {
     enabled: true,  // Always enabled - Agora is the only RTC provider
     appid: process.env.AGORA_APP_ID || "aab8b3f972274fcb87cc25048d089e94",
-    token: process.env.AGORA_TOKEN || null,  // null = App ID-only / Testing mode
-    channel: process.env.AGORA_CHANNEL || "telehealth-room"
+    token: process.env.AGORA_TOKEN || null,  // Set AGORA_TOKEN in Render env vars
+    channel: "telehealth-room"  // Fixed channel — must match the token in Agora console
   },
   doctorSchedules: JSON.parse(JSON.stringify(DEFAULT_DOCTOR_SCHEDULES)),
   bookedSlots: []  // [{ slotId, doctorId, date, startTime, endTime, token, patientId, patientName, status }]
@@ -1792,28 +1792,32 @@ app.put("/api/doctor/schedule/:doctorId", (req, res) => {
 // GET /api/agora/token — Returns Agora channel info for consultation session
 // Uses App ID-only mode (token=null) when AGORA_TOKEN env var is not set.
 // This works when the Agora project has "Testing mode" (No Certificate) enabled.
-// For production, set AGORA_TOKEN in Render environment variables.
+// GET /api/agora/token — Returns Agora channel + token for consultation sessions.
+// Channel is always "telehealth-room" to match the configured temp/permanent token.
+// Set AGORA_TOKEN in Render environment variables with your token from console.agora.io.
 app.get("/api/agora/token", (req, res) => {
   try {
-    const { channel, role, token: appToken, userId } = req.query;
-    const roomChannel = channel || (appToken ? `telehealth-${appToken}` : db.agoraConfig.channel || "telehealth-room");
+    const { role, userId } = req.query;
+    // Always use the fixed channel that the token was generated for
+    const channel = "telehealth-room";
     const appid = process.env.AGORA_APP_ID || db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
     const expireTimestamp = Math.floor(Date.now() / 1000) + 7200;
     const uidStr = String(userId || `${role || "user"}_${Math.floor(Math.random() * 10000)}`);
 
-    // Use real token from env if set; otherwise null (App ID-only / Testing mode)
-    const agoraToken = (process.env.AGORA_TOKEN && process.env.AGORA_TOKEN.trim())
-      ? process.env.AGORA_TOKEN.trim()
-      : null;
+    // Priority: AGORA_TOKEN env var → db.agoraConfig.token → null (App ID-only mode)
+    const envToken = process.env.AGORA_TOKEN ? process.env.AGORA_TOKEN.trim() : null;
+    const dbToken = db.agoraConfig.token ? String(db.agoraConfig.token).trim() : null;
+    const agoraToken = (envToken && envToken.length > 10) ? envToken
+                     : (dbToken && dbToken.length > 10) ? dbToken
+                     : null;
 
     res.json({
       success: true,
       appid,
-      channel: roomChannel,
+      channel,
       token: agoraToken,
       uid: uidStr,
       role: role || "patient",
-      consultationToken: appToken || null,
       expiresAt: expireTimestamp
     });
   } catch (err) {

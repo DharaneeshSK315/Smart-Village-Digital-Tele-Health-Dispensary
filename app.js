@@ -1899,10 +1899,36 @@ async function initDB() {
     try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
 
-  // Agora is always enabled as the primary RTC provider.
-  // In App ID-only (Testing) mode, token can be null/empty.
+  // Always enable Agora — it is the primary RTC provider.
   agoraConfig.enabled = true;
+  agoraConfig.channel = "telehealth-room"; // Fixed channel that matches the configured token
   try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
+
+  // Fetch the configured token from the backend server (reads AGORA_TOKEN env var on Render)
+  // This ensures the latest token is always used without requiring a page reload.
+  (async () => {
+    try {
+      const backend = getBackendUrl();
+      const cfgRes = await fetch(`${backend}/api/agora/config`, { cache: "no-store" });
+      if (cfgRes.ok) {
+        const cfgData = await cfgRes.json();
+        if (cfgData.agoraConfig) {
+          // Merge server config — server token takes priority over stale localStorage token
+          const serverCfg = cfgData.agoraConfig;
+          if (serverCfg.token && serverCfg.token.trim().length > 10) {
+            agoraConfig.token = serverCfg.token.trim();
+          }
+          if (serverCfg.appid) agoraConfig.appid = serverCfg.appid;
+          agoraConfig.enabled = true;
+          agoraConfig.channel = "telehealth-room";
+          try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
+          console.info("[Agora] Config synced from server:", { hasToken: !!agoraConfig.token, channel: agoraConfig.channel });
+        }
+      }
+    } catch (cfgErr) {
+      console.warn("[Agora] Could not fetch config from server, using cached config:", cfgErr.message);
+    }
+  })();
 
   if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
     console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
@@ -6596,33 +6622,41 @@ async function joinAgoraRoomInternal(role) {
       }
     });
 
-    // Join room (Secure Server-Generated Token & Scoped Room)
+    // Join room — always uses the fixed "telehealth-room" channel so the
+    // configured token (temp or permanent) always matches the channel.
     const appid = (agoraConfig.appid || "").trim();
     const consultationId = String(activeCall?.token || "").trim();
-    if (!consultationId) {
-      throw new Error("No consultation token is available for the Agora channel.");
-    }
 
-    let channel = `telehealth-${consultationId}`;
-    let token = (agoraConfig.token || "").trim() || null;
+    // Fixed channel: token was generated for "telehealth-room" in the Agora console.
+    // All consultations share this channel, distinguished by unique UIDs.
+    let channel = "telehealth-room";
+    // Use locally stored token first; fetch from server as refresh source
+    let token = (agoraConfig.token && agoraConfig.token.trim().length > 10)
+      ? agoraConfig.token.trim()
+      : null;
 
     try {
       const backend = getBackendUrl();
-      const tokenRes = await fetch(`${backend}/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(consultationId)}&userId=${encodeURIComponent(currentUser ? currentUser.id : 'user')}`);
+      const tokenRes = await fetch(
+        `${backend}/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&userId=${encodeURIComponent(currentUser ? currentUser.id : "user")}`,
+        { cache: "no-store" }
+      );
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
-        if (tokenData.channel) channel = tokenData.channel;
+        // Server returns the configured AGORA_TOKEN; use it if present
         if (tokenData.token) token = tokenData.token;
+        if (tokenData.channel) channel = tokenData.channel;
       }
     } catch (e) {
-      console.warn("[Agora] Could not fetch server token, falling back to configured token/channel:", e);
+      console.warn("[Agora] Could not fetch server token, using locally cached token:", e);
     }
 
-    const uid = getAgoraUid(role, consultationId);
+    const uid = getAgoraUid(role, consultationId || "default");
     if (!appid) {
       throw new Error("Agora App ID is not configured.");
     }
 
+    console.info(`[AGORA] Joining channel='${channel}' uid=${uid} hasToken=${!!token}`);
     await agoraClient.join(appid, channel, token, uid);
     console.log(`[AGORA] Joined channel: ${channel} UID: ${uid}`);
 

@@ -10,8 +10,20 @@ services:
         value: production
       - key: PORT
         value: 3001
-      # TURN relay credentials for WebRTC real-time video/audio through NAT/firewalls.
-      # Get free credentials at https://www.metered.ca/ (production) or leave blank for OpenRelay demo fallback.
+      # ── Agora RTC (Primary video/audio provider) ──────────────────────────────
+      # App ID from console.agora.io → your project → Basic Settings
+      - key: AGORA_APP_ID
+        value: "aab8b3f972274fcb87cc25048d089e94"
+      # Temp token from console.agora.io → Generate Temp Token (channel: telehealth-room)
+      # Replace this with a new token when it expires (temp tokens last ~24 hours).
+      # For permanent tokens, implement server-side token generation with the App Certificate.
+      - key: AGORA_TOKEN
+        value: "007eJxTYKgtepqr9PmOybcc80nMyeG8rruKDzvbT6xpOTL39m2pd1sUGFIMkiwSTdLMjUwTLUzMTQ2TkizMLM2MkgxMDFJTzEwTg5KfZDUEMjIkyZ9hYmSAQBCfn6EkNSc1IzUxpyRDtyg/P5eBAQD+eCRZ"
+      - key: AGORA_CHANNEL
+        value: "telehealth-room"
+      - key: AGORA_ENABLED
+        value: "true"
+      # ── TURN relay (WebRTC fallback — kept for chat signaling only) ───────────
       - key: TURN_HOST
         value: global.relay.metered.ca
       - key: TURN_USERNAME
