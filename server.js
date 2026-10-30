@@ -5,6 +5,48 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 
+// Agora server-side token generation (dynamically generates tokens so they never expire manually)
+let agoraTokenLib = null;
+try {
+  agoraTokenLib = require("agora-token");
+} catch (e) {
+  try {
+    agoraTokenLib = require("agora-access-token");
+  } catch (e2) {
+    console.warn("[Agora] Token generation library not available. Will use static AGORA_TOKEN env var.");
+  }
+}
+
+/**
+ * Generate an Agora RTC token server-side using App ID + App Certificate.
+ * Expires in 24 hours. Falls back to static AGORA_TOKEN env var if certificate not set.
+ */
+function generateAgoraToken(appId, appCertificate, channelName, uid, role) {
+  const expireSeconds = 86400; // 24 hours
+  const currentTimestamp = Math.floor(Date.now() / 1000);
+  const privilegeExpireTs = currentTimestamp + expireSeconds;
+
+  try {
+    // Try agora-token (newer package)
+    if (agoraTokenLib && agoraTokenLib.RtcTokenBuilder) {
+      const { RtcTokenBuilder, RtcRole } = agoraTokenLib;
+      const rtcRole = (role === "publisher") ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
+      return RtcTokenBuilder.buildTokenWithUid(appId, appCertificate, channelName, uid || 0, rtcRole, privilegeExpireTs);
+    }
+    // Try agora-access-token (older package)
+    if (agoraTokenLib && agoraTokenLib.RtcTokenBuilder2) {
+      const { RtcTokenBuilder2, Role } = agoraTokenLib;
+      return RtcTokenBuilder2.buildTokenWithUid(appId, appCertificate, channelName, uid || 0, Role.PUBLISHER, privilegeExpireTs, privilegeExpireTs);
+    }
+    // Fallback: try direct import paths
+    const { RtcTokenBuilder, RtcRole } = require("agora-token");
+    return RtcTokenBuilder.buildTokenWithUid(appId, appCertificate, channelName, uid || 0, RtcRole.PUBLISHER, privilegeExpireTs);
+  } catch (err) {
+    console.error("[Agora] Token generation failed:", err.message);
+    return null;
+  }
+}
+
 const app = express();
 const server = http.createServer(app);
 
@@ -1804,27 +1846,53 @@ app.put("/api/doctor/schedule/:doctorId", (req, res) => {
   }
 });
 
-// GET /api/agora/token — Returns Agora channel info for consultation session
-// Uses App ID-only mode (token=null) when AGORA_TOKEN env var is not set.
-// This works when the Agora project has "Testing mode" (No Certificate) enabled.
-// GET /api/agora/token — Returns Agora channel + token for consultation sessions.
-// Channel is always "telehealth-room" to match the configured temp/permanent token.
-// Set AGORA_TOKEN in Render environment variables with your token from console.agora.io.
+// GET /api/agora/token — Dynamically generates Agora RTC tokens server-side.
+// Uses AGORA_APP_CERTIFICATE env var for proper token generation (never expires manually).
+// Falls back to static AGORA_TOKEN env var if certificate not configured.
+// Channel is always "telehealth-room".
 app.get("/api/agora/token", (req, res) => {
   try {
     const { role, userId } = req.query;
-    // Always use the fixed channel that the token was generated for
     const channel = "telehealth-room";
     const appid = process.env.AGORA_APP_ID || db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
-    const expireTimestamp = Math.floor(Date.now() / 1000) + 7200;
-    const uidStr = String(userId || `${role || "user"}_${Math.floor(Math.random() * 10000)}`);
+    const appCertificate = process.env.AGORA_APP_CERTIFICATE || null;
 
-    // Priority: AGORA_TOKEN env var → db.agoraConfig.token → null (App ID-only mode)
-    const envToken = process.env.AGORA_TOKEN ? process.env.AGORA_TOKEN.trim() : null;
-    const dbToken = db.agoraConfig.token ? String(db.agoraConfig.token).trim() : null;
-    const agoraToken = (envToken && envToken.length > 10) ? envToken
-                     : (dbToken && dbToken.length > 10) ? dbToken
-                     : null;
+    // Parse numeric UID (Agora requires numeric UID for token binding; 0 = any user)
+    let numericUid = 0;
+    if (userId) {
+      const parsed = parseInt(userId, 10);
+      numericUid = isNaN(parsed) ? 0 : parsed;
+    }
+
+    const uidStr = String(userId || `${role || "user"}_${Math.floor(Math.random() * 10000)}`);
+    const expireTimestamp = Math.floor(Date.now() / 1000) + 86400; // 24 hours
+
+    let agoraToken = null;
+
+    // 1. Try server-side dynamic token generation using App Certificate (best option)
+    if (appCertificate && appCertificate.length > 10 && agoraTokenLib) {
+      const rtcRole = (role === "doctor") ? "publisher" : "publisher"; // Both publish video+audio
+      agoraToken = generateAgoraToken(appid, appCertificate, channel, numericUid, rtcRole);
+      if (agoraToken) {
+        console.log(`[Agora] Generated dynamic token for uid=${numericUid} channel=${channel} role=${role}`);
+      } else {
+        console.warn("[Agora] Dynamic token generation failed, falling back to static token");
+      }
+    }
+
+    // 2. Fallback to static token from env var (may expire after ~24h)
+    if (!agoraToken) {
+      const envToken = process.env.AGORA_TOKEN ? process.env.AGORA_TOKEN.trim() : null;
+      const dbToken = db.agoraConfig.token ? String(db.agoraConfig.token).trim() : null;
+      agoraToken = (envToken && envToken.length > 10) ? envToken
+                 : (dbToken && dbToken.length > 10) ? dbToken
+                 : null;
+      if (agoraToken) {
+        console.log(`[Agora] Using static token (set AGORA_APP_CERTIFICATE for dynamic tokens)`);
+      } else {
+        console.warn("[Agora] No token available — set AGORA_APP_CERTIFICATE or AGORA_TOKEN in env vars");
+      }
+    }
 
     res.json({
       success: true,
@@ -1832,10 +1900,13 @@ app.get("/api/agora/token", (req, res) => {
       channel,
       token: agoraToken,
       uid: uidStr,
+      numericUid,
       role: role || "patient",
-      expiresAt: expireTimestamp
+      expiresAt: expireTimestamp,
+      generatedDynamically: !!(appCertificate && agoraToken)
     });
   } catch (err) {
+    console.error("[Agora] /api/agora/token error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

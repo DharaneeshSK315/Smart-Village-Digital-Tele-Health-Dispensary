@@ -14,11 +14,15 @@ services:
       # App ID from console.agora.io → your project → Basic Settings
       - key: AGORA_APP_ID
         value: "aab8b3f972274fcb87cc25048d089e94"
-      # Temp token from console.agora.io → Generate Temp Token (channel: telehealth-room)
-      # Replace this with a new token when it expires (temp tokens last ~24 hours).
-      # For permanent tokens, implement server-side token generation with the App Certificate.
+      # App Certificate from console.agora.io → your project → Basic Settings → Primary Certificate
+      # Enables SERVER-SIDE dynamic token generation (tokens never expire manually!)
+      # Copy the Primary Certificate value from Agora Console and set it in Render Dashboard env vars
+      - key: AGORA_APP_CERTIFICATE
+        value: ""   # ← Set this in Render Dashboard (not here) for security
+      # Static fallback token — used only when AGORA_APP_CERTIFICATE is NOT set
+      # Temp tokens expire in ~24h; prefer setting AGORA_APP_CERTIFICATE instead
       - key: AGORA_TOKEN
-        value: "007eJxTYKgtepqr9PmOybcc80nMyeG8rruKDzvbT6xpOTL39m2pd1sUGFIMkiwSTdLMjUwTLUzMTQ2TkizMLM2MkgxMDFJTzEwTg5KfZDUEMjIkyZ9hYmSAQBCfn6EkNSc1IzUxpyRDtyg/P5eBAQD+eCRZ"
+        value: ""   # ← Paste new temp token here when it expires (or set AGORA_APP_CERTIFICATE)
       - key: AGORA_CHANNEL
         value: "telehealth-room"
       - key: AGORA_ENABLED
