@@ -1895,23 +1895,14 @@ async function initDB() {
     agoraConfig = null;
   }
   if (!agoraConfig || !agoraConfig.appid) {
-    agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
+    agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: null, channel: "telehealth-room" };
     try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
   }
 
-  // Disable Agora if using the placeholder App ID without a token,
-  // OR if enabled but no valid token is present (avoids CAN_NOT_GET_GATEWAY_SERVER errors).
-  const hasRealToken = agoraConfig.token && typeof agoraConfig.token === "string" && agoraConfig.token.trim().length > 10;
-  const usesPlaceholderAppId = agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94";
-
-  if (!hasRealToken || (usesPlaceholderAppId && !hasRealToken)) {
-    // Force disabled — no valid token means Agora cannot authorize
-    if (agoraConfig.enabled) {
-      console.warn("[Agora] Disabling Agora: enabled flag is true but no valid token is configured. Using WebRTC peer connection.");
-    }
-    agoraConfig.enabled = false;
-    try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
-  }
+  // Agora is always enabled as the primary RTC provider.
+  // In App ID-only (Testing) mode, token can be null/empty.
+  agoraConfig.enabled = true;
+  try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
 
   if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
     console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
@@ -4765,20 +4756,12 @@ window.joinVhwCall = function(token) {
 };
 
 function shouldUseAgora() {
+  // Agora is the primary and only RTC provider for video/audio consultations.
+  // It works in App ID-only (Testing) mode when token is null/empty.
+  if (typeof AgoraRTC === "undefined") return false;
   if (!agoraConfig || !agoraConfig.appid) return false;
-  // Agora requires ALL of: enabled flag, a valid App ID, AND a non-empty token.
-  // Without a token, Agora throws CAN_NOT_GET_GATEWAY_SERVER / authorized failed.
-  // In that case we fall through to the direct WebRTC peer connection instead.
-  if (!agoraConfig.enabled) return false;
   if (agoraConfig.lastFail) return false;
-  if (!validateAgoraAppId(agoraConfig.appid)) return false;
-  const hasToken = typeof agoraConfig.token === "string" && agoraConfig.token.trim().length > 10;
-  if (!hasToken) {
-    // Silently disable rather than crashing — WebRTC peer connection handles media
-    console.info("[Agora] Skipping Agora: no valid token configured. Direct WebRTC peer connection will handle media.");
-    return false;
-  }
-  return true;
+  return true;  // Always use Agora regardless of token presence
 }
 
 function startCallLoop() {
@@ -4830,22 +4813,15 @@ function startCallLoop() {
   // Play audible consultation chime so both doctor and patient hear immediate audio
   playConsultationChime();
 
-  // Initialize local webcam / simulated feed for PIP and cross-peer transmission
+  // Initialize local webcam so the local PIP preview works before Agora publishes it
   (async () => {
     await initNativeWebcam(role);
-    if (activeCall && activeCall.token) {
-      await initPeerCall(activeCall.token, role);
-    }
     updateNetworkUI();
   })();
 
-  // Connect Agora RTC for live audio in parallel if configured
-  if (shouldUseAgora()) {
-    console.log("[CallLoop] Connecting Agora RTC for live audio");
-    joinAgoraRoom(role);
-  } else {
-    console.log("[CallLoop] Agora audio disabled or not configured");
-  }
+  // Connect Agora RTC for real-time video & audio (primary provider)
+  console.log("[CallLoop] Connecting Agora RTC for real-time video & audio");
+  joinAgoraRoom(role);
 
   // Start render loop for remote canvas and failovers
   requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
@@ -6766,29 +6742,56 @@ async function joinAgoraRoomInternal(role) {
     }
 
   } catch (err) {
-    console.error("Agora Audio Error:", err);
-    agoraConfig.lastFail = true;
-    agoraConfig.enabled = false;
-    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    console.error("[Agora] Connection error:", err);
 
-    if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
-      console.warn("Agora permission issue detected", err);
+    // Only permanently disable if App ID is truly invalid
+    const invalidAppId = err.message && (
+      err.message.includes("invalid vendor key") ||
+      err.message.includes("can not find appid") ||
+      err.message.includes("invalid App ID") ||
+      err.message.includes("invalid appid")
+    );
+
+    if (invalidAppId) {
+      agoraConfig.lastFail = true;
+      try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch(e) {}
+      showToast("Agora App ID is invalid. Please check your Agora console settings.", "error");
+      return;
     }
 
-    const tokenError = err.message && (err.message.includes("dynamic key expired") || err.message.includes("token timeout") || err.message.includes("ERR_TOKEN_EXPIRED") || err.message.includes("INVALID_TOKEN"));
+    // Token/auth errors: clear token and retry with null (App ID-only mode)
+    const tokenError = err.message && (
+      err.message.includes("CAN_NOT_GET_GATEWAY_SERVER") ||
+      err.message.includes("invalid token") ||
+      err.message.includes("authorized failed") ||
+      err.message.includes("dynamic key expired") ||
+      err.message.includes("ERR_TOKEN_EXPIRED") ||
+      err.message.includes("INVALID_TOKEN")
+    );
     if (tokenError) {
-      agoraConfig.token = "";
-      console.warn("Agora token error detected, clearing saved token.");
+      console.warn("[Agora] Token auth error. Retrying with null token (App ID-only mode)...");
+      agoraConfig.token = null;
+      try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch(e) {}
+      // Retry once with null token
+      if (!agoraConfig._retried) {
+        agoraConfig._retried = true;
+        setTimeout(() => {
+          agoraConfig._retried = false;
+          joinAgoraRoom(role);
+        }, 1500);
+        showToast("Retrying Agora connection in App ID-only mode...", "info");
+        return;
+      }
     }
 
-    const invalidKey = err.message && (err.message.includes("invalid vendor key") || err.message.includes("can not find appid") || err.message.includes("invalid App ID") || err.message.includes("invalid appid"));
-    if (invalidKey) {
-      console.warn("Agora App ID is unconfigured or invalid. Seamlessly using direct peer audio & video.");
-      showToast("Agora unconfigured. Using high-quality direct peer audio & video.", "info");
+    // For other errors (mic permission, network, etc.) — show info but don't disable
+    const permErr = err.message && (err.message.includes("permission") || err.name === "NotAllowedError");
+    if (permErr) {
+      showToast("Microphone permission denied. Please allow microphone access and retry.", "warning");
     } else {
-      console.warn("Agora audio connection issue:", err);
-      showToast(`Agora Audio: ${err.message || "Connection error"}. Using direct peer audio.`, "info");
+      showToast(`Agora connection error: ${err.message || "Unknown error"}. Check console for details.`, "warning");
     }
+    console.warn("[Agora] Error details:", err);
   }
 }
 

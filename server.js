@@ -95,9 +95,9 @@ let db = {
   villages: ["Village Clinic A", "Village Clinic B", "Village Clinic C"],
   failoverLogs: { hd: 0, low: 0, audio: 0 },
   agoraConfig: {
-    enabled: process.env.AGORA_ENABLED === "true" || false,
+    enabled: true,  // Always enabled - Agora is the only RTC provider
     appid: process.env.AGORA_APP_ID || "aab8b3f972274fcb87cc25048d089e94",
-    token: process.env.AGORA_TOKEN || "",
+    token: process.env.AGORA_TOKEN || null,  // null = App ID-only / Testing mode
     channel: process.env.AGORA_CHANNEL || "telehealth-room"
   },
   doctorSchedules: JSON.parse(JSON.stringify(DEFAULT_DOCTOR_SCHEDULES)),
@@ -1789,26 +1789,28 @@ app.put("/api/doctor/schedule/:doctorId", (req, res) => {
   }
 });
 
-// GET /api/agora/token — Server-generated secure room token for Agora consultation session
+// GET /api/agora/token — Returns Agora channel info for consultation session
+// Uses App ID-only mode (token=null) when AGORA_TOKEN env var is not set.
+// This works when the Agora project has "Testing mode" (No Certificate) enabled.
+// For production, set AGORA_TOKEN in Render environment variables.
 app.get("/api/agora/token", (req, res) => {
   try {
     const { channel, role, token: appToken, userId } = req.query;
     const roomChannel = channel || (appToken ? `telehealth-${appToken}` : db.agoraConfig.channel || "telehealth-room");
     const appid = process.env.AGORA_APP_ID || db.agoraConfig.appid || "aab8b3f972274fcb87cc25048d089e94";
-
-    const crypto = require("crypto");
-    const secret = process.env.AGORA_APP_CERTIFICATE || "vm-telehealth-dispensary-secure-key-2026";
-    const expireTimestamp = Math.floor(Date.now() / 1000) + 7200; // 2 hour validity
+    const expireTimestamp = Math.floor(Date.now() / 1000) + 7200;
     const uidStr = String(userId || `${role || "user"}_${Math.floor(Math.random() * 10000)}`);
-    const serverSignature = crypto.createHmac("sha256", secret)
-      .update(`${appid}:${roomChannel}:${uidStr}:${expireTimestamp}`)
-      .digest("hex");
+
+    // Use real token from env if set; otherwise null (App ID-only / Testing mode)
+    const agoraToken = (process.env.AGORA_TOKEN && process.env.AGORA_TOKEN.trim())
+      ? process.env.AGORA_TOKEN.trim()
+      : null;
 
     res.json({
       success: true,
       appid,
       channel: roomChannel,
-      token: process.env.AGORA_TOKEN || db.agoraConfig.token || serverSignature,
+      token: agoraToken,
       uid: uidStr,
       role: role || "patient",
       consultationToken: appToken || null,
