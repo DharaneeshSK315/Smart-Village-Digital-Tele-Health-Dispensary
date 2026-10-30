@@ -335,36 +335,28 @@ async function acquireHardwareMediaStream() {
     throw notSupportedErr;
   }
 
-  // Attempt 1: Safe desktop video + audio constraints
+  // FIX: Request VIDEO ONLY — Agora owns the microphone via createMicrophoneAudioTrack().
+  // Requesting audio: true here causes the browser to lock the mic, so Agora's subsequent
+  // createMicrophoneAudioTrack() silently fails → no audio published → remote hears nothing.
+
+  // Attempt 1: Video-only with ideal resolution
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      audio: false
     });
-    return { stream, type: "hardware", hasAudio: true };
-  } catch (err1) {
-    console.warn("[Webcam] Attempt 1 (video+audio constraints) failed:", err1.name, err1.message);
-  }
-
-  // Attempt 2: Bare video: true, audio: true
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    return { stream, type: "hardware", hasAudio: true };
-  } catch (err2) {
-    console.warn("[Webcam] Attempt 2 (bare video+audio) failed:", err2.name, err2.message);
-  }
-
-  // Attempt 3: Bare video: true with synthetic audio track fallback
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    const synthAudio = createSynthesizedAudioTrack();
-    if (synthAudio) {
-      stream.addTrack(synthAudio);
-    }
     return { stream, type: "hardware", hasAudio: false };
-  } catch (err3) {
-    console.warn("[Webcam] Attempt 3 (video-only with synthetic audio) failed:", err3.name, err3.message);
-    throw err3;
+  } catch (err1) {
+    console.warn("[Webcam] Attempt 1 (video-only with constraints) failed:", err1.name, err1.message);
+  }
+
+  // Attempt 2: Bare video only
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    return { stream, type: "hardware", hasAudio: false };
+  } catch (err2) {
+    console.warn("[Webcam] Attempt 2 (bare video-only) failed:", err2.name, err2.message);
+    throw err2;
   }
 }
 
@@ -6517,9 +6509,8 @@ async function joinAgoraRoomInternal(role) {
     const subscribeToRemoteUser = async (user, mediaType) => {
       try {
         if (mediaType === "audio") {
-          if (!user.audioTrack) {
-            await agoraClient.subscribe(user, mediaType);
-          }
+          // Always subscribe first — audioTrack is null BEFORE subscribing
+          await agoraClient.subscribe(user, mediaType);
           remoteUsers.set(String(user.uid), user);
 
           if (user.audioTrack) {
@@ -6549,9 +6540,8 @@ async function joinAgoraRoomInternal(role) {
             }
           }
         } else if (mediaType === "video") {
-          if (!user.videoTrack) {
-            await agoraClient.subscribe(user, mediaType);
-          }
+          // Always subscribe first — videoTrack is null BEFORE subscribing
+          await agoraClient.subscribe(user, mediaType);
           remoteUsers.set(String(user.uid), user);
 
           if (user.videoTrack) {
