@@ -4839,15 +4839,20 @@ function startCallLoop() {
   // Play audible consultation chime so both doctor and patient hear immediate audio
   playConsultationChime();
 
-  // Initialize local webcam so the local PIP preview works before Agora publishes it
+  // FIX: Acquire local webcam FIRST, then join Agora so localWebcamStream is ready
+  // when the video track is created. Running them in parallel caused a race where
+  // Agora tried to publish video before the stream existed → silent failure → no video.
   (async () => {
-    await initNativeWebcam(role);
-    updateNetworkUI();
+    try {
+      await initNativeWebcam(role);
+      updateNetworkUI();
+    } catch (e) {
+      console.warn("[CallLoop] Webcam init warning:", e);
+    }
+    // Join Agora only AFTER webcam is ready
+    console.log("[CallLoop] Webcam ready — connecting Agora RTC for real-time video & audio");
+    await joinAgoraRoom(role);
   })();
-
-  // Connect Agora RTC for real-time video & audio (primary provider)
-  console.log("[CallLoop] Connecting Agora RTC for real-time video & audio");
-  joinAgoraRoom(role);
 
   // Start render loop for remote canvas and failovers
   requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
@@ -6551,18 +6556,46 @@ async function joinAgoraRoomInternal(role) {
 
           if (user.videoTrack) {
             const prefix = getAgoraRolePrefix(role);
-            const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
-            const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
-            const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+            // Try primary remote container (local role prefix)
+            let remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+            let mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
+            let fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+
+            // Fallback: try opposite role prefix if primary not found
+            if (!remoteContainer) {
+              const oppositePrefix = prefix === "doc" ? "pat" : (prefix === "pat" ? "doc" : "vhw");
+              remoteContainer = document.getElementById(`${oppositePrefix}-remote-video-container`);
+              mainCanvas = mainCanvas || document.getElementById(`${oppositePrefix}-remote-canvas`);
+              fallback = fallback || document.getElementById(`${oppositePrefix}-remote-audio-fallback`);
+            }
+
             if (remoteContainer) {
               remoteContainer.style.display = "block";
               remoteContainer.innerHTML = "";
-              user.videoTrack.play(remoteContainer);
+              user.videoTrack.play(remoteContainer, { fit: "cover" });
+              console.log(`[AGORA] Remote video playing in container #${remoteContainer.id}`);
+            } else {
+              // Last resort: create a video element and append to the main viewport
+              console.warn("[AGORA] Remote video container not found — appending fallback video element");
+              const agoraPrefix = getAgoraRolePrefix(role);
+              const viewport = document.getElementById(`${agoraPrefix}-viewport-container`) ||
+                               document.getElementById(`${prefix}-viewport-container`);
+              if (viewport) {
+                const fallbackDiv = document.createElement("div");
+                fallbackDiv.id = "agora-remote-video-fallback";
+                fallbackDiv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;background:#000;z-index:1;";
+                viewport.style.position = "relative";
+                const existing = document.getElementById("agora-remote-video-fallback");
+                if (existing) existing.remove();
+                viewport.appendChild(fallbackDiv);
+                user.videoTrack.play(fallbackDiv, { fit: "cover" });
+              }
             }
             if (mainCanvas) mainCanvas.style.display = "none";
             if (fallback) fallback.style.display = "none";
             console.log(`[AGORA] Remote video stream connected for UID: ${user.uid}`);
             showToast("Remote video feed connected via Agora!", "success");
+            playConsultationChime();
           }
         }
       } catch (subscribeErr) {
@@ -6719,22 +6752,51 @@ async function joinAgoraRoomInternal(role) {
       tracksToPublish.push(localAudioTrack);
     }
 
-    // Create and publish local video track for Agora RTC
+    // Create and publish local video track for Agora RTC.
+    // Strategy: always use AgoraRTC.createCameraVideoTrack() so Agora owns
+    // the capture pipeline end-to-end. Using createCustomVideoTrack() wrapping
+    // localWebcamStream's native track conflicts with the PIP canvas renderer
+    // that also reads from that same track, causing Chrome to drop frames silently.
     let videoTrack = null;
     try {
-      if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
-        const nativeTrack = localWebcamStream.getVideoTracks()[0];
-        if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
-          videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
-          console.log("[AGORA] Created Agora custom video track from local webcam");
+      if (typeof AgoraRTC.createCameraVideoTrack === "function") {
+        videoTrack = await AgoraRTC.createCameraVideoTrack({
+          encoderConfig: {
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 360 },
+            frameRate: { ideal: 30, min: 15 },
+            bitrateMax: 2000
+          },
+          optimizationMode: "detail"
+        });
+        console.log("[AGORA] Created Agora camera video track (720p)");
+
+        // Mirror local preview from Agora's own video track so the PIP pip shows the camera
+        const agoraPrefix = getAgoraRolePrefix(role);
+        const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+        const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+        if (localContainer) {
+          localContainer.innerHTML = "";
+          videoTrack.play(localContainer, { mirror: true, fit: "cover" });
+          localContainer.style.display = "block";
+          if (localCanvas) localCanvas.style.display = "none";
+          console.log("[AGORA] Local video preview attached from Agora camera track");
         }
       }
-      if (!videoTrack && typeof AgoraRTC.createCameraVideoTrack === "function") {
-        videoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "720p" });
-        console.log("[AGORA] Created Agora camera video track");
-      }
     } catch (vidErr) {
-      console.warn("[AGORA] Agora video track creation note:", vidErr);
+      console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
+      // Fallback: try wrapping the already-acquired localWebcamStream track
+      try {
+        if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
+          const nativeTrack = localWebcamStream.getVideoTracks()[0];
+          if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
+            videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
+            console.log("[AGORA] Fallback: created custom video track from localWebcamStream");
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn("[AGORA] Fallback video track also failed:", fallbackErr);
+      }
     }
 
     localVideoTrack = videoTrack;
