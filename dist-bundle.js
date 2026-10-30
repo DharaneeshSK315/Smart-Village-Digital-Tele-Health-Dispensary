@@ -454,6 +454,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
   let localAudioTrack = null;
   let localVideoTrack = null;
   let agoraJoinPromise = null;
+  let agoraRemoteVideoActive = false;
 
   function getAgoraRolePrefix(role) {
     if (role === "doctor" || role === "doc") return "doc";
@@ -656,36 +657,28 @@ var VillageMed = (function (exports, React, ReactDOM) {
       throw notSupportedErr;
     }
 
-    // Attempt 1: Safe desktop video + audio constraints
+    // FIX: Request VIDEO ONLY — Agora owns the microphone via createMicrophoneAudioTrack().
+    // Requesting audio: true here causes the browser to lock the mic, so Agora's subsequent
+    // createMicrophoneAudioTrack() silently fails → no audio published → remote hears nothing.
+
+    // Attempt 1: Video-only with ideal resolution
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        audio: false
       });
-      return { stream, type: "hardware", hasAudio: true };
-    } catch (err1) {
-      console.warn("[Webcam] Attempt 1 (video+audio constraints) failed:", err1.name, err1.message);
-    }
-
-    // Attempt 2: Bare video: true, audio: true
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      return { stream, type: "hardware", hasAudio: true };
-    } catch (err2) {
-      console.warn("[Webcam] Attempt 2 (bare video+audio) failed:", err2.name, err2.message);
-    }
-
-    // Attempt 3: Bare video: true with synthetic audio track fallback
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const synthAudio = createSynthesizedAudioTrack();
-      if (synthAudio) {
-        stream.addTrack(synthAudio);
-      }
       return { stream, type: "hardware", hasAudio: false };
-    } catch (err3) {
-      console.warn("[Webcam] Attempt 3 (video-only with synthetic audio) failed:", err3.name, err3.message);
-      throw err3;
+    } catch (err1) {
+      console.warn("[Webcam] Attempt 1 (video-only with constraints) failed:", err1.name, err1.message);
+    }
+
+    // Attempt 2: Bare video only
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      return { stream, type: "hardware", hasAudio: false };
+    } catch (err2) {
+      console.warn("[Webcam] Attempt 2 (bare video-only) failed:", err2.name, err2.message);
+      throw err2;
     }
   }
 
@@ -918,21 +911,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     localWebcamStream = acquiredStream;
 
-    // Immediately bind local media tracks to peerConnection if already initialized
-    if (peerConnection && acquiredStream) {
-      try {
-        const senders = (typeof peerConnection.getSenders === "function") ? peerConnection.getSenders() : [];
-        acquiredStream.getTracks().forEach(track => {
-          const sender = senders.find(s => s.track && s.track.kind === track.kind);
-          if (sender && typeof sender.replaceTrack === "function") {
-            sender.replaceTrack(track).catch(e => console.warn("[Peer] replaceTrack warning:", e));
-          } else {
-            try { peerConnection.addTrack(track, acquiredStream); } catch(e){}
-          }
-        });
-      } catch(e) {}
-    }
-
     if (localContainer) {
       attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
       localContainer.style.display = "block";
@@ -962,6 +940,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
   function stopLocalWebcam() {
     closePeerCall();
+    agoraRemoteVideoActive = false;
 
     if (virtualWebcamAnimId) {
       cancelAnimationFrame(virtualWebcamAnimId);
@@ -1168,7 +1147,26 @@ var VillageMed = (function (exports, React, ReactDOM) {
           body.db.consultations.forEach(c => { if (c && (c.id || c.token)) cMap.set(c.id || c.token, { ...cMap.get(c.id || c.token), ...c }); });
           db.consultations = Array.from(cMap.values());
         }
-        if (body.db.agoraConfig) agoraConfig = body.db.agoraConfig;
+        if (body.db.agoraConfig) {
+          let localConfig = null;
+          try { localConfig = JSON.parse(localStorage.getItem("agora_config")); } catch (e) {}
+          const serverToken = (body.db.agoraConfig.token && typeof body.db.agoraConfig.token === "string") ? body.db.agoraConfig.token.trim() : "";
+          const localToken = (localConfig && localConfig.token && typeof localConfig.token === "string") ? localConfig.token.trim() : "";
+          const currentToken = (agoraConfig && agoraConfig.token && typeof agoraConfig.token === "string") ? agoraConfig.token.trim() : "";
+          const effectiveToken = serverToken || localToken || currentToken || "";
+          const effectiveEnabled = body.db.agoraConfig.enabled !== undefined
+            ? body.db.agoraConfig.enabled
+            : (localConfig && localConfig.enabled !== undefined ? localConfig.enabled : (agoraConfig?.enabled || false));
+
+          agoraConfig = {
+            ...body.db.agoraConfig,
+            token: effectiveToken,
+            enabled: effectiveEnabled
+          };
+          db.agoraConfig = { ...agoraConfig };
+          try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
+          populateAgoraInputs();
+        }
         localStorage.setItem("telehealth_db", JSON.stringify(db));
         console.info("[DB] Centralized database state synced from backend.");
 
@@ -1227,12 +1225,16 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     try {
       appSocket = io(backend, {
-        transports: ["websocket", "polling"],
+        // Start with polling so Render's HTTP proxy can establish the handshake,
+        // then upgrade to WebSocket. This prevents the silent WS failure on Render free tier.
+        transports: ["polling", "websocket"],
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1500,
         reconnectionDelayMax: 5000,
-        timeout: 10000
+        timeout: 20000,
+        upgrade: true,
+        rememberUpgrade: true
       });
 
       appSocket.on("connect", () => {
@@ -1492,8 +1494,19 @@ var VillageMed = (function (exports, React, ReactDOM) {
       // 10. Agora Config Updated
       appSocket.on("agora_config_updated", (cfg) => {
         if (cfg) {
-          agoraConfig = cfg;
-          localStorage.setItem("agora_config", JSON.stringify(cfg));
+          let localToken = "";
+          try {
+            const stored = JSON.parse(localStorage.getItem("agora_config"));
+            if (stored && stored.token) localToken = stored.token.trim();
+          } catch (e) {}
+
+          agoraConfig = {
+            ...cfg,
+            token: (cfg.token && cfg.token.trim()) || localToken || (agoraConfig && agoraConfig.token) || ""
+          };
+          db.agoraConfig = { ...agoraConfig };
+          try { localStorage.setItem("agora_config", JSON.stringify(agoraConfig)); } catch (e) {}
+          populateAgoraInputs();
         }
       });
 
@@ -1542,9 +1555,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
   let peerLocalRole = null;
   let peerSessionId = Math.random().toString(36).substring(2, 10);
   let remoteWebcamStream = null;
-  let peerMakingOffer = false;
-  let peerIgnoreOffer = false;
-  let peerHeartbeatTimer = null;
 
   function sendPeerSignal(payload) {
     const token = peerToken || (activeCall && activeCall.token);
@@ -1614,58 +1624,12 @@ var VillageMed = (function (exports, React, ReactDOM) {
       return;
     }
 
-    if (!peerConnection) {
+    {
       if (data.type === "description" || data.type === "candidate") {
         if (!window._pendingPeerSignals) window._pendingPeerSignals = [];
         window._pendingPeerSignals.push(data);
       }
       return;
-    }
-    const isPolite = (peerLocalRole === "patient" || peerLocalRole === "vhw");
-
-    try {
-      if (data.type === "description" && data.description) {
-        const desc = data.description;
-        const readyForOffer = !peerMakingOffer && (peerConnection.signalingState === "stable" || peerConnection.signalingState === "have-local-offer");
-        const offerCollision = desc.type === "offer" && !readyForOffer;
-        peerIgnoreOffer = !isPolite && offerCollision;
-        if (peerIgnoreOffer) {
-          console.log("[Peer] Ignored offer collision (impolite peer)");
-          return;
-        }
-        await peerConnection.setRemoteDescription(desc);
-        if (desc.type === "offer") {
-          await peerConnection.setLocalDescription();
-          sendPeerSignal({ type: "description", description: peerConnection.localDescription });
-        }
-      } else if (data.type === "candidate" && data.candidate) {
-        try {
-          await peerConnection.addIceCandidate(data.candidate);
-        } catch (err) {
-          if (!peerIgnoreOffer) {
-            console.warn("[Peer] Add candidate note:", err);
-          }
-        }
-      } else if (data.type === "presence" || data.type === "ping") {
-        // Remote participant announced active presence
-        if (peerConnection.signalingState === "stable") {
-          try {
-            peerMakingOffer = true;
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            sendPeerSignal({ type: "description", description: peerConnection.localDescription });
-          } catch (e) {
-            console.warn("[Peer] Presence offer creation warning:", e);
-          } finally {
-            peerMakingOffer = false;
-          }
-        } else if (peerConnection.signalingState === "have-local-offer" && peerConnection.localDescription) {
-          // Re-transmit our existing local offer to newly connected peer
-          sendPeerSignal({ type: "description", description: peerConnection.localDescription });
-        }
-      }
-    } catch (err) {
-      console.error("[Peer] Signaling processing error:", err);
     }
   }
 
@@ -1678,133 +1642,7 @@ var VillageMed = (function (exports, React, ReactDOM) {
     } catch (e) {}
   }
 
-  async function initPeerCall(token, role) {
-    closePeerCall();
-
-    peerToken = token;
-    peerLocalRole = role;
-    peerSessionId = Math.random().toString(36).substring(2, 10);
-    console.info(`[Peer] Initializing real-time cross-client call for token='${token}', role='${role}', session='${peerSessionId}'`);
-
-    // Setup broadcast & storage signaling
-    try {
-      peerSignalingChannel = new BroadcastChannel(`vm_peer_bridge_${token}`);
-      peerSignalingChannel.onmessage = (event) => handlePeerSignal(event.data);
-    } catch (e) {
-      console.warn("[Peer] BroadcastChannel unavailable, using storage signaling:", e);
-    }
-    window.addEventListener("storage", handlePeerStorageEvent);
-
-    if (appSocket && appSocket.connected) {
-      try {
-        appSocket.emit("join_consultation", {
-          token,
-          role,
-          userId: currentUser ? currentUser.id : null
-        });
-      } catch (e) {}
-    }
-
-    const pcConfig = {
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:global.stun.twilio.com:3478" }
-      ]
-    };
-
-    peerConnection = new RTCPeerConnection(pcConfig);
-
-    // Add tracks from local webcam/simulated stream
-    if (localWebcamStream) {
-      localWebcamStream.getTracks().forEach(track => {
-        try {
-          peerConnection.addTrack(track, localWebcamStream);
-          console.info(`[Peer] Published local ${track.kind} track to peerConnection`);
-        } catch (e) {}
-      });
-    }
-
-    // Drain queued peer signals received before peerConnection finished initializing
-    if (window._pendingPeerSignals && window._pendingPeerSignals.length > 0) {
-      const queue = [...window._pendingPeerSignals];
-      window._pendingPeerSignals = [];
-      queue.forEach(sig => handlePeerSignal(sig));
-    }
-
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendPeerSignal({ type: "candidate", candidate: event.candidate });
-      }
-    };
-
-    peerConnection.onnegotiationneeded = async () => {
-      try {
-        peerMakingOffer = true;
-        await peerConnection.setLocalDescription();
-        sendPeerSignal({ type: "description", description: peerConnection.localDescription });
-        console.info("[Peer] Sent initial/updated SDP description");
-      } catch (err) {
-        console.error("[Peer] Negotiation error:", err);
-      } finally {
-        peerMakingOffer = false;
-      }
-    };
-
-    peerConnection.ontrack = (event) => {
-      console.info(`[Peer] Remote ${event.track.kind} track arrived!`);
-      if (!remoteWebcamStream) {
-        remoteWebcamStream = new MediaStream();
-      }
-      const duplicateTracks = remoteWebcamStream.getTracks().filter(t => t.kind === event.track.kind);
-      duplicateTracks.forEach(t => remoteWebcamStream.removeTrack(t));
-      remoteWebcamStream.addTrack(event.track);
-
-      const prefix = getAgoraRolePrefix(role);
-      const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
-      const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
-      const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
-
-      if (remoteContainer) {
-        attachStreamToContainer(remoteWebcamStream, `${prefix}-remote-video-container`, false);
-        remoteContainer.style.display = "block";
-      }
-      if (mainCanvas) mainCanvas.style.display = "none";
-      if (fallback) fallback.style.display = "none";
-
-      playConsultationChime();
-      updateNetworkUI();
-    };
-
-    peerConnection.onconnectionstatechange = () => {
-      console.info(`[Peer] Connection state: ${peerConnection.connectionState}`);
-      if (peerConnection.connectionState === "connected") {
-        const partner = role === "doctor" ? "Patient" : "Doctor";
-        showToast(`Real-time video & audio connected with ${partner}!`, "success");
-        playConsultationChime();
-      } else if (peerConnection.connectionState === "failed") {
-        try { peerConnection.restartIce(); } catch (e) {}
-      }
-    };
-
-    // Announce presence immediately to connect with already open tab
-    sendPeerSignal({ type: "presence" });
-
-    // Periodically send ping while not connected so either tab connects instantly
-    peerHeartbeatTimer = setInterval(() => {
-      if (!activeCall || !peerConnection) return;
-      if (peerConnection.connectionState !== "connected") {
-        sendPeerSignal({ type: "ping" });
-      }
-    }, 3500);
-  }
-
   function closePeerCall() {
-    if (peerHeartbeatTimer) {
-      clearInterval(peerHeartbeatTimer);
-      peerHeartbeatTimer = null;
-    }
     if (peerSignalingChannel) {
       try {
         peerSignalingChannel.close();
@@ -1812,18 +1650,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
       peerSignalingChannel = null;
     }
     window.removeEventListener("storage", handlePeerStorageEvent);
-    if (peerConnection) {
-      try {
-        peerConnection.close();
-      } catch (e) {}
-      peerConnection = null;
-    }
-    if (remoteWebcamStream) {
-      try {
-        remoteWebcamStream.getTracks().forEach(t => t.stop());
-      } catch (e) {}
-      remoteWebcamStream = null;
-    }
 
     if (appSocket && appSocket.connected && peerToken) {
       try {
@@ -1837,8 +1663,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     peerToken = null;
     peerLocalRole = null;
-    peerMakingOffer = false;
-    peerIgnoreOffer = false;
   }
 
   function validateAgoraAppId(appid) {
@@ -2107,24 +1931,32 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
     db.recordings = db.recordings || [];
 
-    // Load Agora Config
-    agoraConfig = JSON.parse(localStorage.getItem("agora_config"));
-    if (!agoraConfig || !agoraConfig.appid) {
-      agoraConfig = { enabled: false, appid: "aab8b3f972274fcb87cc25048d089e94", token: "", channel: "telehealth-room" };
-      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-    }
+    // Load Agora Config — ALWAYS start fresh from defaults, never use stale cached config.
+    // Stale localStorage tokens cause "Agora App ID invalid" false positives on reload.
+    localStorage.removeItem("agora_config");
+    agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: null, channel: "telehealth-room", lastFail: false };
 
-    // Placeholder Agora App ID is not a real Agora Cloud project; disable to avoid gateway errors
-    if (agoraConfig.appid === "aab8b3f972274fcb87cc25048d089e94") {
-      agoraConfig.enabled = false;
-      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-    }
-
-    if (agoraConfig.enabled && !validateAgoraAppId(agoraConfig.appid)) {
-      console.warn("Stored Agora config contains invalid App ID; disabling Agora.", agoraConfig);
-      agoraConfig.enabled = false;
-      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-    }
+    // Fetch fresh token from server immediately so it's ready when consultation starts
+    (async () => {
+      try {
+        const backend = getBackendUrl();
+        const tokenRes = await fetch(`${backend}/api/agora/token`, { cache: "no-store" });
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          if (tokenData.token && tokenData.token.length > 10) {
+            agoraConfig.token = tokenData.token;
+            console.info("[Agora] Fresh token fetched from server on startup.", { generatedDynamically: tokenData.generatedDynamically });
+          } else {
+            console.info("[Agora] Server has no token configured — will use App ID-only mode (requires Testing Mode in Agora Console).");
+          }
+          if (tokenData.appid) agoraConfig.appid = tokenData.appid;
+          agoraConfig.channel = "telehealth-room";
+          agoraConfig.enabled = true;
+        }
+      } catch (cfgErr) {
+        console.warn("[Agora] Could not fetch token from server:", cfgErr.message);
+      }
+    })();
 
     if (supabase) {
       const realtimeChannel = supabase.channel("telehealth-live-updates");
@@ -2153,21 +1985,35 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Populate UI inputs on load
     setTimeout(() => {
       populateAgoraInputs();
-    }, 300);
+    }, 100);
   }
 
   function populateAgoraInputs() {
+    let cfg = agoraConfig;
+    try {
+      const stored = JSON.parse(localStorage.getItem("agora_config"));
+      if (stored) {
+        cfg = { ...cfg, ...stored };
+        if (stored.token && stored.token.trim()) {
+          cfg.token = stored.token.trim();
+        }
+      }
+    } catch (e) {}
+
+    if (!cfg && db && db.agoraConfig) {
+      cfg = db.agoraConfig;
+    }
+    if (!cfg) return;
+
     const appidInput = document.getElementById("agora-appid");
     const tokenInput = document.getElementById("agora-token");
     const chanInput = document.getElementById("agora-channel");
     const enableCheck = document.getElementById("agora-enabled");
     
-    if (agoraConfig) {
-      if (appidInput) appidInput.value = agoraConfig.appid || "";
-      if (tokenInput) tokenInput.value = agoraConfig.token || "";
-      if (chanInput) chanInput.value = agoraConfig.channel || "telehealth-room";
-      if (enableCheck) enableCheck.checked = agoraConfig.enabled || false;
-    }
+    if (appidInput && cfg.appid !== undefined) appidInput.value = cfg.appid || "";
+    if (tokenInput && cfg.token !== undefined) tokenInput.value = cfg.token || "";
+    if (chanInput && cfg.channel !== undefined) chanInput.value = cfg.channel || "telehealth-room";
+    if (enableCheck && cfg.enabled !== undefined) enableCheck.checked = Boolean(cfg.enabled);
   }
 
   async function saveDB(tableName = null) {
@@ -4938,8 +4784,12 @@ var VillageMed = (function (exports, React, ReactDOM) {
   };
 
   function shouldUseAgora() {
+    // Agora is the primary and only RTC provider for video/audio consultations.
+    // It works in App ID-only (Testing) mode when token is null/empty.
+    if (typeof AgoraRTC === "undefined") return false;
     if (!agoraConfig || !agoraConfig.appid) return false;
-    return Boolean(agoraConfig.enabled !== false && !agoraConfig.lastFail);
+    if (agoraConfig.lastFail) return false;
+    return true;  // Always use Agora regardless of token presence
   }
 
   function startCallLoop() {
@@ -4991,22 +4841,20 @@ var VillageMed = (function (exports, React, ReactDOM) {
     // Play audible consultation chime so both doctor and patient hear immediate audio
     playConsultationChime();
 
-    // Initialize local webcam / simulated feed for PIP and cross-peer transmission
+    // FIX: Acquire local webcam FIRST, then join Agora so localWebcamStream is ready
+    // when the video track is created. Running them in parallel caused a race where
+    // Agora tried to publish video before the stream existed → silent failure → no video.
     (async () => {
-      await initNativeWebcam(role);
-      if (activeCall && activeCall.token) {
-        await initPeerCall(activeCall.token, role);
+      try {
+        await initNativeWebcam(role);
+        updateNetworkUI();
+      } catch (e) {
+        console.warn("[CallLoop] Webcam init warning:", e);
       }
-      updateNetworkUI();
+      // Join Agora only AFTER webcam is ready
+      console.log("[CallLoop] Webcam ready — connecting Agora RTC for real-time video & audio");
+      await joinAgoraRoom(role);
     })();
-
-    // Connect Agora RTC for live audio in parallel if configured
-    if (shouldUseAgora()) {
-      console.log("[CallLoop] Connecting Agora RTC for live audio");
-      joinAgoraRoom(role);
-    } else {
-      console.log("[CallLoop] Agora audio disabled or not configured");
-    }
 
     // Start render loop for remote canvas and failovers
     requestAnimationFrame(() => renderWebcams(mainCanvas, pipCanvas));
@@ -5666,6 +5514,10 @@ var VillageMed = (function (exports, React, ReactDOM) {
         btn.innerText = "📷";
       }
 
+      if (localVideoTrack && typeof localVideoTrack.setEnabled === "function") {
+        await localVideoTrack.setEnabled(true);
+      }
+
       if (localWebcamStream && !localWebcamStream._isVirtual && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
         localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
         if (localContainer) localContainer.style.display = "block";
@@ -5676,17 +5528,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
         const resStream = await initNativeWebcam(role, true);
         if (resStream && !resStream._isVirtual) {
           showToast("Real webcam connected! Live video active.", "success");
-        }
-        if (peerConnection && localWebcamStream) {
-          const videoTrack = localWebcamStream.getVideoTracks()[0];
-          if (videoTrack) {
-            const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
-            if (sender) {
-              sender.replaceTrack(videoTrack).catch(() => {});
-            } else {
-              peerConnection.addTrack(videoTrack, localWebcamStream);
-            }
-          }
         }
       }
     } else {
@@ -5699,6 +5540,9 @@ var VillageMed = (function (exports, React, ReactDOM) {
 
       if (localWebcamStream) {
         localWebcamStream.getVideoTracks().forEach(t => t.enabled = false);
+      }
+      if (localVideoTrack && typeof localVideoTrack.setEnabled === "function") {
+        await localVideoTrack.setEnabled(false);
       }
 
       if (localContainer) localContainer.style.display = "none";
@@ -6556,10 +6400,15 @@ var VillageMed = (function (exports, React, ReactDOM) {
   }
 
   window.saveAgoraConfig = function() {
-    const appid = document.getElementById("agora-appid").value.trim();
-    const token = document.getElementById("agora-token").value.trim();
-    const channel = document.getElementById("agora-channel").value.trim() || "telehealth-room";
-    const enabled = document.getElementById("agora-enabled").checked;
+    const appidInput = document.getElementById("agora-appid");
+    const tokenInput = document.getElementById("agora-token");
+    const chanInput = document.getElementById("agora-channel");
+    const enableCheck = document.getElementById("agora-enabled");
+
+    const appid = appidInput ? appidInput.value.trim() : "";
+    const token = tokenInput ? tokenInput.value.trim() : "";
+    const channel = (chanInput ? chanInput.value.trim() : "") || "telehealth-room";
+    const enabled = enableCheck ? enableCheck.checked : false;
 
     if (enabled && !validateAgoraAppId(appid)) {
       showToast("Invalid Agora App ID. Please verify the App ID from your Agora console.", "warning");
@@ -6572,10 +6421,35 @@ var VillageMed = (function (exports, React, ReactDOM) {
       agoraConfig.lastFail = false;
     }
 
-    // Persist to localStorage and local DB cache
-    localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
-    db.agoraConfig = agoraConfig;
-    saveDB();
+    // 1. Persist to localStorage immediately
+    try {
+      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+    } catch (e) {}
+
+    // 2. Persist to local DB cache
+    db.agoraConfig = { ...agoraConfig };
+    try {
+      localStorage.setItem("telehealth_db", JSON.stringify(db));
+    } catch (e) {}
+
+    // 3. Sync to backend shared server so it persists in database.json and across page reloads
+    try {
+      const backend = getBackendUrl();
+      fetch(`${backend}/api/agora/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(agoraConfig)
+      })
+      .then(res => res.json())
+      .then(data => {
+        console.info("[Agora] Backend successfully persisted Agora config:", data);
+      })
+      .catch(err => {
+        console.warn("[Agora] Could not sync Agora config to backend:", err.message);
+      });
+    } catch (backendErr) {
+      console.warn("[Agora] Backend sync exception:", backendErr);
+    }
 
     console.info("Agora config saved successfully", { appid, hasToken: !!token, channel, enabled });
     showToast("Agora audio configurations saved successfully!", "success");
@@ -6632,14 +6506,23 @@ var VillageMed = (function (exports, React, ReactDOM) {
       agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
 
       const remoteUsers = new Map();
+      // Track which media types we've already subscribed per user to prevent duplicate subscriptions
+      // that cause video flicker (container cleared + re-attached = black flash)
+      const subscribedMedia = new Map(); // uid → Set of subscribed mediaTypes
 
       const subscribeToRemoteUser = async (user, mediaType) => {
         try {
+          const uidKey = String(user.uid);
+          if (!subscribedMedia.has(uidKey)) subscribedMedia.set(uidKey, new Set());
+          const alreadySubscribed = subscribedMedia.get(uidKey).has(mediaType);
+
           if (mediaType === "audio") {
-            if (!user.audioTrack) {
+            // Always subscribe first — audioTrack is null BEFORE subscribing
+            if (!alreadySubscribed) {
               await agoraClient.subscribe(user, mediaType);
+              subscribedMedia.get(uidKey).add(mediaType);
             }
-            remoteUsers.set(String(user.uid), user);
+            remoteUsers.set(uidKey, user);
 
             if (user.audioTrack) {
               try {
@@ -6668,25 +6551,56 @@ var VillageMed = (function (exports, React, ReactDOM) {
               }
             }
           } else if (mediaType === "video") {
-            if (!user.videoTrack) {
+            if (!alreadySubscribed) {
               await agoraClient.subscribe(user, mediaType);
+              subscribedMedia.get(uidKey).add(mediaType);
             }
-            remoteUsers.set(String(user.uid), user);
+            remoteUsers.set(uidKey, user);
 
             if (user.videoTrack) {
               const prefix = getAgoraRolePrefix(role);
-              const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
-              const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
-              const fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+              // Try primary remote container (local role prefix)
+              let remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
+              let mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
+              let fallback = document.getElementById(`${prefix}-remote-audio-fallback`);
+
+              // Fallback: try opposite role prefix if primary not found
+              if (!remoteContainer) {
+                const oppositePrefix = prefix === "doc" ? "pat" : (prefix === "pat" ? "doc" : "vhw");
+                remoteContainer = document.getElementById(`${oppositePrefix}-remote-video-container`);
+                mainCanvas = mainCanvas || document.getElementById(`${oppositePrefix}-remote-canvas`);
+                fallback = fallback || document.getElementById(`${oppositePrefix}-remote-audio-fallback`);
+              }
+
               if (remoteContainer) {
                 remoteContainer.style.display = "block";
-                remoteContainer.innerHTML = "";
-                user.videoTrack.play(remoteContainer);
+                if (!remoteContainer.querySelector("video")) remoteContainer.innerHTML = "";
+                user.videoTrack.play(remoteContainer, { fit: "cover" });
+                agoraRemoteVideoActive = true;
+                console.log(`[AGORA] Remote video playing in container #${remoteContainer.id}`);
+              } else {
+                // Last resort: create a video element and append to the main viewport
+                console.warn("[AGORA] Remote video container not found — appending fallback video element");
+                const agoraPrefix = getAgoraRolePrefix(role);
+                const viewport = document.getElementById(`${agoraPrefix}-viewport-container`) ||
+                                 document.getElementById(`${prefix}-viewport-container`);
+                if (viewport) {
+                  const fallbackDiv = document.createElement("div");
+                  fallbackDiv.id = "agora-remote-video-fallback";
+                  fallbackDiv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;background:#000;z-index:1;";
+                  viewport.style.position = "relative";
+                  const existing = document.getElementById("agora-remote-video-fallback");
+                  if (existing) existing.remove();
+                  viewport.appendChild(fallbackDiv);
+                  user.videoTrack.play(fallbackDiv, { fit: "cover" });
+                  agoraRemoteVideoActive = true;
+                }
               }
               if (mainCanvas) mainCanvas.style.display = "none";
               if (fallback) fallback.style.display = "none";
               console.log(`[AGORA] Remote video stream connected for UID: ${user.uid}`);
               showToast("Remote video feed connected via Agora!", "success");
+              playConsultationChime();
             }
           }
         } catch (subscribeErr) {
@@ -6718,11 +6632,15 @@ var VillageMed = (function (exports, React, ReactDOM) {
       agoraClient.on("user-unpublished", (user, mediaType) => {
         console.log(`[AGORA] user-unpublished: ${user.uid} mediaType: ${mediaType}`);
         if (mediaType === "video") {
+          agoraRemoteVideoActive = false;
           const prefix = getAgoraRolePrefix(role);
-          const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
-          const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
-          if (remoteContainer) remoteContainer.style.display = "none";
-          if (mainCanvas) mainCanvas.style.display = "block";
+          const oppositePrefix = prefix === "doc" ? "pat" : (prefix === "pat" ? "doc" : "vhw");
+          [prefix, oppositePrefix].forEach(p => {
+            const remoteContainer = document.getElementById(`${p}-remote-video-container`);
+            const mainCanvas = document.getElementById(`${p}-remote-canvas`);
+            if (remoteContainer) remoteContainer.style.display = "none";
+            if (mainCanvas) mainCanvas.style.display = "block";
+          });
         }
       });
 
@@ -6746,33 +6664,44 @@ var VillageMed = (function (exports, React, ReactDOM) {
         }
       });
 
-      // Join room (Secure Server-Generated Token & Scoped Room)
+      // Join room — always uses the fixed "telehealth-room" channel so the
+      // configured token (temp or permanent) always matches the channel.
       const appid = (agoraConfig.appid || "").trim();
       const consultationId = String(activeCall?.token || "").trim();
-      if (!consultationId) {
-        throw new Error("No consultation token is available for the Agora channel.");
-      }
 
-      let channel = `telehealth-${consultationId}`;
-      let token = (agoraConfig.token || "").trim() || null;
+      // Fixed channel: token was generated for "telehealth-room" in the Agora console.
+      // All consultations share this channel, distinguished by unique UIDs.
+      let channel = "telehealth-room";
+
+      // Compute the UID first so we can pass it to the token server
+      // Token generated for uid=N is only valid for that uid; uid=0 means wildcard
+      const uid = getAgoraUid(role, consultationId || "default");
+
+      let token = (agoraConfig.token && agoraConfig.token.trim().length > 10)
+        ? agoraConfig.token.trim()
+        : null;
 
       try {
         const backend = getBackendUrl();
-        const tokenRes = await fetch(`${backend}/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&token=${encodeURIComponent(consultationId)}&userId=${encodeURIComponent(currentUser ? currentUser.id : 'user')}`);
+        const tokenRes = await fetch(
+          `${backend}/api/agora/token?channel=${encodeURIComponent(channel)}&role=${encodeURIComponent(role)}&userId=${encodeURIComponent(uid)}`,
+          { cache: "no-store" }
+        );
         if (tokenRes.ok) {
           const tokenData = await tokenRes.json();
-          if (tokenData.channel) channel = tokenData.channel;
           if (tokenData.token) token = tokenData.token;
+          if (tokenData.channel) channel = tokenData.channel;
+          console.info(`[AGORA] Token fetched from server: dynamic=${tokenData.generatedDynamically} uid=${uid}`);
         }
       } catch (e) {
-        console.warn("[Agora] Could not fetch server token, falling back to configured token/channel:", e);
+        console.warn("[Agora] Could not fetch server token, using locally cached token:", e);
       }
 
-      const uid = getAgoraUid(role, consultationId);
       if (!appid) {
         throw new Error("Agora App ID is not configured.");
       }
 
+      console.info(`[AGORA] Joining channel='${channel}' uid=${uid} hasToken=${!!token}`);
       await agoraClient.join(appid, channel, token, uid);
       console.log(`[AGORA] Joined channel: ${channel} UID: ${uid}`);
 
@@ -6835,22 +6764,51 @@ var VillageMed = (function (exports, React, ReactDOM) {
         tracksToPublish.push(localAudioTrack);
       }
 
-      // Create and publish local video track for Agora RTC
+      // Create and publish local video track for Agora RTC.
+      // Strategy: always use AgoraRTC.createCameraVideoTrack() so Agora owns
+      // the capture pipeline end-to-end. Using createCustomVideoTrack() wrapping
+      // localWebcamStream's native track conflicts with the PIP canvas renderer
+      // that also reads from that same track, causing Chrome to drop frames silently.
       let videoTrack = null;
       try {
-        if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
-          const nativeTrack = localWebcamStream.getVideoTracks()[0];
-          if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
-            videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
-            console.log("[AGORA] Created Agora custom video track from local webcam");
+        if (typeof AgoraRTC.createCameraVideoTrack === "function") {
+          videoTrack = await AgoraRTC.createCameraVideoTrack({
+            encoderConfig: {
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 360 },
+              frameRate: { ideal: 30, min: 15 },
+              bitrateMax: 2000
+            },
+            optimizationMode: "detail"
+          });
+          console.log("[AGORA] Created Agora camera video track (720p)");
+
+          // Mirror local preview from Agora's own video track so the PIP pip shows the camera
+          const agoraPrefix = getAgoraRolePrefix(role);
+          const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+          const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+          if (localContainer) {
+            localContainer.innerHTML = "";
+            videoTrack.play(localContainer, { mirror: true, fit: "cover" });
+            localContainer.style.display = "block";
+            if (localCanvas) localCanvas.style.display = "none";
+            console.log("[AGORA] Local video preview attached from Agora camera track");
           }
         }
-        if (!videoTrack && typeof AgoraRTC.createCameraVideoTrack === "function") {
-          videoTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "720p" });
-          console.log("[AGORA] Created Agora camera video track");
-        }
       } catch (vidErr) {
-        console.warn("[AGORA] Agora video track creation note:", vidErr);
+        console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
+        // Fallback: try wrapping the already-acquired localWebcamStream track
+        try {
+          if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
+            const nativeTrack = localWebcamStream.getVideoTracks()[0];
+            if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
+              videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
+              console.log("[AGORA] Fallback: created custom video track from localWebcamStream");
+            }
+          }
+        } catch (fallbackErr) {
+          console.warn("[AGORA] Fallback video track also failed:", fallbackErr);
+        }
       }
 
       localVideoTrack = videoTrack;
@@ -6892,29 +6850,71 @@ var VillageMed = (function (exports, React, ReactDOM) {
       }
 
     } catch (err) {
-      console.error("Agora Audio Error:", err);
-      agoraConfig.lastFail = true;
-      agoraConfig.enabled = false;
-      localStorage.setItem("agora_config", JSON.stringify(agoraConfig));
+      console.error("[Agora] Connection error:", err);
 
-      if (err.code === "MEDIUM_NOT_SUPPORTED" || err.message?.includes("permission")) {
-        console.warn("Agora permission issue detected", err);
+      // "invalid vendor key" / "can not find appid" can be caused by a bad token when the project
+      // uses Primary Certificate — do NOT permanently disable on this. Just log and retry fresh.
+      const looksLikeBadToken = err.message && (
+        err.message.includes("invalid vendor key") ||
+        err.message.includes("CAN_NOT_GET_GATEWAY_SERVER") ||
+        err.message.includes("invalid token") ||
+        err.message.includes("authorized failed") ||
+        err.message.includes("dynamic key expired") ||
+        err.message.includes("ERR_TOKEN_EXPIRED") ||
+        err.message.includes("INVALID_TOKEN") ||
+        err.message.includes("can not find appid") ||
+        err.message.includes("invalid App ID") ||
+        err.message.includes("invalid appid")
+      );
+
+      if (looksLikeBadToken) {
+        console.warn("[Agora] Token/auth error:", err.message);
+        agoraConfig.token = null;
+        agoraConfig.lastFail = false;
+
+        // Retry ONCE with a fresh token fetched from server
+        if (!agoraConfig._retried) {
+          agoraConfig._retried = true;  // keep true until retry resolves
+          showToast("Agora auth error — fetching fresh token and retrying...", "info");
+          setTimeout(async () => {
+            try {
+              const backend = getBackendUrl();
+              const res = await fetch(`${backend}/api/agora/token?role=${role}`, { cache: "no-store" });
+              if (res.ok) {
+                const data = await res.json();
+                if (data.token && data.token.length > 10) {
+                  agoraConfig.token = data.token;
+                  console.info("[Agora] Fresh token fetched, retrying join...", { generatedDynamically: data.generatedDynamically });
+                } else {
+                  console.warn("[Agora] Server returned no token — check AGORA_APP_CERTIFICATE in Render env vars.");
+                  showToast("Agora: No valid token available. Check AGORA_APP_CERTIFICATE in Render settings.", "error");
+                  agoraConfig._retried = false;
+                  return;  // Don't retry if server can't generate a token
+                }
+              }
+            } catch (fetchErr) {
+              console.warn("[Agora] Could not fetch fresh token:", fetchErr.message);
+            }
+            // _retried stays true — if this retry also fails, we show final error (not another loop)
+            joinAgoraRoom(role);
+          }, 2000);
+          return;
+        }
+        // Second failure after retry — give up gracefully, don't loop
+        agoraConfig._retried = false;
+        console.error("[Agora] Token still rejected after retry. Check AGORA_APP_CERTIFICATE in Render Dashboard.");
+        showToast("Agora connection failed. Please check App Certificate in Render settings and refresh.", "error");
+        return;
       }
 
-      const tokenError = err.message && (err.message.includes("dynamic key expired") || err.message.includes("token timeout") || err.message.includes("ERR_TOKEN_EXPIRED") || err.message.includes("INVALID_TOKEN"));
-      if (tokenError) {
-        agoraConfig.token = "";
-        console.warn("Agora token error detected, clearing saved token.");
-      }
-
-      const invalidKey = err.message && (err.message.includes("invalid vendor key") || err.message.includes("can not find appid") || err.message.includes("invalid App ID") || err.message.includes("invalid appid"));
-      if (invalidKey) {
-        console.warn("Agora App ID is unconfigured or invalid. Seamlessly using direct peer audio & video.");
-        showToast("Agora unconfigured. Using high-quality direct peer audio & video.", "info");
+      // For other errors (mic permission, network, etc.) — show info but don't disable
+      const permErr = err.message && (err.message.includes("permission") || err.name === "NotAllowedError");
+      if (permErr) {
+        showToast("Microphone permission denied. Please allow microphone access and retry.", "warning");
       } else {
-        console.warn("Agora audio connection issue:", err);
-        showToast(`Agora Audio: ${err.message || "Connection error"}. Using direct peer audio.`, "info");
+        showToast(`Agora connection error: ${err.message || "Unknown error"}. Check console for details.`, "warning");
       }
+      console.warn("[Agora] Error details:", err);
     }
   }
 
@@ -7118,7 +7118,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
       if (pipFeed) pipFeed.style.display = "block";
 
       // Remote real-time video display
-      const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+      const hasAgoraRemoteVideo = agoraRemoteVideoActive || !!document.querySelector('[id$="-remote-video-container"] video');
+      const hasRemoteStream = hasAgoraRemoteVideo || false;
       if (hasRemoteStream) {
         if (remoteContainer) {
           remoteContainer.style.display = "block";
@@ -7130,7 +7131,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
         if (mainCanvas) mainCanvas.style.display = "block";
       }
 
-      const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+      const hasAgoraLocalVideo = !!(localVideoTrack && activeCall.camActive && document.querySelector('[id$="-local-video-container"] video'));
+      const hasLocalStream = hasAgoraLocalVideo || !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
       if (hasLocalStream) {
         if (pipCanvas) pipCanvas.style.display = "none";
         if (localContainer) {
@@ -7226,17 +7228,6 @@ var VillageMed = (function (exports, React, ReactDOM) {
     const role = activeCall ? activeCall.role : "patient";
     const stream = await initNativeWebcam(role, true);
     if (stream && !stream._isVirtual) {
-      if (peerConnection && localWebcamStream) {
-        const videoTrack = localWebcamStream.getVideoTracks()[0];
-        if (videoTrack) {
-          const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === "video");
-          if (sender) {
-            sender.replaceTrack(videoTrack).catch(() => {});
-          } else {
-            peerConnection.addTrack(videoTrack, localWebcamStream);
-          }
-        }
-      }
       showToast("Real webcam connected successfully!", "success");
       updateNetworkUI();
     }

@@ -133,6 +133,7 @@ let agoraClient = null;
 let localAudioTrack = null;
 let localVideoTrack = null;
 let agoraJoinPromise = null;
+let agoraRemoteVideoActive = false;
 
 function getAgoraRolePrefix(role) {
   if (role === "doctor" || role === "doc") return "doc";
@@ -633,6 +634,7 @@ async function initNativeWebcam(role, forceReal = false) {
 
 function stopLocalWebcam() {
   closePeerCall();
+  agoraRemoteVideoActive = false;
 
   if (virtualWebcamAnimId) {
     cancelAnimationFrame(virtualWebcamAnimId);
@@ -5483,6 +5485,10 @@ window.toggleVideoState = async function(role) {
       btn.innerText = "📷";
     }
 
+    if (localVideoTrack && typeof localVideoTrack.setEnabled === "function") {
+      await localVideoTrack.setEnabled(true);
+    }
+
     if (localWebcamStream && !localWebcamStream._isVirtual && localWebcamStream.getVideoTracks().some(t => t.readyState === "live")) {
       localWebcamStream.getVideoTracks().forEach(t => t.enabled = true);
       if (localContainer) localContainer.style.display = "block";
@@ -5516,6 +5522,9 @@ window.toggleVideoState = async function(role) {
 
     if (localWebcamStream) {
       localWebcamStream.getVideoTracks().forEach(t => t.enabled = false);
+    }
+    if (localVideoTrack && typeof localVideoTrack.setEnabled === "function") {
+      await localVideoTrack.setEnabled(false);
     }
 
     if (localContainer) localContainer.style.display = "none";
@@ -6484,13 +6493,23 @@ async function joinAgoraRoomInternal(role) {
     agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
 
     const remoteUsers = new Map();
+    // Track which media types we've already subscribed per user to prevent duplicate subscriptions
+    // that cause video flicker (container cleared + re-attached = black flash)
+    const subscribedMedia = new Map(); // uid → Set of subscribed mediaTypes
 
     const subscribeToRemoteUser = async (user, mediaType) => {
       try {
+        const uidKey = String(user.uid);
+        if (!subscribedMedia.has(uidKey)) subscribedMedia.set(uidKey, new Set());
+        const alreadySubscribed = subscribedMedia.get(uidKey).has(mediaType);
+
         if (mediaType === "audio") {
           // Always subscribe first — audioTrack is null BEFORE subscribing
-          await agoraClient.subscribe(user, mediaType);
-          remoteUsers.set(String(user.uid), user);
+          if (!alreadySubscribed) {
+            await agoraClient.subscribe(user, mediaType);
+            subscribedMedia.get(uidKey).add(mediaType);
+          }
+          remoteUsers.set(uidKey, user);
 
           if (user.audioTrack) {
             try {
@@ -6519,9 +6538,11 @@ async function joinAgoraRoomInternal(role) {
             }
           }
         } else if (mediaType === "video") {
-          // Always subscribe first — videoTrack is null BEFORE subscribing
-          await agoraClient.subscribe(user, mediaType);
-          remoteUsers.set(String(user.uid), user);
+          if (!alreadySubscribed) {
+            await agoraClient.subscribe(user, mediaType);
+            subscribedMedia.get(uidKey).add(mediaType);
+          }
+          remoteUsers.set(uidKey, user);
 
           if (user.videoTrack) {
             const prefix = getAgoraRolePrefix(role);
@@ -6540,8 +6561,9 @@ async function joinAgoraRoomInternal(role) {
 
             if (remoteContainer) {
               remoteContainer.style.display = "block";
-              remoteContainer.innerHTML = "";
+              if (!remoteContainer.querySelector("video")) remoteContainer.innerHTML = "";
               user.videoTrack.play(remoteContainer, { fit: "cover" });
+              agoraRemoteVideoActive = true;
               console.log(`[AGORA] Remote video playing in container #${remoteContainer.id}`);
             } else {
               // Last resort: create a video element and append to the main viewport
@@ -6558,6 +6580,7 @@ async function joinAgoraRoomInternal(role) {
                 if (existing) existing.remove();
                 viewport.appendChild(fallbackDiv);
                 user.videoTrack.play(fallbackDiv, { fit: "cover" });
+                agoraRemoteVideoActive = true;
               }
             }
             if (mainCanvas) mainCanvas.style.display = "none";
@@ -6596,11 +6619,15 @@ async function joinAgoraRoomInternal(role) {
     agoraClient.on("user-unpublished", (user, mediaType) => {
       console.log(`[AGORA] user-unpublished: ${user.uid} mediaType: ${mediaType}`);
       if (mediaType === "video") {
+        agoraRemoteVideoActive = false;
         const prefix = getAgoraRolePrefix(role);
-        const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
-        const mainCanvas = document.getElementById(`${prefix}-remote-canvas`);
-        if (remoteContainer) remoteContainer.style.display = "none";
-        if (mainCanvas) mainCanvas.style.display = "block";
+        const oppositePrefix = prefix === "doc" ? "pat" : (prefix === "pat" ? "doc" : "vhw");
+        [prefix, oppositePrefix].forEach(p => {
+          const remoteContainer = document.getElementById(`${p}-remote-video-container`);
+          const mainCanvas = document.getElementById(`${p}-remote-canvas`);
+          if (remoteContainer) remoteContainer.style.display = "none";
+          if (mainCanvas) mainCanvas.style.display = "block";
+        });
       }
     });
 
@@ -7078,7 +7105,8 @@ function updateNetworkUI() {
     if (pipFeed) pipFeed.style.display = "block";
 
     // Remote real-time video display
-    const hasRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+    const hasAgoraRemoteVideo = agoraRemoteVideoActive || !!document.querySelector('[id$="-remote-video-container"] video');
+    const hasRemoteStream = hasAgoraRemoteVideo || !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
     if (hasRemoteStream) {
       if (remoteContainer) {
         remoteContainer.style.display = "block";
@@ -7090,7 +7118,8 @@ function updateNetworkUI() {
       if (mainCanvas) mainCanvas.style.display = "block";
     }
 
-    const hasLocalStream = !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+    const hasAgoraLocalVideo = !!(localVideoTrack && activeCall.camActive && document.querySelector('[id$="-local-video-container"] video'));
+    const hasLocalStream = hasAgoraLocalVideo || !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
     if (hasLocalStream) {
       if (pipCanvas) pipCanvas.style.display = "none";
       if (localContainer) {
