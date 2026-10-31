@@ -2156,23 +2156,6 @@ window.switchView = function(viewId, roleName) {
   }
 };
 
-window.quickLogin = function(role) {
-  if (role === "patient") {
-    currentUser = (db.patients && db.patients.length > 0) ? db.patients[0] : { id: "pat-1", name: "Dharaneesh", age: 21, gender: "Male", phone: "9876543210", village: "Village Clinic A", history: [] };
-  } else if (role === "vhw") {
-    currentUser = { id: "vhw-1", name: "Nurse Anjali", role: "VHW", village: "Village Clinic A", email: "nurse@villagemed.in" };
-  } else if (role === "doctor") {
-    currentUser = (db.doctors && db.doctors.length > 0) ? db.doctors[0] : { id: "doc-1", name: "Dr. Vikram", specialty: "General Medicine", email: "doc.vikram@villagemed.in", password: "password", online: true };
-  } else if (role === "admin") {
-    currentUser = { id: "admin-1", name: "System Admin", role: "Admin", email: "admin@villagemed.in" };
-  }
-  window.currentUser = currentUser;
-  window.currentRole = role;
-  saveSessionState(currentUser, role);
-  switchView(`view-${role}`, role);
-  showToast(`Switched view to ${role.toUpperCase()}: ${currentUser ? currentUser.name : ''}`, "success");
-};
-
 window.logout = function() {
   authGuard.clear();
   clearSessionState();
@@ -2220,7 +2203,7 @@ window.autoDetectRole = function(val) {
 };
 
 // Authentication
-window.handleLogin = async function(e, isQuickDemo = false) {
+window.handleLogin = async function(e) {
   if (e) {
     if (typeof e.preventDefault === "function") e.preventDefault();
     if (typeof e.stopPropagation === "function") e.stopPropagation();
@@ -2346,14 +2329,14 @@ window.handleLogin = async function(e, isQuickDemo = false) {
     return false;
   };
 
-  const isDemoPassword = password === "password" || password === "password123" || password === "admin123" || isQuickDemo || !password;
+  const isDemoPassword = password === "password" || password === "password123" || password === "admin123" || !password;
   const isKnownDemoAccount = isPhone || !email.includes("@") ||
                              AUTHORIZED_ADMINS.includes(email.toLowerCase()) ||
                              AUTHORIZED_VHWS.includes(email.toLowerCase()) ||
                              (db.doctors || DEFAULT_DOCTORS).some(d => d.email.toLowerCase() === email.toLowerCase());
 
-  // If signing in with demo credentials, phone number, or quick demo button, bypass directly to local database
-  if (isPhone || !email.includes("@") || isQuickDemo || (isDemoPassword && isKnownDemoAccount)) {
+  // Bypass Supabase for known local demo accounts and phone-number sign-ins.
+  if (isPhone || !email.includes("@") || (isDemoPassword && isKnownDemoAccount)) {
     if (performLocalLogin()) return;
   }
 
@@ -2426,20 +2409,8 @@ window.handleLogin = async function(e, isQuickDemo = false) {
   } else {
     // Offline local fallback logic
     if (performLocalLogin()) return;
-    showToast("Account not found. Please check your credentials or use demo sign-in.", "danger");
+    showToast("Account not found. Please check your credentials.", "danger");
   }
-};
-
-window.quickFillLogin = function(role, email, password) {
-  const emailInput = document.getElementById("login-email");
-  const passwordInput = document.getElementById("login-password");
-  const roleSelect = document.getElementById("login-role");
-
-  if (emailInput) emailInput.value = email;
-  if (passwordInput) passwordInput.value = password;
-  if (roleSelect) roleSelect.value = role;
-
-  window.handleLogin(null, true);
 };
 
 // --- TRIAGE URGENCY EVALUATOR ---
@@ -3203,9 +3174,6 @@ window.openVitalsModal = function(patientId, isHomeVisit = false, targetToken = 
   if (!p) return;
 
   window.currentVitalsToken = targetToken;
-  const saveModeToggle = document.getElementById("vhw-saved-details-toggle");
-  const saveModeLabel = document.getElementById("vhw-saved-mode-text");
-  const useSavedDetails = saveModeToggle ? !saveModeToggle.checked : true;
 
   window.isHomeVisitCapture = isHomeVisit;
   document.getElementById("vitals-pat-id").value = patientId;
@@ -3215,66 +3183,15 @@ window.openVitalsModal = function(patientId, isHomeVisit = false, targetToken = 
     ? db.appointments.find(a => a.token === targetToken) 
     : db.appointments.find(a => a.patientId === patientId && (a.status === "Vitals Pending" || a.status === "Waiting for Doctor Queue" || a.status === "Waiting"));
 
-  const defaultDemoData = {
-    symptoms: "Fever, headache, general discomfort...",
-    vitals: {
-      bpSystolic: 120,
-      bpDiastolic: 80,
-      sugar: 110,
-      temp: 36.8,
-      spo2: 98,
-      hr: 75,
-      pain: 0
-    }
-  };
-  const lastSavedData = app && app.vitals ? app : defaultDemoData;
-
-  document.getElementById("vitals-symptoms").value = useSavedDetails ? (app ? (app.symptoms || "") : defaultDemoData.symptoms) : "";
-
-  document.getElementById("vitals-bp-systolic").value = useSavedDetails ? lastSavedData.vitals.bpSystolic : "";
-  document.getElementById("vitals-bp-diastolic").value = useSavedDetails ? lastSavedData.vitals.bpDiastolic : "";
-  document.getElementById("vitals-sugar").value = useSavedDetails ? lastSavedData.vitals.sugar : "";
-  document.getElementById("vitals-temp").value = useSavedDetails ? lastSavedData.vitals.temp : "";
-  document.getElementById("vitals-spo2").value = useSavedDetails ? lastSavedData.vitals.spo2 : "";
-  document.getElementById("vitals-hr").value = useSavedDetails ? lastSavedData.vitals.hr : "";
-  document.getElementById("vitals-pain").value = useSavedDetails ? (lastSavedData.vitals.pain ?? 0) : 0;
-  document.getElementById("pain-lbl-val").innerText = useSavedDetails ? (lastSavedData.vitals.pain ?? 0) : 0;
-
-  if (saveModeToggle) {
-    saveModeToggle.checked = false;
-    saveModeLabel.innerText = "OFF = Use saved details";
-  }
-
-  if (saveModeToggle) {
-    saveModeToggle.onchange = function() {
-      const modeOn = this.checked;
-      saveModeLabel.innerText = modeOn ? "ON = Enter new details" : "OFF = Use saved details";
-      if (modeOn) {
-        document.getElementById("vitals-symptoms").value = "";
-        document.getElementById("vitals-bp-systolic").value = "";
-        document.getElementById("vitals-bp-diastolic").value = "";
-        document.getElementById("vitals-sugar").value = "";
-        document.getElementById("vitals-temp").value = "";
-        document.getElementById("vitals-spo2").value = "";
-        document.getElementById("vitals-hr").value = "";
-        document.getElementById("vitals-pain").value = 0;
-        document.getElementById("pain-lbl-val").innerText = 0;
-      } else {
-        const savedApp = targetToken ? db.appointments.find(a => a.token === targetToken) : db.appointments.find(a => a.patientId === patientId);
-        const fallback = defaultDemoData;
-        const details = savedApp && savedApp.vitals ? savedApp : fallback;
-        document.getElementById("vitals-symptoms").value = details.symptoms || fallback.symptoms;
-        document.getElementById("vitals-bp-systolic").value = details.vitals.bpSystolic;
-        document.getElementById("vitals-bp-diastolic").value = details.vitals.bpDiastolic;
-        document.getElementById("vitals-sugar").value = details.vitals.sugar;
-        document.getElementById("vitals-temp").value = details.vitals.temp;
-        document.getElementById("vitals-spo2").value = details.vitals.spo2;
-        document.getElementById("vitals-hr").value = details.vitals.hr;
-        document.getElementById("vitals-pain").value = details.vitals.pain || 0;
-        document.getElementById("pain-lbl-val").innerText = details.vitals.pain || 0;
-      }
-    };
-  }
+  document.getElementById("vitals-symptoms").value = "";
+  document.getElementById("vitals-bp-systolic").value = "";
+  document.getElementById("vitals-bp-diastolic").value = "";
+  document.getElementById("vitals-sugar").value = "";
+  document.getElementById("vitals-temp").value = "";
+  document.getElementById("vitals-spo2").value = "";
+  document.getElementById("vitals-hr").value = "";
+  document.getElementById("vitals-pain").value = 0;
+  document.getElementById("pain-lbl-val").innerText = 0;
 
   const vitalsSpecialtySelect = document.getElementById("vitals-specialty");
   if (vitalsSpecialtySelect) {
@@ -6357,10 +6274,6 @@ function initializeApplication() {
     window.currentUser = currentUser;
     window.currentRole = currentRole;
     switchView(`view-${restored.role}`, restored.role);
-  } else if (typeof window !== "undefined" && window._pendingRole) {
-    const p = window._pendingRole;
-    window._pendingRole = null;
-    window.quickLogin(p);
   } else if (!hasOAuthCallback) {
     switchView("view-login", "login");
   }
@@ -9902,6 +9815,3 @@ function initTelehealthAutoSync() {
   }, 5000);
 }
 initTelehealthAutoSync();
-
-
-
