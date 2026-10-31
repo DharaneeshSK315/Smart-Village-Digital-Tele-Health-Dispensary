@@ -687,9 +687,9 @@ function stopLocalWebcam() {
 let appSocket = null;
 let isSocketConnecting = false;
 
-export const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-digital-tele-health-7kzs.onrender.com";
+const DEFAULT_PRODUCTION_BACKEND_URL = "https://smart-village-digital-tele-health-7kzs.onrender.com";
 
-export function getBackendUrl() {
+function getBackendUrl() {
   // 1. Check URL query parameters: ?backend=... or ?server=...
   if (typeof window !== "undefined" && window.location && window.location.search) {
     try {
@@ -8709,7 +8709,7 @@ if (slotBroadcastChannel) {
 }
 
 // React State Hook for storing selected slot
-export function usePatientSlotState(initialSlot = null) {
+function usePatientSlotState(initialSlot = null) {
   const [selectedSlot, setSelectedSlot] = useState(initialSlot);
   return [selectedSlot, setSelectedSlot];
 }
@@ -8718,7 +8718,7 @@ if (typeof window !== "undefined") {
 }
 
 // React Component for Consultation Slots Queue
-export function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, onSlotChange }) {
+function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, onSlotChange }) {
   // Requirement 2: Implement React state using `useState` to store the selected slot
   const [selectedSlot, setSelectedSlot] = useState(initialSelectedSlot || null);
 

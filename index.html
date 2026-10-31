@@ -2599,11 +2599,6 @@
 
   <!-- Core App Controller JS (Runs seamlessly in file:/// and http/https environments) -->
   <script src="dist-bundle.js"></script>
-  <script type="module">
-    if (typeof window.handleLogin === 'undefined') {
-      import('./app.js');
-    }
-  </script>
 
 </body>
 </html>
