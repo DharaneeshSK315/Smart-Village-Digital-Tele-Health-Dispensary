@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { supabase } from './supabaseClient.js';
 import { createAuthGuard } from './authGuard.mjs';
@@ -262,6 +262,23 @@ function showAudioUnmutePrompt(role) {
   `;
 
   const unmuteAction = () => {
+    // 1. Unlock Web Audio context (required for Agora audio to play)
+    unlockAudioContext();
+
+    // 2. Replay ALL Agora remote audio tracks — Agora uses Web Audio API, not <video> elements
+    if (agoraClient && agoraClient.remoteUsers) {
+      agoraClient.remoteUsers.forEach(remoteUser => {
+        if (remoteUser.audioTrack) {
+          try {
+            remoteUser.audioTrack.setVolume(100);
+            remoteUser.audioTrack.play();
+            console.log(`[Audio Unmute] Replayed Agora audio for UID: ${remoteUser.uid}`);
+          } catch(e) { console.warn('[Audio Unmute] Agora track replay failed:', e); }
+        }
+      });
+    }
+
+    // 3. Also unmute any fallback <video> elements
     const remoteContainer = document.getElementById(`${prefix}-remote-video-container`);
     const remoteVideo = remoteContainer ? remoteContainer.querySelector("video") : null;
     if (remoteVideo) {
@@ -269,9 +286,9 @@ function showAudioUnmutePrompt(role) {
       remoteVideo.volume = 1.0;
       remoteVideo.play().catch(() => {});
     }
-    unlockAudioContext();
+
     pill.remove();
-    showToast("Live consultation audio unmuted and active", "success");
+    showToast("Live consultation audio enabled!", "success");
     playConsultationChime();
     window.removeEventListener("click", unmuteAction);
     window.removeEventListener("touchstart", unmuteAction);
@@ -4954,14 +4971,20 @@ function renderWebcams(remoteCanvas, localCanvas) {
   const agoraPrefixRW = getAgoraRolePrefix(activeCall.role);
   const localContainerRW = document.getElementById(`${agoraPrefixRW}-local-video-container`);
   const agoraVideoInPIP = localContainerRW && localContainerRW.querySelector("video");
-  if (!agoraVideoInPIP) {
+
+  if (agoraVideoInPIP) {
+    // Agora manages the PIP video — forcibly keep canvas hidden, show video container
+    if (localCanvas.style.display !== "none") localCanvas.style.display = "none";
+    if (localContainerRW.style.display === "none") localContainerRW.style.display = "block";
+  } else {
+    // No Agora video yet — draw fallback canvas content
     const localImgSrc = (activeCall.role === "patient")
       ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
       : (currentUser?.photo || "doctor_portrait.jpg");
     const localImg = getPortraitImg(localImgSrc);
     const drewLocalImg = activeCall.camActive ? drawCoverImage(localCtx, localImg, localCanvas.width, localCanvas.height) : false;
 
-  if (!drewLocalImg) {
+    if (!drewLocalImg) {
     localCtx.fillStyle = "#1e293b";
     localCtx.fillRect(0, 0, localCanvas.width, localCanvas.height);
     
@@ -5339,7 +5362,52 @@ function syncChatBox() {
   });
 }
 
+// enableRemoteAudio — called when user clicks the 🔊 button in the call bar.
+// Fixes the most common issue: browser autoplay policy blocks Agora's Web Audio API.
+// Agora plays remote audio via user.audioTrack.play() which uses AudioContext internally.
+// If AudioContext is suspended (autoplay policy), audio is silently blocked.
+// This function unlocks the context and replays all remote audio tracks in one click.
+window.enableRemoteAudio = function() {
+  unlockAudioContext();
+
+  let replayedCount = 0;
+
+  // Replay all Agora remote audio tracks
+  if (agoraClient && agoraClient.remoteUsers && agoraClient.remoteUsers.length > 0) {
+    agoraClient.remoteUsers.forEach(remoteUser => {
+      if (remoteUser.audioTrack) {
+        try {
+          remoteUser.audioTrack.setVolume(100);
+          remoteUser.audioTrack.play();
+          replayedCount++;
+          console.log(`[EnableAudio] Replayed Agora audio for remote UID: ${remoteUser.uid}`);
+        } catch(e) {
+          console.warn(`[EnableAudio] Failed to replay audio for UID ${remoteUser.uid}:`, e);
+        }
+      }
+    });
+  }
+
+  // Also unmute any fallback <video> elements in remote containers
+  document.querySelectorAll('[id$="-remote-video-container"] video').forEach(v => {
+    v.muted = false;
+    v.volume = 1.0;
+    v.play().catch(() => {});
+  });
+
+  // Remove the floating unmute pill if it exists
+  const pill = document.getElementById("telehealth-unmute-pill");
+  if (pill) pill.remove();
+
+  if (replayedCount > 0) {
+    showToast(`🔊 Remote audio enabled! (${replayedCount} stream${replayedCount > 1 ? 's' : ''} active)`, "success");
+  } else {
+    showToast("🔊 Audio context unlocked. Remote audio will play when participant connects.", "info");
+  }
+};
+
 window.toggleAudioState = async function(role) {
+
   if (!activeCall) return;
   activeCall.micActive = !activeCall.micActive;
   const prefix = getAgoraRolePrefix(role);
@@ -6836,6 +6904,47 @@ async function joinAgoraRoomInternal(role) {
       }
     }
 
+    // ── Auto re-subscribe safety net ──────────────────────────────────────────
+    // After 4 seconds, re-check all remote users and subscribe to any missed tracks.
+    // This handles the race condition where the doctor joins just after patient's
+    // initial catchup loop finishes, so patient never sees the user-published event.
+    setTimeout(async () => {
+      if (!agoraClient) return;
+      const remoteNow = agoraClient.remoteUsers || [];
+      if (remoteNow.length > 0) {
+        console.log(`[AGORA] Safety-net re-subscribe check (${remoteNow.length} remote users)`);
+        for (const remoteUser of remoteNow) {
+          if (remoteUser.hasAudio) await subscribeToRemoteUser(remoteUser, "audio").catch(()=>{});
+          if (remoteUser.hasVideo) await subscribeToRemoteUser(remoteUser, "video").catch(()=>{});
+        }
+      }
+    }, 4000);
+
+    // ── Viewport click-to-enable-audio (autoplay policy unlock) ───────────────
+    // One single interaction event on the call viewport unlocks the AudioContext.
+    // This is the most reliable cross-browser fix for "audio blocked" issues.
+    const agoraPrefix2 = getAgoraRolePrefix(role);
+    const viewport2 = document.getElementById(`${agoraPrefix2}-viewport-container`);
+    if (viewport2) {
+      const autoUnlockOnce = () => {
+        unlockAudioContext();
+        // Re-play all subscribed remote audio tracks after user gesture
+        if (agoraClient && agoraClient.remoteUsers) {
+          agoraClient.remoteUsers.forEach(ru => {
+            if (ru.audioTrack) {
+              try { ru.audioTrack.setVolume(100); ru.audioTrack.play(); } catch(e){}
+            }
+          });
+        }
+        viewport2.removeEventListener("click",      autoUnlockOnce);
+        viewport2.removeEventListener("touchstart", autoUnlockOnce);
+        viewport2.removeEventListener("pointerdown",autoUnlockOnce);
+      };
+      viewport2.addEventListener("click",      autoUnlockOnce, { once: true });
+      viewport2.addEventListener("touchstart", autoUnlockOnce, { once: true });
+      viewport2.addEventListener("pointerdown",autoUnlockOnce, { once: true });
+    }
+
   } catch (err) {
     console.error("[Agora] Connection error:", err);
 
@@ -7105,12 +7214,17 @@ function updateNetworkUI() {
     if (pipFeed) pipFeed.style.display = "block";
 
     // Remote real-time video display
-    const hasAgoraRemoteVideo = agoraRemoteVideoActive || !!document.querySelector('[id$="-remote-video-container"] video');
-    const hasRemoteStream = hasAgoraRemoteVideo || !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+    // Use role-specific selector to only check the current user's remote container
+    const hasAgoraRemoteVideo = agoraRemoteVideoActive || !!document.querySelector(`#${role}-remote-video-container video`);
+    const hasPeerRemoteStream = !!(remoteWebcamStream && remoteWebcamStream.getVideoTracks().some(t => t.readyState === "live"));
+    const hasRemoteStream = hasAgoraRemoteVideo || hasPeerRemoteStream;
     if (hasRemoteStream) {
       if (remoteContainer) {
         remoteContainer.style.display = "block";
-        attachStreamToContainer(remoteWebcamStream, `${role}-remote-video-container`, false);
+        // Only reattach peer stream — never overwrite Agora-injected video with a null stream
+        if (hasPeerRemoteStream && !hasAgoraRemoteVideo) {
+          attachStreamToContainer(remoteWebcamStream, `${role}-remote-video-container`, false);
+        }
       }
       if (mainCanvas) mainCanvas.style.display = "none";
     } else {
@@ -9908,4 +10022,5 @@ function initTelehealthAutoSync() {
   }, 5000);
 }
 initTelehealthAutoSync();
+
 

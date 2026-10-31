@@ -598,6 +598,7 @@
                   <button class="btn-circle active" id="pat-mic-toggle" onclick="toggleAudioState('pat')" title="Toggle Mic">🎙️</button>
                   <button class="btn-circle active" id="pat-cam-toggle" onclick="toggleVideoState('pat')" title="Toggle Camera">📷</button>
                   <button class="btn-circle active" id="pat-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
+                  <button class="btn-circle active" id="pat-enable-audio-btn" onclick="window.enableRemoteAudio()" title="Enable Doctor Audio" style="background:#0d9488;">🔊</button>
                   <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Call">📵</button>
                 </div>
 
@@ -1465,6 +1466,7 @@
                         <button class="btn-circle active" id="doc-mic-toggle" onclick="toggleAudioState('doc')" title="Toggle Mic">🎙️</button>
                         <button class="btn-circle active" id="doc-cam-toggle" onclick="toggleVideoState('doc')" title="Toggle Camera">📷</button>
                         <button class="btn-circle active" id="doc-record-btn" onclick="window.toggleCallRecording()" title="Screen / HIPAA Recording">🖥️</button>
+                        <button class="btn-circle active" id="doc-enable-audio-btn" onclick="window.enableRemoteAudio()" title="Enable Patient Audio" style="background:#0d9488;">🔊</button>
                         <button class="btn-circle hangup" onclick="leaveConsultation()" title="End Call">📵</button>
                       </div>
                       <div class="doc-right-tools">
