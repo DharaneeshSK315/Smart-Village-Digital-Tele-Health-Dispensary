@@ -755,6 +755,19 @@ function getDoctorScheduleForDate(doctorId, dateStr) {
     };
   }
 
+  // Special test schedule for 31 October 2026 — slots from 1:15 PM to 2:00 PM for testing
+  // Breaks removed so the 13:00–14:00 block is lifted; window is 13:15–14:00 (3 × 15-min slots)
+  if (dateStr === "2026-10-31") {
+    return {
+      workStart: "09:00",
+      workEnd: "17:00",
+      breaks: [],           // break removed so 13:15–14:00 test slots are visible
+      workDays: [0, 1, 2, 3, 4, 5, 6],
+      slotDurationMins: 15,
+      isSpecialTestSchedule: true
+    };
+  }
+
   return baseSchedule;
 }
 

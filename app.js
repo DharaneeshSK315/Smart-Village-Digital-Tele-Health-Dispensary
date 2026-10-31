@@ -239,7 +239,7 @@ function showAudioUnmutePrompt(role) {
 
   const pill = document.createElement("button");
   pill.id = "telehealth-unmute-pill";
-  pill.innerHTML = `<span>🔊</span> <span>Click anywhere to unmute consultation audio</span>`;
+  pill.innerHTML = `<span>ðŸ”Š</span> <span>Click anywhere to unmute consultation audio</span>`;
   pill.style.cssText = `
     position: absolute;
     top: 52px;
@@ -336,9 +336,9 @@ async function acquireHardwareMediaStream() {
     throw notSupportedErr;
   }
 
-  // FIX: Request VIDEO ONLY — Agora owns the microphone via createMicrophoneAudioTrack().
+  // FIX: Request VIDEO ONLY â€” Agora owns the microphone via createMicrophoneAudioTrack().
   // Requesting audio: true here causes the browser to lock the mic, so Agora's subsequent
-  // createMicrophoneAudioTrack() silently fails → no audio published → remote hears nothing.
+  // createMicrophoneAudioTrack() silently fails â†’ no audio published â†’ remote hears nothing.
 
   // Attempt 1: Video-only with ideal resolution
   try {
@@ -378,7 +378,7 @@ function createVirtualMedicalStream(role) {
   const participantName = isDoctor
     ? (currentUser ? currentUser.name : "Dr. Vikram")
     : (currentUser ? currentUser.name : "Village Patient");
-  const roleLabel = isDoctor ? "Consulting Physician • Telehealth Room" : "Patient Station • Village Clinic A";
+  const roleLabel = isDoctor ? "Consulting Physician â€¢ Telehealth Room" : "Patient Station â€¢ Village Clinic A";
   const initials = participantName.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || (isDoctor ? "DR" : "PT");
   const themeColor = isDoctor ? "#2563eb" : "#0d9488";
 
@@ -397,7 +397,7 @@ function createVirtualMedicalStream(role) {
       vCtx.fillStyle = "#ef4444";
       vCtx.font = "bold 16px Inter, system-ui, sans-serif";
       vCtx.textAlign = "center";
-      vCtx.fillText("📵 Camera Off", w / 2, h / 2);
+      vCtx.fillText("ðŸ“µ Camera Off", w / 2, h / 2);
       virtualWebcamAnimId = requestAnimationFrame(drawVirtualFrame);
       return;
     }
@@ -488,7 +488,7 @@ function createVirtualMedicalStream(role) {
     vCtx.fillStyle = "#f8fafc";
     vCtx.font = "bold 11px Inter, system-ui, sans-serif";
     vCtx.textAlign = "left";
-    vCtx.fillText("SIMULATED TELE-FEED • 720p HD", 45, 36);
+    vCtx.fillText("SIMULATED TELE-FEED â€¢ 720p HD", 45, 36);
 
     // Audio frequency bars simulation
     const audioLevel = Math.abs(Math.sin(now / 150));
@@ -551,7 +551,7 @@ async function initNativeWebcam(role, forceReal = false) {
     if (forceReal) {
       // User explicitly requested real camera
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        showToast("Camera permission blocked. Click the 🔒 icon in your browser address bar to Allow Camera.", "warning");
+        showToast("Camera permission blocked. Click the ðŸ”’ icon in your browser address bar to Allow Camera.", "warning");
         if (typeof window.showCameraPermissionModal === "function") {
           window.showCameraPermissionModal();
         }
@@ -571,7 +571,7 @@ async function initNativeWebcam(role, forceReal = false) {
     isHardware = false;
 
     if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-      showToast("Camera access was blocked. Activated Simulated Tele-Health Stream. (Click 🔒 in address bar to allow real webcam)", "info");
+      showToast("Camera access was blocked. Activated Simulated Tele-Health Stream. (Click ðŸ”’ in address bar to allow real webcam)", "info");
     } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
       showToast("No physical webcam detected. Activated Simulated Tele-Health Stream.", "info");
     } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
@@ -615,7 +615,7 @@ async function initNativeWebcam(role, forceReal = false) {
   const btn = document.getElementById(`${role}-cam-toggle`) || document.getElementById(`${agoraPrefix}-cam-toggle`);
   if (btn) {
     btn.classList.add("active");
-    btn.innerText = "📷";
+    btn.innerText = "ðŸ“·";
     btn.title = isHardware ? "Real Webcam Active (Click to mute)" : "Simulated Video Active (Click to connect real webcam)";
   }
   if (activeCall) {
@@ -1491,7 +1491,7 @@ async function initPeerCall(token, role) {
     }
   };
 
-  // FIX 4 & 5: ontrack — attach remote stream robustly regardless of role prefix.
+  // FIX 4 & 5: ontrack â€” attach remote stream robustly regardless of role prefix.
   // The previous code hard-coded a prefix derived from the LOCAL role, which means
   // on the doctor side it looked for "doc-remote-video-container" even though the
   // DOM elements created for the doctor viewport use the "doc" prefix correctly.
@@ -1508,7 +1508,7 @@ async function initPeerCall(token, role) {
 
     const prefix = getAgoraRolePrefix(role);
 
-    // Try primary container (matches the local user's role prefix — how the DOM is structured)
+    // Try primary container (matches the local user's role prefix â€” how the DOM is structured)
     const primaryContainerId = `${prefix}-remote-video-container`;
     const primaryContainer = document.getElementById(primaryContainerId);
 
@@ -1528,7 +1528,7 @@ async function initPeerCall(token, role) {
       if (mainCanvas) mainCanvas.style.display = "none";
       if (fallbackAudio) fallbackAudio.style.display = "none";
     } else {
-      // FIX 5: No video container found — create a hidden audio element to guarantee
+      // FIX 5: No video container found â€” create a hidden audio element to guarantee
       // audio still plays even if the video UI element is absent.
       console.warn(`[Peer] Remote video container not found (tried: ${primaryContainerId}, ${fallbackContainerId}). Creating audio fallback.`);
       let hiddenAudio = document.getElementById("peer-remote-audio-fallback");
@@ -1882,7 +1882,7 @@ async function initDB() {
 
   db.recordings = db.recordings || [];
 
-  // Load Agora Config — ALWAYS start fresh from defaults, never use stale cached config.
+  // Load Agora Config â€” ALWAYS start fresh from defaults, never use stale cached config.
   // Stale localStorage tokens cause "Agora App ID invalid" false positives on reload.
   localStorage.removeItem("agora_config");
   agoraConfig = { enabled: true, appid: "aab8b3f972274fcb87cc25048d089e94", token: null, channel: "telehealth-room", lastFail: false };
@@ -1898,7 +1898,7 @@ async function initDB() {
           agoraConfig.token = tokenData.token;
           console.info("[Agora] Fresh token fetched from server on startup.", { generatedDynamically: tokenData.generatedDynamically });
         } else {
-          console.info("[Agora] Server has no token configured — will use App ID-only mode (requires Testing Mode in Agora Console).");
+          console.info("[Agora] Server has no token configured â€” will use App ID-only mode (requires Testing Mode in Agora Console).");
         }
         if (tokenData.appid) agoraConfig.appid = tokenData.appid;
         agoraConfig.channel = "telehealth-room";
@@ -2103,7 +2103,7 @@ function showToast(message, type = "info") {
   toast.className = `toast ${type}`;
   toast.innerHTML = `
     <span>${message}</span>
-    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    <button class="toast-close" onclick="this.parentElement.remove()">Ã—</button>
   `;
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 5000);
@@ -2495,8 +2495,8 @@ async function loadPatientDashboard() {
     if (cancelBtn) {
       cancelBtn.style.display = "inline-flex";
       cancelBtn.innerText = ["Appointment Confirmed", "Confirmed", "In Progress", "Active", "Rescheduled"].includes(activeApp.status)
-        ? "✕ Cancel Appointment"
-        : "✕ Cancel Request";
+        ? "âœ• Cancel Appointment"
+        : "âœ• Cancel Request";
       cancelBtn.onclick = () => cancelActiveAppointment(activeApp.token);
     }
     if (docVal) docVal.innerText = docName;
@@ -3081,7 +3081,7 @@ function renderVhwPatientList(searchQuery = "") {
     let buttonHtml = "";
 
     if (activeApp && activeApp.status === "Active") {
-      buttonHtml = `<button class="btn-dispatch" style="background-color:#2563eb !important;" onclick="joinVhwCall('${activeApp.token}')">🎥 Join Consultation</button>`;
+      buttonHtml = `<button class="btn-dispatch" style="background-color:#2563eb !important;" onclick="joinVhwCall('${activeApp.token}')">ðŸŽ¥ Join Consultation</button>`;
     } else {
       buttonHtml = `
         <button class="btn-dispatch" onclick="openVitalsModal('${p.id}', false)">
@@ -3177,7 +3177,7 @@ window.openVitalsModal = function(patientId, isHomeVisit = false, targetToken = 
 
   window.isHomeVisitCapture = isHomeVisit;
   document.getElementById("vitals-pat-id").value = patientId;
-  document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `🏡 Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
+  document.getElementById("vitals-modal-title").innerText = isHomeVisit ? `ðŸ¡ Register Home Visit Vitals for ${p.name}` : `Log Vitals for ${p.name}`;
 
   const app = targetToken 
     ? db.appointments.find(a => a.token === targetToken) 
@@ -3228,7 +3228,7 @@ window.vhwSubmitVitals = async function(e) {
     return;
   }
   if (isNaN(temp) || temp < 30 || temp > 45) {
-    showToast("Invalid Body Temperature (must be 30.0 - 45.0 °C).", "warning");
+    showToast("Invalid Body Temperature (must be 30.0 - 45.0 Â°C).", "warning");
     return;
   }
   if (isNaN(spo2) || spo2 < 50 || spo2 > 100) {
@@ -3384,7 +3384,7 @@ function renderVhwQueue() {
       const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 92;
       const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
       const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
-      const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.8°C";
+      const tempVal = a.vitals.temp ? `${a.vitals.temp}Â°C` : "36.8Â°C";
       const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
 
       vitalsHtml = `
@@ -3480,7 +3480,7 @@ window.switchDoctorModule = function(moduleName, updateHash = true) {
     overview: {
       title: "Doctor Dashboard Overview",
       sub: "Daily clinical summary, triage alerts, and active patient glance",
-      actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">▶ Start Queue Call</button>`
+      actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">â–¶ Start Queue Call</button>`
     },
     queue: {
       title: "Active Consultation Queue",
@@ -3490,17 +3490,17 @@ window.switchDoctorModule = function(moduleName, updateHash = true) {
     appointments: {
       title: "Appointment Management",
       sub: "Schedule, filter, and launch upcoming tele-health appointments",
-      actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">Active Queue ➔</button>`
+      actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('queue')">Active Queue âž”</button>`
     },
     schedule: {
       title: "Doctor Schedule & Availability",
       sub: "Configure working hours, break periods, and consultation duration",
-      actions: `<button type="button" class="btn-primary" onclick="saveDoctorScheduleSettings()">💾 Save Schedule</button>`
+      actions: `<button type="button" class="btn-primary" onclick="saveDoctorScheduleSettings()">ðŸ’¾ Save Schedule</button>`
     },
     patients: {
       title: "Registered Patient Directory",
       sub: "Search registered village patients, medical records, and profiles",
-      actions: `<button type="button" class="btn-secondary" onclick="renderDoctorPatients()">🔄 Refresh List</button>`
+      actions: `<button type="button" class="btn-secondary" onclick="renderDoctorPatients()">ðŸ”„ Refresh List</button>`
     },
     consultations: {
       title: "Live Consultation Room",
@@ -3510,17 +3510,17 @@ window.switchDoctorModule = function(moduleName, updateHash = true) {
     history: {
       title: "Patient Medical History",
       sub: "Longitudinal health records, allergies, chronic conditions, and past consultations",
-      actions: `<button type="button" class="btn-secondary" onclick="window.print()">🖨️ Print Record</button>`
+      actions: `<button type="button" class="btn-secondary" onclick="window.print()">ðŸ–¨ï¸ Print Record</button>`
     },
     prescriptions: {
       title: "Prescription Management",
       sub: "Digital e-prescription generator and historical prescription log",
-      actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('consultations')">📄 Open Prescriber Suite</button>`
+      actions: `<button type="button" class="btn-primary" onclick="switchDoctorModule('consultations')">ðŸ“„ Open Prescriber Suite</button>`
     },
     reports: {
       title: "Clinical Reports & Analytics",
       sub: "Dispensary consultation logs, triage stats, and failover metrics",
-      actions: `<button type="button" class="btn-secondary" onclick="renderDoctorReports()">📊 Refresh Stats</button>`
+      actions: `<button type="button" class="btn-secondary" onclick="renderDoctorReports()">ðŸ“Š Refresh Stats</button>`
     }
   };
 
@@ -3725,7 +3725,7 @@ window.renderDoctorAppointments = function(searchQuery = "") {
     const docName = doc ? doc.name : (a.doctorName || "Dr. Vikram");
     const pName = p ? p.name : (a.patientName || "Patient");
     const pId = p ? p.id : (a.patientId || "pat-1");
-    const pMeta = p ? `${p.age || 30} yrs / ${p.gender || 'Patient'} • ID: ${pId}` : `ID: ${pId}`;
+    const pMeta = p ? `${p.age || 30} yrs / ${p.gender || 'Patient'} â€¢ ID: ${pId}` : `ID: ${pId}`;
 
     const bookingStr = a.bookingTime || a.createdAt ? new Date(a.bookingTime || a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now";
     const dateStr = a.scheduledDate || "Today";
@@ -3744,11 +3744,11 @@ window.renderDoctorAppointments = function(searchQuery = "") {
       const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
       const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
       const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
-      const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.8°C";
+      const tempVal = a.vitals.temp ? `${a.vitals.temp}Â°C` : "36.8Â°C";
       vitalsCol = `
         <div style="font-size:11.5px; line-height:1.45;">
-          <div style="font-weight:600; color:#0f172a;">BP: ${bpVal} • <span class="${isSpo2Low ? 'vital-danger' : ''}">SpO2: ${spo2Val}</span></div>
-          <div style="color:#64748b;">HR: ${hrVal} • Temp: ${tempVal}</div>
+          <div style="font-weight:600; color:#0f172a;">BP: ${bpVal} â€¢ <span class="${isSpo2Low ? 'vital-danger' : ''}">SpO2: ${spo2Val}</span></div>
+          <div style="color:#64748b;">HR: ${hrVal} â€¢ Temp: ${tempVal}</div>
         </div>
       `;
     }
@@ -3770,7 +3770,7 @@ window.renderDoctorAppointments = function(searchQuery = "") {
         <button class="btn-danger-outline" style="padding:4px 8px; font-size:11px;" onclick="cancelDoctorAppointment('${a.token}')">Cancel</button>
       `;
     } else if (a.status === "Completed") {
-      actionButtons = `<span style="font-size:12px; color:#166534; font-weight:600;">✓ Completed</span>`;
+      actionButtons = `<span style="font-size:12px; color:#166534; font-weight:600;">âœ“ Completed</span>`;
     } else if (a.status === "Cancelled") {
       actionButtons = `<span style="font-size:12px; color:#991b1b; font-style:italic;">Cancelled</span>`;
     } else {
@@ -3790,8 +3790,8 @@ window.renderDoctorAppointments = function(searchQuery = "") {
           <div style="font-size:11.5px; color:#64748b;">${pMeta}</div>
         </td>
         <td>
-          <div style="font-weight:600; color:#059669; font-size:12.5px;">📅 ${dateStr}</div>
-          <div style="font-size:12px; color:#334155; font-weight:500;">⏰ ${startTimeStr} - ${endTimeStr} IST (${duration} mins)</div>
+          <div style="font-weight:600; color:#059669; font-size:12.5px;">ðŸ“… ${dateStr}</div>
+          <div style="font-size:12px; color:#334155; font-weight:500;">â° ${startTimeStr} - ${endTimeStr} IST (${duration} mins)</div>
         </td>
         <td>
           ${vitalsCol}
@@ -3851,8 +3851,8 @@ window.viewPatientDetails = function(patientId) {
   container.innerHTML = `
     <div class="card doc-card" style="border: 2px solid #2563eb; background: #faf5ff;">
       <div class="card-title-bar" style="background: #eff6ff;">
-        <h3 style="margin:0; font-size:15px; color:#1e40af;">👤 Patient Details: ${p.name} (${p.id})</h3>
-        <button type="button" class="btn-secondary" style="padding: 2px 8px; font-size:12px;" onclick="document.getElementById('doc-patient-detail-drawer').style.display='none'">✕ Close</button>
+        <h3 style="margin:0; font-size:15px; color:#1e40af;">ðŸ‘¤ Patient Details: ${p.name} (${p.id})</h3>
+        <button type="button" class="btn-secondary" style="padding: 2px 8px; font-size:12px;" onclick="document.getElementById('doc-patient-detail-drawer').style.display='none'">âœ• Close</button>
       </div>
       <div style="padding: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; font-size: 13px;">
         <div><span style="color:#64748b; font-size:11px; display:block;">Age / Gender</span> <strong>${p.age} / ${p.gender}</strong></div>
@@ -3892,7 +3892,7 @@ window.renderDoctorMedicalHistory = function(selectedPatientId = "") {
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
         <div>
           <h4 style="margin:0 0 4px 0; font-size: 16px; color: #0f172a;">${p.name}</h4>
-          <span style="font-size: 12px; color: #64748b;">ID: ${p.id} • ${p.age} yrs / ${p.gender} • ${p.village || 'Village Clinic A'}</span>
+          <span style="font-size: 12px; color: #64748b;">ID: ${p.id} â€¢ ${p.age} yrs / ${p.gender} â€¢ ${p.village || 'Village Clinic A'}</span>
         </div>
         <div style="display: flex; gap: 8px;">
           <span class="badge" style="background:#fee2e2; color:#991b1b; padding: 6px 12px;">Allergies: Penicillin</span>
@@ -3906,7 +3906,7 @@ window.renderDoctorMedicalHistory = function(selectedPatientId = "") {
           <div style="background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #2563eb; border-radius: 8px; padding: 14px 16px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
               <strong style="color: #2563eb; font-size: 14px;">${h.diagnosis}</strong>
-              <span style="font-size: 12px; color: #64748b;">📅 ${h.date} | ${h.clinic || 'General'}</span>
+              <span style="font-size: 12px; color: #64748b;">ðŸ“… ${h.date} | ${h.clinic || 'General'}</span>
             </div>
             <div style="font-size: 13px; color: #334155; margin-bottom: 4px;"><strong>Prescribed:</strong> ${h.medicines || 'N/A'}</div>
             <div style="font-size: 11px; color: #64748b;">Clinician: ${h.doctor || 'Dr. Vikram'}</div>
@@ -4093,7 +4093,7 @@ function renderDoctorQueue(searchQuery = "") {
       const isSpo2Low = a.vitals.spo2 && a.vitals.spo2 < 95;
       const bpVal = (a.vitals.bpSystolic && a.vitals.bpDiastolic) ? `${a.vitals.bpSystolic}/${a.vitals.bpDiastolic}` : "120/80";
       const spo2Val = a.vitals.spo2 ? `${a.vitals.spo2}%` : "98%";
-      const tempVal = a.vitals.temp ? `${a.vitals.temp}°C` : "36.5°C";
+      const tempVal = a.vitals.temp ? `${a.vitals.temp}Â°C` : "36.5Â°C";
       const hrVal = a.vitals.hr ? `${a.vitals.hr} bpm` : "75 bpm";
 
       vitalsHtml = `
@@ -4115,7 +4115,7 @@ function renderDoctorQueue(searchQuery = "") {
       }
     }
 
-    const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:10px; padding:2px 6px; border-radius:12px; margin-left:6px; vertical-align:middle;">🏡 Home Visit</span>` : "";
+    const homeVisitBadge = a.isHomeVisit ? `<span class="badge" style="background:#4f46e5; color:white; font-size:10px; padding:2px 6px; border-radius:12px; margin-left:6px; vertical-align:middle;">ðŸ¡ Home Visit</span>` : "";
 
     const tr = document.createElement("tr");
     tr.className = a.urgency === "Emergency" ? "queue-row emergency-high" : "queue-row";
@@ -4195,8 +4195,8 @@ function renderDoctorCompletedLogs() {
           </div>
         </div>
       </td>
-      <td style="color:#334155; font-size:13px; font-weight:500;">${l.diagnosis || "—"}</td>
-      <td style="color:#334155; font-size:12.5px; max-width:220px; line-height:1.4;">${l.medicines || "—"}</td>
+      <td style="color:#334155; font-size:13px; font-weight:500;">${l.diagnosis || "â€”"}</td>
+      <td style="color:#334155; font-size:12.5px; max-width:220px; line-height:1.4;">${l.medicines || "â€”"}</td>
       <td>${referralBadge}</td>
       <td style="color:#1e293b; font-weight:600; font-size:13px;">${docName}</td>
       <td style="text-align: right; padding-right: 20px;">
@@ -4277,7 +4277,7 @@ function initSimulatedCallState(token, role) {
     camActive: true,
     manualVideoDisabled: false,
     autoVideoDisabled: false,
-    networkCounters: { good: 0, moderate: 0, poor: 0, recovery: 0 },
+    networkCounters: { good: 0, moderate: 0, poor: 0, critical: 0 },
     micActive: true,
     aiPredicting: false,
     chat: (cleanHistory.length > 0) ? cleanHistory : [
@@ -4312,9 +4312,9 @@ function startDocCallTimer() {
   if (docCallTimerInterval) clearInterval(docCallTimerInterval);
   docCallStartTime = Date.now();
   const timerEl = document.getElementById("doc-call-timer");
-  if (timerEl) timerEl.innerText = "⏱ 00:00:00";
+  if (timerEl) timerEl.innerText = "â± 00:00:00";
   const patTimerEl = document.getElementById("pat-call-timer");
-  if (patTimerEl) patTimerEl.innerText = "⏱ 00:00:00";
+  if (patTimerEl) patTimerEl.innerText = "â± 00:00:00";
 
   docCallTimerInterval = setInterval(() => {
     if (!activeCall) {
@@ -4325,7 +4325,7 @@ function startDocCallTimer() {
     const hrs = String(Math.floor(elapsedSec / 3600)).padStart(2, "0");
     const mins = String(Math.floor((elapsedSec % 3600) / 60)).padStart(2, "0");
     const secs = String(elapsedSec % 60).padStart(2, "0");
-    const timeFormatted = `⏱ ${hrs}:${mins}:${secs}`;
+    const timeFormatted = `â± ${hrs}:${mins}:${secs}`;
     const el = document.getElementById("doc-call-timer");
     if (el) el.innerText = timeFormatted;
     const patEl = document.getElementById("pat-call-timer");
@@ -4339,9 +4339,9 @@ function stopDocCallTimer() {
     docCallTimerInterval = null;
   }
   const el = document.getElementById("doc-call-timer");
-  if (el) el.innerText = "⏱ 00:00:00";
+  if (el) el.innerText = "â± 00:00:00";
   const patEl = document.getElementById("pat-call-timer");
-  if (patEl) patEl.innerText = "⏱ 00:00:00";
+  if (patEl) patEl.innerText = "â± 00:00:00";
 }
 
 window.startDoctorConsultation = function(token) {
@@ -4429,13 +4429,13 @@ window.startDoctorConsultation = function(token) {
   if (triageLvl) {
     const triage = evaluateTriageUrgency(vitals);
     if (triage.flag === "Critical") {
-      triageLvl.innerText = "RED — Critical Priority";
+      triageLvl.innerText = "RED â€” Critical Priority";
       if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-danger";
     } else if (triage.flag === "High Warning") {
-      triageLvl.innerText = "YELLOW — Urgent Attention";
+      triageLvl.innerText = "YELLOW â€” Urgent Attention";
       if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-warning";
     } else {
-      triageLvl.innerText = "GREEN — Non-Urgent (Normal)";
+      triageLvl.innerText = "GREEN â€” Non-Urgent (Normal)";
       if (triageBanner) triageBanner.className = "doc-triage-alert-banner triage-normal";
     }
   }
@@ -4731,7 +4731,7 @@ function startCallLoop() {
 
   // FIX: Acquire local webcam FIRST, then join Agora so localWebcamStream is ready
   // when the video track is created. Running them in parallel caused a race where
-  // Agora tried to publish video before the stream existed → silent failure → no video.
+  // Agora tried to publish video before the stream existed â†’ silent failure â†’ no video.
   (async () => {
     try {
       await initNativeWebcam(role);
@@ -4740,7 +4740,7 @@ function startCallLoop() {
       console.warn("[CallLoop] Webcam init warning:", e);
     }
     // Join Agora only AFTER webcam is ready
-    console.log("[CallLoop] Webcam ready — connecting Agora RTC for real-time video & audio");
+    console.log("[CallLoop] Webcam ready â€” connecting Agora RTC for real-time video & audio");
     await joinAgoraRoom(role);
   })();
 
@@ -4775,42 +4775,42 @@ function updateVitalsFilesTabs() {
   if (role === "pat") {
     vitalsContainer.innerHTML = `
       <div class="doc-vital-tile tile-hr">
-        <div class="tile-icon-circle">❤️</div>
+        <div class="tile-icon-circle">â¤ï¸</div>
         <div class="tile-meta">
           <span class="tile-label">Heart Rate</span>
           <div class="tile-value"><strong>${vitals.hr || 75}</strong> <small>bpm</small></div>
         </div>
       </div>
       <div class="doc-vital-tile tile-temp">
-        <div class="tile-icon-circle">🌡️</div>
+        <div class="tile-icon-circle">ðŸŒ¡ï¸</div>
         <div class="tile-meta">
           <span class="tile-label">Temperature</span>
-          <div class="tile-value"><strong>${vitals.temp || 98.6}</strong> <small>°F</small></div>
+          <div class="tile-value"><strong>${vitals.temp || 98.6}</strong> <small>Â°F</small></div>
         </div>
       </div>
       <div class="doc-vital-tile tile-bp">
-        <div class="tile-icon-circle">🩺</div>
+        <div class="tile-icon-circle">ðŸ©º</div>
         <div class="tile-meta">
           <span class="tile-label">Blood Pressure</span>
           <div class="tile-value"><strong>${vitals.bpSystolic || 120}/${vitals.bpDiastolic || 80}</strong> <small>mmHg</small></div>
         </div>
       </div>
       <div class="doc-vital-tile tile-spo2">
-        <div class="tile-icon-circle">🫁</div>
+        <div class="tile-icon-circle">ðŸ«</div>
         <div class="tile-meta">
           <span class="tile-label">SpO2</span>
           <div class="tile-value"><strong>${vitals.spo2 || 98}</strong> <small>%</small></div>
         </div>
       </div>
       <div class="doc-vital-tile tile-sugar">
-        <div class="tile-icon-circle">🩸</div>
+        <div class="tile-icon-circle">ðŸ©¸</div>
         <div class="tile-meta">
           <span class="tile-label">Blood Sugar</span>
           <div class="tile-value"><strong>${vitals.sugar || 110}</strong> <small>mg/dL</small></div>
         </div>
       </div>
       <div class="doc-vital-tile tile-pain">
-        <div class="tile-icon-circle">⚡</div>
+        <div class="tile-icon-circle">âš¡</div>
         <div class="tile-meta">
           <span class="tile-label">Pain Level</span>
           <div class="tile-value"><strong>${vitals.pain !== undefined ? vitals.pain : 0}</strong> <small>/10</small></div>
@@ -4858,7 +4858,7 @@ function renderCallFiles() {
   container.innerHTML = "";
 
   activeCall.files.forEach(f => {
-    const icon = f.type === "image" ? "🖼️" : "📄";
+    const icon = f.type === "image" ? "ðŸ–¼ï¸" : "ðŸ“„";
     const div = document.createElement("div");
     div.className = "file-card";
     div.innerHTML = `
@@ -4949,11 +4949,17 @@ function renderWebcams(remoteCanvas, localCanvas) {
   };
 
   // 1. Draw Local webcam feed (Picture-in-picture fallback/state)
-  const localImgSrc = (activeCall.role === "patient")
-    ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
-    : (currentUser?.photo || "doctor_portrait.jpg");
-  const localImg = getPortraitImg(localImgSrc);
-  const drewLocalImg = activeCall.camActive ? drawCoverImage(localCtx, localImg, localCanvas.width, localCanvas.height) : false;
+  // Skip canvas drawing entirely when Agora has already injected a real <video> element
+  // into the local container â€” the canvas is hidden in that case anyway.
+  const agoraPrefixRW = getAgoraRolePrefix(activeCall.role);
+  const localContainerRW = document.getElementById(`${agoraPrefixRW}-local-video-container`);
+  const agoraVideoInPIP = localContainerRW && localContainerRW.querySelector("video");
+  if (!agoraVideoInPIP) {
+    const localImgSrc = (activeCall.role === "patient")
+      ? (activeCall.patient?.photo || "dharaneesh_portrait.jpg")
+      : (currentUser?.photo || "doctor_portrait.jpg");
+    const localImg = getPortraitImg(localImgSrc);
+    const drewLocalImg = activeCall.camActive ? drawCoverImage(localCtx, localImg, localCanvas.width, localCanvas.height) : false;
 
   if (!drewLocalImg) {
     localCtx.fillStyle = "#1e293b";
@@ -4977,7 +4983,7 @@ function renderWebcams(remoteCanvas, localCanvas) {
       localCtx.fillStyle = "#ef4444";
       localCtx.font = "bold 14px Inter, system-ui, sans-serif";
       localCtx.textAlign = "center";
-      localCtx.fillText("📵", localCanvas.width / 2, localCanvas.height / 2 - 6);
+      localCtx.fillText("ðŸ“µ", localCanvas.width / 2, localCanvas.height / 2 - 6);
 
       localCtx.fillStyle = "#cbd5e1";
       localCtx.font = "10px Inter, system-ui, sans-serif";
@@ -5036,7 +5042,7 @@ function renderWebcams(remoteCanvas, localCanvas) {
       remoteCtx.fillStyle = "white";
       remoteCtx.font = "bold 16px Inter, system-ui, sans-serif";
       remoteCtx.textAlign = "center";
-      remoteCtx.fillText("📞 Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 15);
+      remoteCtx.fillText("ðŸ“ž Audio-Only Mode", remoteCanvas.width / 2, remoteCanvas.height / 2 - 15);
       remoteCtx.font = "12px Inter, system-ui, sans-serif";
       remoteCtx.fillStyle = "#94a3b8";
       remoteCtx.fillText("Low-bandwidth connection active. Voice audio preserved.", remoteCanvas.width / 2, remoteCanvas.height / 2 + 15);
@@ -5102,10 +5108,10 @@ window.simulateNetworkChange = function(quality) {
       if (remoteContainer) remoteContainer.style.filter = "blur(7px) contrast(135%)";
     });
 
-    showToast("🧠 AI Predictor: Connection drop expected in 5s! Proactively reducing resolution to 240p.", "warning");
+    showToast("ðŸ§  AI Predictor: Connection drop expected in 5s! Proactively reducing resolution to 240p.", "warning");
     activeCall.chat.push({ 
       sender: "system", 
-      text: "🧠 AI Network Predictor: Connection degradation predicted in 5s. Proactively reducing resolution to sustain link." 
+      text: "ðŸ§  AI Network Predictor: Connection degradation predicted in 5s. Proactively reducing resolution to sustain link." 
     });
     syncChatBox();
 
@@ -5154,8 +5160,8 @@ window.toggleAutoNetworkFluctuation = function() {
   const patBtnText = document.getElementById("pat-auto-fluctuate-indicator");
 
   if (activeCall.autoFluctuate) {
-    if (btnText) btnText.innerText = "🔄 Auto-Fluctuate: ON";
-    if (patBtnText) patBtnText.innerText = "🔄 Auto-Fluctuate: ON";
+    if (btnText) btnText.innerText = "ðŸ”„ Auto-Fluctuate: ON";
+    if (patBtnText) patBtnText.innerText = "ðŸ”„ Auto-Fluctuate: ON";
     showToast("Automatic bandwidth fluctuation enabled. Monitoring network environment...", "info");
     
     let step = 0;
@@ -5169,8 +5175,8 @@ window.toggleAutoNetworkFluctuation = function() {
       simulateNetworkChange(qualities[step]);
     }, 15000); // changes every 15s
   } else {
-    if (btnText) btnText.innerText = "🔄 Auto-Fluctuate: OFF";
-    if (patBtnText) patBtnText.innerText = "🔄 Auto-Fluctuate: OFF";
+    if (btnText) btnText.innerText = "ðŸ”„ Auto-Fluctuate: OFF";
+    if (patBtnText) patBtnText.innerText = "ðŸ”„ Auto-Fluctuate: OFF";
     clearInterval(fluctuationTimer);
     simulateNetworkChange("good");
   }
@@ -5309,7 +5315,7 @@ function syncChatBox() {
         bubble.className = "chat-bubble self";
         bubble.innerHTML = `
           <div class="chat-sender-header" style="color: rgba(255,255,255,0.9); text-align: right; font-size: 11px; margin-bottom: 2px;">
-            You • ${escapeHtml(msg.time || "")}
+            You â€¢ ${escapeHtml(msg.time || "")}
           </div>
           <div class="chat-text-content" style="text-align: left;">${escapeHtml(msg.text)}</div>
         `;
@@ -5347,7 +5353,7 @@ window.toggleAudioState = async function(role) {
   if (activeCall.micActive) {
     if (btn) {
       btn.classList.add("active");
-      btn.innerText = "🎙️";
+      btn.innerText = "ðŸŽ™ï¸";
     }
     if (localAudioTrack) {
       try {
@@ -5366,7 +5372,7 @@ window.toggleAudioState = async function(role) {
   } else {
     if (btn) {
       btn.classList.remove("active");
-      btn.innerText = "🔇";
+      btn.innerText = "ðŸ”‡";
     }
     if (localAudioTrack) {
       try {
@@ -5399,7 +5405,39 @@ window.toggleVideoState = async function(role) {
     activeCall.manualVideoDisabled = false;
     if (btn) {
       btn.classList.add("active");
-      btn.innerText = "📷";
+      btn.innerText = "ðŸ“·";
+    }
+
+    // If using a virtual track, try upgrading to a real hardware camera first
+    const isCurrentlyVirtual = activeCall.isVirtualCam || (localWebcamStream && localWebcamStream._isVirtual);
+    if (isCurrentlyVirtual || !localVideoTrack) {
+      // Attempt to replace virtual/missing track with real Agora camera track
+      try {
+        if (typeof AgoraRTC !== "undefined" && typeof AgoraRTC.createCameraVideoTrack === "function") {
+          const newHwTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: "720p_2" });
+          if (newHwTrack) {
+            // Unpublish old track and publish real camera track
+            if (localVideoTrack) {
+              try { await agoraClient.unpublish([localVideoTrack]); localVideoTrack.stop(); localVideoTrack.close(); } catch(e){}
+            }
+            localVideoTrack = newHwTrack;
+            if (activeCall) { activeCall.isVirtualCam = false; }
+            await agoraClient.publish([localVideoTrack]);
+            if (localContainer) {
+              localContainer.innerHTML = "";
+              localVideoTrack.play(localContainer, { mirror: true, fit: "cover" });
+              localContainer.style.display = "block";
+              if (localCanvas) localCanvas.style.display = "none";
+            }
+            showToast("Real camera connected! Live video active.", "success");
+            updateNetworkUI();
+            return;
+          }
+        }
+      } catch (hwErr) {
+        console.warn("[VideoToggle] Real camera upgrade failed:", hwErr.name, hwErr.message);
+        showToast("Camera permission denied — still using simulated video.", "warning");
+      }
     }
 
     if (localVideoTrack && typeof localVideoTrack.setEnabled === "function") {
@@ -5434,7 +5472,7 @@ window.toggleVideoState = async function(role) {
     activeCall.autoVideoDisabled = false;
     if (btn) {
       btn.classList.remove("active");
-      btn.innerText = "📵";
+      btn.innerText = "ðŸ“µ";
     }
 
     if (localWebcamStream) {
@@ -5600,7 +5638,7 @@ function syncPrescriptionLabels() {
           <span class="med-name">${m.name}</span>
           <span class="med-freq" style="font-size:11px; color:var(--text-muted);">(${m.freq} &bull; ${m.dur})</span>
         </div>
-        <button type="button" style="color:var(--danger); background:none; border:none; cursor:pointer; font-size:11px; font-weight:600;" onclick="removeMedicineRow(${idx})">✕ Remove</button>
+        <button type="button" style="color:var(--danger); background:none; border:none; cursor:pointer; font-size:11px; font-weight:600;" onclick="removeMedicineRow(${idx})">âœ• Remove</button>
       `;
       ul.appendChild(li);
     });
@@ -5610,21 +5648,21 @@ function syncPrescriptionLabels() {
   const diagInput = document.getElementById("pres-diagnosis");
   const diagLbl = document.getElementById("pres-lbl-diagnosis");
   if (diagLbl) {
-    diagLbl.innerText = (diagInput && diagInput.value.trim()) ? diagInput.value.trim() : "—";
+    diagLbl.innerText = (diagInput && diagInput.value.trim()) ? diagInput.value.trim() : "â€”";
   }
 
   const advInput = document.getElementById("pres-advice");
   const advLbl = document.getElementById("pres-lbl-advice");
   if (advLbl) {
-    advLbl.innerText = (advInput && advInput.value.trim()) ? advInput.value.trim() : "—";
+    advLbl.innerText = (advInput && advInput.value.trim()) ? advInput.value.trim() : "â€”";
   }
 
   const refInput = document.getElementById("pres-referral-check");
   const refLbl = document.getElementById("pres-lbl-referral");
   if (refLbl) {
     refLbl.innerText = (refInput && refInput.checked)
-      ? "⚠️ Referred to District Specialist Hospital (Critical escalation)"
-      : "⊘ No referral required";
+      ? "âš ï¸ Referred to District Specialist Hospital (Critical escalation)"
+      : "âŠ˜ No referral required";
     refLbl.style.color = (refInput && refInput.checked) ? "#dc2626" : "#64748b";
   }
 
@@ -5654,7 +5692,7 @@ function syncPrescriptionLabels() {
     }
     
     const vilEl = document.getElementById("pres-lbl-village");
-    if (vilEl) vilEl.innerText = `${activeCall.patient ? activeCall.patient.village : 'Village Clinic'} Clinic • Smart Village Network • Tele-Health Suite`;
+    if (vilEl) vilEl.innerText = `${activeCall.patient ? activeCall.patient.village : 'Village Clinic'} Clinic â€¢ Smart Village Network â€¢ Tele-Health Suite`;
 
     const docEl = document.getElementById("pres-lbl-doc");
     if (docEl) docEl.innerText = currentUser ? currentUser.name : "Dr. Abinesh V";
@@ -6408,7 +6446,7 @@ async function joinAgoraRoomInternal(role) {
     const remoteUsers = new Map();
     // Track which media types we've already subscribed per user to prevent duplicate subscriptions
     // that cause video flicker (container cleared + re-attached = black flash)
-    const subscribedMedia = new Map(); // uid → Set of subscribed mediaTypes
+    const subscribedMedia = new Map(); // uid â†’ Set of subscribed mediaTypes
 
     const subscribeToRemoteUser = async (user, mediaType) => {
       try {
@@ -6417,7 +6455,7 @@ async function joinAgoraRoomInternal(role) {
         const alreadySubscribed = subscribedMedia.get(uidKey).has(mediaType);
 
         if (mediaType === "audio") {
-          // Always subscribe first — audioTrack is null BEFORE subscribing
+          // Always subscribe first â€” audioTrack is null BEFORE subscribing
           if (!alreadySubscribed) {
             await agoraClient.subscribe(user, mediaType);
             subscribedMedia.get(uidKey).add(mediaType);
@@ -6480,7 +6518,7 @@ async function joinAgoraRoomInternal(role) {
               console.log(`[AGORA] Remote video playing in container #${remoteContainer.id}`);
             } else {
               // Last resort: create a video element and append to the main viewport
-              console.warn("[AGORA] Remote video container not found — appending fallback video element");
+              console.warn("[AGORA] Remote video container not found â€” appending fallback video element");
               const agoraPrefix = getAgoraRolePrefix(role);
               const viewport = document.getElementById(`${agoraPrefix}-viewport-container`) ||
                                document.getElementById(`${prefix}-viewport-container`);
@@ -6564,7 +6602,7 @@ async function joinAgoraRoomInternal(role) {
       }
     });
 
-    // Join room — always uses the fixed "telehealth-room" channel so the
+    // Join room â€” always uses the fixed "telehealth-room" channel so the
     // configured token (temp or permanent) always matches the channel.
     const appid = (agoraConfig.appid || "").trim();
     const consultationId = String(activeCall?.token || "").trim();
@@ -6665,11 +6703,15 @@ async function joinAgoraRoomInternal(role) {
     }
 
     // Create and publish local video track for Agora RTC.
-    // Strategy: always use AgoraRTC.createCameraVideoTrack() so Agora owns
-    // the capture pipeline end-to-end. Using createCustomVideoTrack() wrapping
-    // localWebcamStream's native track conflicts with the PIP canvas renderer
-    // that also reads from that same track, causing Chrome to drop frames silently.
+    // Strategy 1: Use AgoraRTC.createCameraVideoTrack() â€” Agora owns the capture pipeline.
+    // Strategy 2: Wrap localWebcamStream track as a custom track (if cam already acquired).
+    // Strategy 3: Wrap the virtual canvas stream as a custom track (simulated fallback).
+    // This ensures a video track is ALWAYS published so the PIP never shows camera-off
+    // unless the user explicitly pressed the camera toggle button.
     let videoTrack = null;
+    let videoTrackSource = "none"; // "agora-hw" | "custom-hw" | "virtual" | "none"
+
+    // --- Strategy 1: Agora hardware camera track ---
     try {
       if (typeof AgoraRTC.createCameraVideoTrack === "function") {
         videoTrack = await AgoraRTC.createCameraVideoTrack({
@@ -6681,9 +6723,10 @@ async function joinAgoraRoomInternal(role) {
           },
           optimizationMode: "detail"
         });
+        videoTrackSource = "agora-hw";
         console.log("[AGORA] Created Agora camera video track (720p)");
 
-        // Mirror local preview from Agora's own video track so the PIP pip shows the camera
+        // Mirror local preview from Agora's own video track so the PIP shows the camera
         const agoraPrefix = getAgoraRolePrefix(role);
         const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
         const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
@@ -6697,18 +6740,62 @@ async function joinAgoraRoomInternal(role) {
       }
     } catch (vidErr) {
       console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
-      // Fallback: try wrapping the already-acquired localWebcamStream track
+    }
+
+    // --- Strategy 2: Wrap already-acquired localWebcamStream as custom track ---
+    if (!videoTrack) {
       try {
         if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
           const nativeTrack = localWebcamStream.getVideoTracks()[0];
           if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
             videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
-            console.log("[AGORA] Fallback: created custom video track from localWebcamStream");
+            videoTrackSource = "custom-hw";
+            console.log("[AGORA] Fallback S2: created custom video track from localWebcamStream");
           }
         }
       } catch (fallbackErr) {
-        console.warn("[AGORA] Fallback video track also failed:", fallbackErr);
+        console.warn("[AGORA] Fallback S2 video track also failed:", fallbackErr);
       }
+    }
+
+    // --- Strategy 3: Virtual canvas stream (simulated tele-health feed) ---
+    // This ensures remote participants always see something (animated avatar/ECG)
+    // instead of a blank camera-off screen when hardware camera is unavailable.
+    if (!videoTrack) {
+      try {
+        if (typeof AgoraRTC.createCustomVideoTrack === "function") {
+          // Re-use or create the virtual canvas stream
+          let virtualStream = (localWebcamStream && localWebcamStream._isVirtual) ? localWebcamStream : null;
+          if (!virtualStream) {
+            virtualStream = createVirtualMedicalStream(role);
+            localWebcamStream = virtualStream;
+            if (activeCall) activeCall.isVirtualCam = true;
+          }
+          const virtualVideoTracks = virtualStream.getVideoTracks();
+          if (virtualVideoTracks.length > 0) {
+            videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: virtualVideoTracks[0] });
+            videoTrackSource = "virtual";
+            console.log("[AGORA] Fallback S3: publishing virtual simulated video track");
+
+            // Show virtual feed in local PIP container
+            const agoraPrefix = getAgoraRolePrefix(role);
+            const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+            const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+            if (localContainer) {
+              attachStreamToContainer(virtualStream, `${agoraPrefix}-local-video-container`, true);
+              localContainer.style.display = "block";
+              if (localCanvas) localCanvas.style.display = "none";
+            }
+          }
+        }
+      } catch (virtualErr) {
+        console.warn("[AGORA] Fallback S3 virtual track failed:", virtualErr);
+      }
+    }
+
+    console.log(`[AGORA] Video track source: ${videoTrackSource}`);
+    if (videoTrackSource === "virtual") {
+      showToast("Camera unavailable â€” publishing simulated tele-health video. Click ðŸ“· to retry real camera.", "info");
     }
 
     localVideoTrack = videoTrack;
@@ -6753,7 +6840,7 @@ async function joinAgoraRoomInternal(role) {
     console.error("[Agora] Connection error:", err);
 
     // "invalid vendor key" / "can not find appid" can be caused by a bad token when the project
-    // uses Primary Certificate — do NOT permanently disable on this. Just log and retry fresh.
+    // uses Primary Certificate â€” do NOT permanently disable on this. Just log and retry fresh.
     const looksLikeBadToken = err.message && (
       err.message.includes("invalid vendor key") ||
       err.message.includes("CAN_NOT_GET_GATEWAY_SERVER") ||
@@ -6775,7 +6862,7 @@ async function joinAgoraRoomInternal(role) {
       // Retry ONCE with a fresh token fetched from server
       if (!agoraConfig._retried) {
         agoraConfig._retried = true;  // keep true until retry resolves
-        showToast("Agora auth error — fetching fresh token and retrying...", "info");
+        showToast("Agora auth error â€” fetching fresh token and retrying...", "info");
         setTimeout(async () => {
           try {
             const backend = getBackendUrl();
@@ -6786,7 +6873,7 @@ async function joinAgoraRoomInternal(role) {
                 agoraConfig.token = data.token;
                 console.info("[Agora] Fresh token fetched, retrying join...", { generatedDynamically: data.generatedDynamically });
               } else {
-                console.warn("[Agora] Server returned no token — check AGORA_APP_CERTIFICATE in Render env vars.");
+                console.warn("[Agora] Server returned no token â€” check AGORA_APP_CERTIFICATE in Render env vars.");
                 showToast("Agora: No valid token available. Check AGORA_APP_CERTIFICATE in Render settings.", "error");
                 agoraConfig._retried = false;
                 return;  // Don't retry if server can't generate a token
@@ -6795,19 +6882,19 @@ async function joinAgoraRoomInternal(role) {
           } catch (fetchErr) {
             console.warn("[Agora] Could not fetch fresh token:", fetchErr.message);
           }
-          // _retried stays true — if this retry also fails, we show final error (not another loop)
+          // _retried stays true â€” if this retry also fails, we show final error (not another loop)
           joinAgoraRoom(role);
         }, 2000);
         return;
       }
-      // Second failure after retry — give up gracefully, don't loop
+      // Second failure after retry â€” give up gracefully, don't loop
       agoraConfig._retried = false;
       console.error("[Agora] Token still rejected after retry. Check AGORA_APP_CERTIFICATE in Render Dashboard.");
       showToast("Agora connection failed. Please check App Certificate in Render settings and refresh.", "error");
       return;
     }
 
-    // For other errors (mic permission, network, etc.) — show info but don't disable
+    // For other errors (mic permission, network, etc.) â€” show info but don't disable
     const permErr = err.message && (err.message.includes("permission") || err.name === "NotAllowedError");
     if (permErr) {
       showToast("Microphone permission denied. Please allow microphone access and retry.", "warning");
@@ -6979,7 +7066,7 @@ function updateNetworkUI() {
   const statusText = activeCall.callMode === CALL_MODES.AUDIO_ONLY ? "Audio-only mode" : activeCall.callMode === CALL_MODES.VIDEO_LOW_QUALITY ? "Low-quality video" : "Full video";
 
   if (connText) {
-    connText.innerText = `${state.label} • ${statusText}`;
+    connText.innerText = `${state.label} â€¢ ${statusText}`;
   }
 
   const bars = document.querySelectorAll(`#${role}-sig-bars .sig-bar`);
@@ -7031,13 +7118,19 @@ function updateNetworkUI() {
       if (mainCanvas) mainCanvas.style.display = "block";
     }
 
-    const hasAgoraLocalVideo = !!(localVideoTrack && activeCall.camActive && document.querySelector('[id$="-local-video-container"] video'));
-    const hasLocalStream = hasAgoraLocalVideo || !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
+    // Use role-specific selector to avoid cross-role container matches (e.g., pat vs doc)
+    const hasAgoraLocalVideo = !!(localVideoTrack && activeCall.camActive && document.querySelector(`#${role}-local-video-container video`));
+    const hasLocalStream = hasAgoraLocalVideo ||
+      !!(localVideoTrack && activeCall.camActive) || // Agora track exists even if video element not yet injected
+      !!(localWebcamStream && activeCall.camActive && localWebcamStream.getVideoTracks().some(t => t.readyState === "live" && t.enabled));
     if (hasLocalStream) {
       if (pipCanvas) pipCanvas.style.display = "none";
       if (localContainer) {
         localContainer.style.display = "block";
-        attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
+        // Only attach stream if NOT using Agora native track (Agora manages its own container)
+        if (!localVideoTrack && localWebcamStream) {
+          attachStreamToContainer(localWebcamStream, `${role}-local-video-container`, true);
+        }
       }
     } else {
       if (pipCanvas) pipCanvas.style.display = "block";
@@ -7047,7 +7140,7 @@ function updateNetworkUI() {
 
   const docLabel = document.getElementById("doc-network-lbl");
   if (docLabel) {
-    docLabel.innerText = `${state.label} • ${statusText}`;
+    docLabel.innerText = `${state.label} â€¢ ${statusText}`;
   }
 
   // Update failover pipeline steps and telemetry status banner for both doc and pat
@@ -7086,7 +7179,7 @@ window.showCameraPermissionModal = function() {
   overlay.className = "cam-perm-modal-overlay";
   overlay.innerHTML = `
     <div class="cam-perm-modal">
-      <h3>🔒 Allow Camera Access</h3>
+      <h3>ðŸ”’ Allow Camera Access</h3>
       <p style="font-size: 13px; color: #64748b; margin-bottom: 16px;">
         Your browser has blocked camera or microphone access for this website. Follow these 3 quick steps:
       </p>
@@ -7101,7 +7194,7 @@ window.showCameraPermissionModal = function() {
       <div class="cam-perm-step">
         <div class="cam-perm-step-num">2</div>
         <div class="cam-perm-step-text">
-          Click the <strong>🔒 Padlock / 🎛️ Site Settings / 🎥 Camera</strong> icon, and switch <strong>Camera</strong> from <em>Block</em> to <strong>Allow</strong>.
+          Click the <strong>ðŸ”’ Padlock / ðŸŽ›ï¸ Site Settings / ðŸŽ¥ Camera</strong> icon, and switch <strong>Camera</strong> from <em>Block</em> to <strong>Allow</strong>.
         </div>
       </div>
 
@@ -7114,7 +7207,7 @@ window.showCameraPermissionModal = function() {
 
       <div class="cam-perm-actions">
         <button class="btn-action" onclick="document.getElementById('cam-perm-modal-overlay').remove()">Keep Simulated Feed</button>
-        <button class="btn-primary" style="font-weight: 600;" onclick="window.retryRealWebcamFromModal()">🔄 Connect Real Webcam</button>
+        <button class="btn-primary" style="font-weight: 600;" onclick="window.retryRealWebcamFromModal()">ðŸ”„ Connect Real Webcam</button>
       </div>
     </div>
   `;
@@ -7267,7 +7360,7 @@ window.triggerEmergencyAlert = function(patientName, vitals, token) {
   if (banner) banner.style.display = "flex";
 
   // Trigger Toast Alert
-  showToast(`🚨 RED ALERT: Vitals Critical for ${patientName}! SpO2: ${vitals.spo2}%, BP: ${vitals.bpSystolic}, HR: ${vitals.hr}. Ambulance Dispatched!`, "danger");
+  showToast(`ðŸš¨ RED ALERT: Vitals Critical for ${patientName}! SpO2: ${vitals.spo2}%, BP: ${vitals.bpSystolic}, HR: ${vitals.hr}. Ambulance Dispatched!`, "danger");
 
   // Log emergency system event to consultations history
   const conId = `con-${Math.floor(100 + Math.random() * 900)}`;
@@ -7305,10 +7398,10 @@ window.toggleSimulatedInternet = function() {
   updateOnlinePill();
 
   if (window.isNetworkOnline) {
-    showToast("🔄 Connection restored. Auto-syncing pending local changes to Supabase...", "info");
+    showToast("ðŸ”„ Connection restored. Auto-syncing pending local changes to Supabase...", "info");
     runOfflineSync();
   } else {
-    showToast("🔴 Offline Mode Activated. Changes will be saved locally.", "warning");
+    showToast("ðŸ”´ Offline Mode Activated. Changes will be saved locally.", "warning");
   }
 };
 
@@ -7352,7 +7445,7 @@ async function runOfflineSync() {
     }
 
     if (syncedCount > 0) {
-      showToast(`✅ Cloud Sync complete! Successfully uploaded pending changes.`, "success");
+      showToast(`âœ… Cloud Sync complete! Successfully uploaded pending changes.`, "success");
       localStorage.removeItem("pending_syncs");
     }
   } catch (err) {
@@ -7412,23 +7505,23 @@ window.speakDoctorTranslation = function(msgText) {
   
   if (tLang === "ta-IN") {
     if (msgText.toLowerCase().includes("breathe") || msgText.toLowerCase().includes("breath")) {
-      translatedText = "தயவுசெய்து ஆழமாக சுவாசிக்கவும்";
+      translatedText = "à®¤à®¯à®µà¯à®šà¯†à®¯à¯à®¤à¯ à®†à®´à®®à®¾à®• à®šà¯à®µà®¾à®šà®¿à®•à¯à®•à®µà¯à®®à¯";
     } else if (msgText.toLowerCase().includes("bp") || msgText.toLowerCase().includes("blood pressure")) {
-      translatedText = "நான் உங்கள் இரத்த அழுத்தத்தை சரிபார்க்கிறேன்";
+      translatedText = "à®¨à®¾à®©à¯ à®‰à®™à¯à®•à®³à¯ à®‡à®°à®¤à¯à®¤ à®…à®´à¯à®¤à¯à®¤à®¤à¯à®¤à¯ˆ à®šà®°à®¿à®ªà®¾à®°à¯à®•à¯à®•à®¿à®±à¯‡à®©à¯";
     } else if (msgText.toLowerCase().includes("hello") || msgText.toLowerCase().includes("hi")) {
-      translatedText = "வணக்கம், நான் உங்களுக்கு எப்படி உதவ முடியும்?";
+      translatedText = "à®µà®£à®•à¯à®•à®®à¯, à®¨à®¾à®©à¯ à®‰à®™à¯à®•à®³à¯à®•à¯à®•à¯ à®Žà®ªà¯à®ªà®Ÿà®¿ à®‰à®¤à®µ à®®à¯à®Ÿà®¿à®¯à¯à®®à¯?";
     } else {
-      translatedText = "மருத்துவர்: உங்கள் மருந்து பரிந்துரை தயாராக உள்ளது";
+      translatedText = "à®®à®°à¯à®¤à¯à®¤à¯à®µà®°à¯: à®‰à®™à¯à®•à®³à¯ à®®à®°à¯à®¨à¯à®¤à¯ à®ªà®°à®¿à®¨à¯à®¤à¯à®°à¯ˆ à®¤à®¯à®¾à®°à®¾à®• à®‰à®³à¯à®³à®¤à¯";
     }
   } else if (tLang === "hi-IN") {
     if (msgText.toLowerCase().includes("breathe") || msgText.toLowerCase().includes("breath")) {
-      translatedText = "कृपया गहरी सांस लें";
+      translatedText = "à¤•à¥ƒà¤ªà¤¯à¤¾ à¤—à¤¹à¤°à¥€ à¤¸à¤¾à¤‚à¤¸ à¤²à¥‡à¤‚";
     } else if (msgText.toLowerCase().includes("bp") || msgText.toLowerCase().includes("blood pressure")) {
-      translatedText = "मैं आपके रक्तचाप की जांच कर रहा हूं";
+      translatedText = "à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥‡ à¤°à¤•à¥à¤¤à¤šà¤¾à¤ª à¤•à¥€ à¤œà¤¾à¤‚à¤š à¤•à¤° à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚";
     } else if (msgText.toLowerCase().includes("hello") || msgText.toLowerCase().includes("hi")) {
-      translatedText = "नमस्ते, मैं आपकी क्या सहायता कर सकता हूँ?";
+      translatedText = "à¤¨à¤®à¤¸à¥à¤¤à¥‡, à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¥€ à¤•à¥à¤¯à¤¾ à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾ à¤•à¤° à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤?";
     } else {
-      translatedText = "डॉक्टर: आपका नुस्खा तैयार है";
+      translatedText = "à¤¡à¥‰à¤•à¥à¤Ÿà¤°: à¤†à¤ªà¤•à¤¾ à¤¨à¥à¤¸à¥à¤–à¤¾ à¤¤à¥ˆà¤¯à¤¾à¤° à¤¹à¥ˆ";
     }
   }
 
@@ -7464,10 +7557,10 @@ window.triggerSimulatedSpeech = function() {
   let translation = "";
 
   if (pLang === "ta-IN") {
-    original = "என் நெஞ்சில் ஒரு அழுத்தமாக இருக்கிறது, சுவாசிக்க கடினமாக உள்ளது.";
+    original = "à®Žà®©à¯ à®¨à¯†à®žà¯à®šà®¿à®²à¯ à®’à®°à¯ à®…à®´à¯à®¤à¯à®¤à®®à®¾à®• à®‡à®°à¯à®•à¯à®•à®¿à®±à®¤à¯, à®šà¯à®µà®¾à®šà®¿à®•à¯à®• à®•à®Ÿà®¿à®©à®®à®¾à®• à®‰à®³à¯à®³à®¤à¯.";
     translation = "I feel a pressure in my chest and it is difficult to breathe.";
   } else {
-    original = "मेरे सीने में दबाव महसूस हो रहा है और सांस लेने में कठिनाई हो रही है।";
+    original = "à¤®à¥‡à¤°à¥‡ à¤¸à¥€à¤¨à¥‡ à¤®à¥‡à¤‚ à¤¦à¤¬à¤¾à¤µ à¤®à¤¹à¤¸à¥‚à¤¸ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ à¤”à¤° à¤¸à¤¾à¤‚à¤¸ à¤²à¥‡à¤¨à¥‡ à¤®à¥‡à¤‚ à¤•à¤ à¤¿à¤¨à¤¾à¤ˆ à¤¹à¥‹ à¤°à¤¹à¥€ à¤¹à¥ˆà¥¤";
     translation = "I feel a pressure in my chest and it is difficult to breathe.";
   }
 
@@ -7558,7 +7651,7 @@ window.runSimulatedScan = function() {
   
   setTimeout(() => {
     window.closeQrScanner();
-    showToast(`✅ Code Decoded: ${patient ? patient.name : patientId} (ID: ${patientId})`, "success");
+    showToast(`âœ… Code Decoded: ${patient ? patient.name : patientId} (ID: ${patientId})`, "success");
     
     // Automatically trigger Vitals entry modal for this patient!
     window.openVitalsModal(patientId);
@@ -7585,7 +7678,7 @@ window.toggleCallRecording = function() {
     window.isRecordingActive = true;
     callRecordingSeconds = 0;
     if (btn) {
-      btn.innerText = "⏹️";
+      btn.innerText = "â¹ï¸";
       btn.style.backgroundColor = "#dc2626"; // stop state red
       btn.classList.add("active");
     }
@@ -7599,7 +7692,7 @@ window.toggleCallRecording = function() {
       if (timer) timer.innerText = `${mins}:${secs}`;
     }, 1000);
 
-    showToast("🔴 Recording started. Audio and screen capture active.", "warning");
+    showToast("ðŸ”´ Recording started. Audio and screen capture active.", "warning");
   } else {
     window.stopCallRecording(); 
   }
@@ -7619,14 +7712,14 @@ window.stopCallRecording = function() {
   }
 
   if (btn) {
-    btn.innerText = "🔴";
+    btn.innerText = "ðŸ”´";
     btn.style.backgroundColor = "#374151";
     btn.classList.remove("active");
   }
   if (banner) banner.style.display = "none";
 
   const durationStr = timer ? timer.innerText : "00:05";
-  showToast("🔒 AES-256 Encrypting media tracks...", "info");
+  showToast("ðŸ”’ AES-256 Encrypting media tracks...", "info");
 
   setTimeout(() => {
     const recId = `REC-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -7641,7 +7734,7 @@ window.stopCallRecording = function() {
 
     db.recordings.push(newRec);
     saveDB();
-    showToast("✅ Encrypted recording uploaded to secure HIPAA bucket.", "success");
+    showToast("âœ… Encrypted recording uploaded to secure HIPAA bucket.", "success");
     
     if (currentRole === "admin") renderAdminRecordings();
   }, 1200);
@@ -7680,7 +7773,7 @@ function renderAdminRecordings() {
       <td style="font-family: monospace; font-size: 11px; color:#10b981;">supabase://buckets/recordings/${rec.secureUrl}</td>
       <td>${rec.duration}</td>
       <td>
-        <button class="btn-action success" onclick="window.playRecording('${rec.id}')">▶️ Playback</button>
+        <button class="btn-action success" onclick="window.playRecording('${rec.id}')">â–¶ï¸ Playback</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -7701,7 +7794,7 @@ window.playRecording = function(recId) {
     durLabel.innerText = `Duration: ${rec.duration}`;
     avatar.innerText = rec.patientName.split(" ").map(n => n[0]).join("");
     modal.style.display = "flex";
-    showToast(`🔒 Decrypting consultation stream from secure HIPAA storage...`, "success");
+    showToast(`ðŸ”’ Decrypting consultation stream from secure HIPAA storage...`, "success");
   }
 };
 
@@ -7942,7 +8035,7 @@ window.handlePatientConsultationRequest = async function(event) {
 
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.innerHTML = `<span>⏳ Registering Consultation Request...</span>`;
+    submitBtn.innerHTML = `<span>â³ Registering Consultation Request...</span>`;
   }
 
   try {
@@ -8058,12 +8151,12 @@ window.handlePatientConsultationRequest = async function(event) {
           }
           conflictBanner.innerHTML = `
             <div style="flex: 1; min-width: 220px;">
-              <strong style="color: #b45309;">⚠️ Active Consultation: Token ${conflictApp.token}</strong>
+              <strong style="color: #b45309;">âš ï¸ Active Consultation: Token ${conflictApp.token}</strong>
               <div style="font-size: 12px; color: #78350f; margin-top: 2px;">Status: <strong>${conflictApp.status}</strong> (${conflictApp.doctorName || 'Doctor'})</div>
             </div>
             <div style="display: flex; gap: 8px;">
               <button type="button" class="btn-primary" style="font-size: 11.5px; padding: 6px 12px;" onclick="loadPatientDashboard()">Continue Active Queue</button>
-              <button type="button" class="pat-btn-cancel" style="font-size: 11.5px; padding: 6px 12px;" onclick="cancelActiveAppointment('${conflictApp.token}')">✕ Cancel Request</button>
+              <button type="button" class="pat-btn-cancel" style="font-size: 11.5px; padding: 6px 12px;" onclick="cancelActiveAppointment('${conflictApp.token}')">âœ• Cancel Request</button>
             </div>
           `;
           conflictBanner.style.display = "flex";
@@ -8097,7 +8190,7 @@ window.handlePatientConsultationRequest = async function(event) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.innerHTML = `<span>Request Consultation</span> <span class="btn-arrow">→</span>`;
+      submitBtn.innerHTML = `<span>Request Consultation</span> <span class="btn-arrow">â†’</span>`;
     }
   }
 };
@@ -8384,7 +8477,7 @@ window.loadPatientAvailableSlotsForDoctor = async function(doctorId = "doc-1", c
       const pill = document.getElementById("pat-ai-demand-pill");
       if (pill) {
         pill.className = `ai-demand-pill demand-${(aiAdvisory.demandLevel || 'Low').toLowerCase()}`;
-        pill.innerText = `🤖 AI Demand: ${aiAdvisory.demandLevel} (${aiAdvisory.queueDepth} in queue)`;
+        pill.innerText = `ðŸ¤– AI Demand: ${aiAdvisory.demandLevel} (${aiAdvisory.queueDepth} in queue)`;
       }
       const waitText = document.getElementById("pat-ai-wait-text");
       if (waitText) waitText.innerText = `Est. wait: ~${aiAdvisory.estimatedWaitMins} mins`;
@@ -8458,7 +8551,7 @@ function renderPatientDateSelector(availableDates, activeDate, doctorId) {
     const count = (typeof d.openSlotCount === "number") ? d.openSlotCount : (typeof d.count === "number" ? d.count : 0);
     return `
       <button type="button" class="slot-date-tab ${isActive ? 'active' : ''}" onclick="onPatientDatePick('${d.date}')" title="${count} slots available">
-        <span>📅 ${dateLabel}${dayTag}</span>
+        <span>ðŸ“… ${dateLabel}${dayTag}</span>
         <span class="date-count-pill">${count}</span>
       </button>
     `;
@@ -8565,7 +8658,7 @@ export function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, 
           borderRadius: "10px"
         }
       },
-      React.createElement("div", { style: { fontSize: "24px", marginBottom: "6px" } }, "⏱️"),
+      React.createElement("div", { style: { fontSize: "24px", marginBottom: "6px" } }, "â±ï¸"),
       React.createElement("strong", { style: { fontSize: "14px", color: "#334155" } }, "No available slots for this date."),
       React.createElement("br", null),
       React.createElement("span", { style: { fontSize: "12px", color: "#64748b" } }, "Please select another upcoming date using the tabs or date picker above.")
@@ -8597,8 +8690,8 @@ export function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, 
         React.createElement(
           "div",
           { style: { display: "flex", alignItems: "center", gap: "6px" } },
-          React.createElement("span", { className: "slot-date-chip" }, `📅 ${formatSlotDate(s.date)}`),
-          React.createElement("span", { className: "slot-duration-chip" }, `⏱️ ${s.durationMins || 15} Mins`)
+          React.createElement("span", { className: "slot-date-chip" }, `ðŸ“… ${formatSlotDate(s.date)}`),
+          React.createElement("span", { className: "slot-duration-chip" }, `â±ï¸ ${s.durationMins || 15} Mins`)
         ),
         React.createElement(
           "span",
@@ -8606,21 +8699,21 @@ export function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, 
             className: "slot-check-circle",
             title: isSelected ? "Slot Selected" : "Select slot"
           },
-          isSelected ? "✓" : ""
+          isSelected ? "âœ“" : ""
         )
       ),
       // Time display (IST)
       React.createElement(
         "div",
         { className: "slot-time-display" },
-        React.createElement("span", null, `${s.startTime} – ${s.endTime}`),
+        React.createElement("span", null, `${s.startTime} â€“ ${s.endTime}`),
         React.createElement("small", { style: { fontSize: "11px", fontWeight: 600, color: "#64748b" } }, " IST")
       ),
       // Doctor info
       React.createElement(
         "div",
         { className: "slot-doctor-info" },
-        `👨‍⚕️ ${s.doctorName || "Doctor"} (${s.specialty || "General Medicine"})`
+        `ðŸ‘¨â€âš•ï¸ ${s.doctorName || "Doctor"} (${s.specialty || "General Medicine"})`
       ),
       // AI Advisory badge (if available)
       s.aiAdvisory
@@ -8643,7 +8736,7 @@ export function PatientConsultationSlotsComponent({ slots, initialSelectedSlot, 
                 className: `ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || "Low").toLowerCase()}`,
                 style: { fontSize: "10px", padding: "1px 6px" }
               },
-              `🤖 ${s.aiAdvisory.demandLevel} Demand`
+              `ðŸ¤– ${s.aiAdvisory.demandLevel} Demand`
             ),
             React.createElement(
               "span",
@@ -8676,7 +8769,7 @@ function updateSlotSelectionUI(slot) {
       targetCard.classList.add("selected");
       targetCard.setAttribute("aria-selected", "true");
       const chk = targetCard.querySelector(".slot-check-circle");
-      if (chk) chk.innerText = "✓";
+      if (chk) chk.innerText = "âœ“";
     }
   }
 
@@ -8685,8 +8778,8 @@ function updateSlotSelectionUI(slot) {
   if (confirmBtn) {
     confirmBtn.disabled = !slot;
     confirmBtn.innerHTML = slot
-      ? `<span>Confirm &amp; Book: ${formatSlotDate(slot.date)} @ ${slot.startTime} IST ✓</span>`
-      : `<span>Confirm &amp; Book Selected Slot ✓</span>`;
+      ? `<span>Confirm &amp; Book: ${formatSlotDate(slot.date)} @ ${slot.startTime} IST âœ“</span>`
+      : `<span>Confirm &amp; Book Selected Slot âœ“</span>`;
   }
 
   // 3. Update preview banner
@@ -8694,7 +8787,7 @@ function updateSlotSelectionUI(slot) {
   const previewText = document.getElementById("pat-selected-slot-preview-text");
   if (preview && previewText) {
     if (slot) {
-      previewText.innerText = `${formatSlotDate(slot.date)} (${slot.startTime} – ${slot.endTime} IST) with ${slot.doctorName || "Doctor"}`;
+      previewText.innerText = `${formatSlotDate(slot.date)} (${slot.startTime} â€“ ${slot.endTime} IST) with ${slot.doctorName || "Doctor"}`;
       preview.style.display = "flex";
     } else {
       preview.style.display = "none";
@@ -8742,7 +8835,7 @@ function renderVanillaSlotsFallback(container, slots, activeSlot) {
   if (!container) return;
   if (!slots || slots.length === 0) {
     container.innerHTML = `<div id="pat-no-slots-message" style="grid-column: 1 / -1; text-align:center; padding:28px 16px; color:#64748b; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px;">
-      <div style="font-size:24px; margin-bottom:6px;">⏱️</div>
+      <div style="font-size:24px; margin-bottom:6px;">â±ï¸</div>
       <strong style="font-size: 14px; color: #334155;">No available slots for this date.</strong><br>
       <span style="font-size:12px; color: #64748b;">Please select another upcoming date using the tabs or date picker above.</span>
     </div>`;
@@ -8761,21 +8854,21 @@ function renderVanillaSlotsFallback(container, slots, activeSlot) {
            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPatientSlot('${s.slotId}', event);}">
         <div class="slot-card-top">
           <div style="display:flex; align-items:center; gap:6px;">
-            <span class="slot-date-chip">📅 ${formatSlotDate(s.date)}</span>
-            <span class="slot-duration-chip">⏱️ ${s.durationMins || 15} Mins</span>
+            <span class="slot-date-chip">ðŸ“… ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-chip">â±ï¸ ${s.durationMins || 15} Mins</span>
           </div>
-          <span class="slot-check-circle" title="Select slot">${isSelected ? '✓' : ''}</span>
+          <span class="slot-check-circle" title="Select slot">${isSelected ? 'âœ“' : ''}</span>
         </div>
         <div class="slot-time-display">
-          <span>${s.startTime} – ${s.endTime}</span>
+          <span>${s.startTime} â€“ ${s.endTime}</span>
           <small style="font-size:11px; font-weight:600; color:#64748b;">IST</small>
         </div>
         <div class="slot-doctor-info">
-          👨‍⚕️ ${s.doctorName || 'Doctor'} (${s.specialty || 'General Medicine'})
+          ðŸ‘¨â€âš•ï¸ ${s.doctorName || 'Doctor'} (${s.specialty || 'General Medicine'})
         </div>
         ${s.aiAdvisory ? `
           <div class="slot-ai-advisory" style="margin-top:4px; padding-top:6px; border-top:1px dashed #cbd5e1; display:flex; justify-content:space-between; align-items:center;">
-            <span class="ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || 'Low').toLowerCase()}" style="font-size:10px; padding:1px 6px;">🤖 ${s.aiAdvisory.demandLevel} Demand</span>
+            <span class="ai-demand-badge ai-demand-${(s.aiAdvisory.demandLevel || 'Low').toLowerCase()}" style="font-size:10px; padding:1px 6px;">ðŸ¤– ${s.aiAdvisory.demandLevel} Demand</span>
             <span style="font-size:10.5px; color:#15803d; font-style:italic;">~${s.aiAdvisory.estimatedWaitMins || 5}m wait</span>
           </div>
         ` : ''}
@@ -8802,7 +8895,7 @@ function renderPatientAvailableSlots(slots) {
       // Slot was booked or no longer open
       const conflictAlert = document.getElementById("pat-slot-conflict-alert");
       if (conflictAlert) {
-        conflictAlert.innerText = `⚠️ Slot Conflict: Your previously selected slot is no longer available. Please choose another opening.`;
+        conflictAlert.innerText = `âš ï¸ Slot Conflict: Your previously selected slot is no longer available. Please choose another opening.`;
         conflictAlert.style.display = "block";
       }
       selectedPatientSlot = null;
@@ -8892,7 +8985,7 @@ window.confirmPatientSelectedSlot = async function() {
   if (!isStillValid) {
     const conflictAlert = document.getElementById("pat-slot-conflict-alert");
     if (conflictAlert) {
-      conflictAlert.innerText = "⚠️ Slot Conflict: That slot is no longer available. We've refreshed the available slots below.";
+      conflictAlert.innerText = "âš ï¸ Slot Conflict: That slot is no longer available. We've refreshed the available slots below.";
       conflictAlert.style.display = "block";
     }
     showToast("Selected slot is no longer available! Refreshing available slots...", "warning");
@@ -8906,7 +8999,7 @@ window.confirmPatientSelectedSlot = async function() {
   const confirmBtn = document.getElementById("pat-confirm-slot-btn");
   if (confirmBtn) {
     confirmBtn.disabled = true;
-    confirmBtn.innerHTML = `<span>⏳ Securing Consultation Slot...</span>`;
+    confirmBtn.innerHTML = `<span>â³ Securing Consultation Slot...</span>`;
   }
 
   // Resolve active consultation request token and patient ID
@@ -8980,7 +9073,7 @@ window.confirmPatientSelectedSlot = async function() {
         "success"
       );
 
-      showToast(`🎉 Consultation Confirmed! Booked for ${app.scheduledDate} at ${app.scheduledStartTime} IST (Token: ${app.token})`, "success");
+      showToast(`ðŸŽ‰ Consultation Confirmed! Booked for ${app.scheduledDate} at ${app.scheduledStartTime} IST (Token: ${app.token})`, "success");
 
       // Reload patient dashboard to immediately display the Confirmed Hero banner
       loadPatientDashboard();
@@ -8988,7 +9081,7 @@ window.confirmPatientSelectedSlot = async function() {
       // Double-booking conflict detected!
       const conflictAlert = document.getElementById("pat-slot-conflict-alert");
       if (conflictAlert) {
-        conflictAlert.innerText = `⚠️ Slot Conflict: ${data.error || "That slot was just booked by another patient. We've refreshed the available slots below."}`;
+        conflictAlert.innerText = `âš ï¸ Slot Conflict: ${data.error || "That slot was just booked by another patient. We've refreshed the available slots below."}`;
         conflictAlert.style.display = "block";
       }
 
@@ -9009,7 +9102,7 @@ window.confirmPatientSelectedSlot = async function() {
     if (isConflicting) {
       const conflictAlert = document.getElementById("pat-slot-conflict-alert");
       if (conflictAlert) {
-        conflictAlert.innerText = "⚠️ Slot Conflict: That slot was just booked by another patient. We've refreshed the available slots below.";
+        conflictAlert.innerText = "âš ï¸ Slot Conflict: That slot was just booked by another patient. We've refreshed the available slots below.";
         conflictAlert.style.display = "block";
       }
       showToast("Selected slot was just booked by another patient! Refreshing available slots...", "warning");
@@ -9078,15 +9171,15 @@ window.confirmPatientSelectedSlot = async function() {
       "success"
     );
 
-    showToast(`🎉 Consultation Confirmed! Booked for ${bookedAppointment.scheduledDate} at ${bookedAppointment.scheduledStartTime} IST (Token: ${bookedAppointment.token})`, "success");
+    showToast(`ðŸŽ‰ Consultation Confirmed! Booked for ${bookedAppointment.scheduledDate} at ${bookedAppointment.scheduledStartTime} IST (Token: ${bookedAppointment.token})`, "success");
     loadPatientDashboard();
     return;
   } finally {
     if (confirmBtn) {
       confirmBtn.disabled = !selectedPatientSlot;
       confirmBtn.innerHTML = selectedPatientSlot
-        ? `<span>Confirm &amp; Book: ${formatSlotDate(selectedPatientSlot.date)} @ ${selectedPatientSlot.startTime} IST ✓</span>`
-        : `<span>Confirm &amp; Book Selected Slot ✓</span>`;
+        ? `<span>Confirm &amp; Book: ${formatSlotDate(selectedPatientSlot.date)} @ ${selectedPatientSlot.startTime} IST âœ“</span>`
+        : `<span>Confirm &amp; Book Selected Slot âœ“</span>`;
     }
   }
 };
@@ -9214,11 +9307,11 @@ window.openPatientRescheduleModal = async function() {
       container.innerHTML = patientRescheduleSlots.map(s => `
         <div class="slot-select-card" id="pat-resched-card-${s.slotId}" onclick="selectPatientRescheduleSlot('${s.slotId}')">
           <div class="slot-card-header">
-            <span class="slot-date-pill">📅 ${formatSlotDate(s.date)}</span>
-            <span class="slot-duration-pill">⏱️ ${s.durationMins || 15} Mins</span>
+            <span class="slot-date-pill">ðŸ“… ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-pill">â±ï¸ ${s.durationMins || 15} Mins</span>
           </div>
-          <div class="slot-time-range">${s.startTime} – ${s.endTime} <small>IST</small></div>
-          <div class="slot-doc-name">👨‍⚕️ ${s.doctorName || 'Doctor'}</div>
+          <div class="slot-time-range">${s.startTime} â€“ ${s.endTime} <small>IST</small></div>
+          <div class="slot-doc-name">ðŸ‘¨â€âš•ï¸ ${s.doctorName || 'Doctor'}</div>
         </div>
       `).join("");
     }
@@ -9542,11 +9635,11 @@ window.openDoctorRescheduleModal = async function(token) {
       container.innerHTML = doctorRescheduleSlots.map(s => `
         <div class="slot-select-card" id="doc-resched-card-${s.slotId}" onclick="selectDoctorRescheduleSlot('${s.slotId}')">
           <div class="slot-card-header">
-            <span class="slot-date-pill">📅 ${formatSlotDate(s.date)}</span>
-            <span class="slot-duration-pill">⏱️ ${s.durationMins || 15} Mins</span>
+            <span class="slot-date-pill">ðŸ“… ${formatSlotDate(s.date)}</span>
+            <span class="slot-duration-pill">â±ï¸ ${s.durationMins || 15} Mins</span>
           </div>
-          <div class="slot-time-range">${s.startTime} – ${s.endTime} <small>IST</small></div>
-          <div class="slot-doc-name">👨‍⚕️ ${s.doctorName || 'Doctor'}</div>
+          <div class="slot-time-range">${s.startTime} â€“ ${s.endTime} <small>IST</small></div>
+          <div class="slot-doc-name">ðŸ‘¨â€âš•ï¸ ${s.doctorName || 'Doctor'}</div>
         </div>
       `).join("");
     }
@@ -9691,7 +9784,7 @@ function handleRealtimeSlotBooked(payload) {
     if (selectedPatientSlot && selectedPatientSlot.slotId === payload.slotId) {
       const conflictAlert = document.getElementById("pat-slot-conflict-alert");
       if (conflictAlert) {
-        conflictAlert.innerText = `⚠️ Slot Conflict: The slot at ${payload.startTime} IST was just booked by another patient! Refreshing...`;
+        conflictAlert.innerText = `âš ï¸ Slot Conflict: The slot at ${payload.startTime} IST was just booked by another patient! Refreshing...`;
         conflictAlert.style.display = "block";
       }
       deselectPatientSlot();
@@ -9766,7 +9859,7 @@ function handleRealtimeAppointmentConfirmed(payload) {
       if (typeof loadDoctorScheduleSettings === "function") {
         loadDoctorScheduleSettings();
       }
-      showToast(`📅 Confirmed: ${app.patientName} booked ${app.scheduledDate} @ ${app.scheduledStartTime} IST (${app.token})`, "info");
+      showToast(`ðŸ“… Confirmed: ${app.patientName} booked ${app.scheduledDate} @ ${app.scheduledStartTime} IST (${app.token})`, "info");
     }
   }
 }
@@ -9815,3 +9908,4 @@ function initTelehealthAutoSync() {
   }, 5000);
 }
 initTelehealthAutoSync();
+
