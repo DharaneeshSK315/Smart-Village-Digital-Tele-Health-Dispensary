@@ -6629,33 +6629,8 @@ var VillageMed = (function (exports, React, ReactDOM) {
         });
         console.log("[AGORA] Hardware microphone audio track created successfully");
       } catch (audioErr) {
-        console.warn("[AGORA] Hardware microphone creation failed, attempting custom fallback track:", audioErr);
-        try {
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          if (AudioCtx) {
-            const ctx = new AudioCtx();
-            const dest = ctx.createMediaStreamDestination();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = "sine";
-            osc.frequency.setValueAtTime(440, ctx.currentTime);
-            gain.gain.setValueAtTime(0.005, ctx.currentTime);
-            osc.connect(gain);
-            gain.connect(dest);
-            osc.start();
-
-            const mediaTrack = dest.stream.getAudioTracks()[0];
-            if (mediaTrack && typeof AgoraRTC !== "undefined" && AgoraRTC.createCustomAudioTrack) {
-              audioTrack = AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: mediaTrack });
-              console.log("[AGORA] Fallback custom audio track created successfully");
-            }
-          }
-        } catch (fallbackErr) {
-          console.error("[AGORA] Fallback custom audio track creation failed:", fallbackErr);
-        }
-        if (!audioTrack) {
-          showToast("Unable to access microphone. Check browser permissions.", "warning");
-        }
+        console.error("[AGORA] Hardware microphone creation failed:", audioErr.name, audioErr.message);
+        showToast("Microphone access denied or unavailable. Allow microphone permission to enable voice.", "warning");
       }
 
       localAudioTrack = audioTrack;
