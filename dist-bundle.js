@@ -6677,50 +6677,56 @@ var VillageMed = (function (exports, React, ReactDOM) {
         tracksToPublish.push(localAudioTrack);
       }
 
-      // Create and publish local video track for Agora RTC.
-      // Strategy: always use AgoraRTC.createCameraVideoTrack() so Agora owns
-      // the capture pipeline end-to-end. Using createCustomVideoTrack() wrapping
-      // localWebcamStream's native track conflicts with the PIP canvas renderer
-      // that also reads from that same track, causing Chrome to drop frames silently.
+      // Create and publish local video track. Reuse an already-acquired hardware
+      // camera stream first so Chrome does not have to grant the same device twice.
       let videoTrack = null;
-      try {
-        if (typeof AgoraRTC.createCameraVideoTrack === "function") {
-          videoTrack = await AgoraRTC.createCameraVideoTrack({
-            encoderConfig: {
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 360 },
-              frameRate: { ideal: 30, min: 15 },
-              bitrateMax: 2000
-            },
-            optimizationMode: "detail"
-          });
-          console.log("[AGORA] Created Agora camera video track (720p)");
-
-          // Mirror local preview from Agora's own video track so the PIP pip shows the camera
-          const agoraPrefix = getAgoraRolePrefix(role);
-          const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
-          const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
-          if (localContainer) {
-            localContainer.innerHTML = "";
-            videoTrack.play(localContainer, { mirror: true, fit: "cover" });
-            localContainer.style.display = "block";
-            if (localCanvas) localCanvas.style.display = "none";
-            console.log("[AGORA] Local video preview attached from Agora camera track");
+      let videoTrackSource = "none";
+      if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
+        const nativeTrack = localWebcamStream.getVideoTracks()[0];
+        if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
+          try {
+            videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
+            videoTrackSource = "custom-hw";
+            console.log("[AGORA] Created custom video track from the acquired webcam stream");
+          } catch (fallbackErr) {
+            console.warn("[AGORA] Custom webcam video track failed:", fallbackErr);
           }
         }
-      } catch (vidErr) {
-        console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
-        // Fallback: try wrapping the already-acquired localWebcamStream track
+      }
+
+      if (!videoTrack) {
         try {
-          if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
-            const nativeTrack = localWebcamStream.getVideoTracks()[0];
-            if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
-              videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
-              console.log("[AGORA] Fallback: created custom video track from localWebcamStream");
-            }
+          if (typeof AgoraRTC.createCameraVideoTrack === "function") {
+            videoTrack = await AgoraRTC.createCameraVideoTrack({
+              encoderConfig: {
+                width: { ideal: 1280, min: 640 },
+                height: { ideal: 720, min: 360 },
+                frameRate: { ideal: 30, min: 15 },
+                bitrateMax: 2000
+              },
+              optimizationMode: "detail"
+            });
+            videoTrackSource = "agora-hw";
+            console.log("[AGORA] Created Agora camera video track (720p)");
           }
-        } catch (fallbackErr) {
-          console.warn("[AGORA] Fallback video track also failed:", fallbackErr);
+        } catch (vidErr) {
+          console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
+        }
+      }
+
+      if (videoTrack) {
+        const agoraPrefix = getAgoraRolePrefix(role);
+        const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+        const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+        if (localContainer) {
+          if (videoTrackSource === "custom-hw" && localWebcamStream) {
+            attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+          } else {
+            localContainer.innerHTML = "";
+            videoTrack.play(localContainer, { mirror: true, fit: "cover" });
+          }
+          localContainer.style.display = "block";
+          if (localCanvas) localCanvas.style.display = "none";
         }
       }
 

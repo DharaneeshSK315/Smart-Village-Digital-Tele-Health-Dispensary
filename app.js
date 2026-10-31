@@ -6581,9 +6581,16 @@ async function joinAgoraRoomInternal(role) {
             if (remoteContainer) {
               remoteContainer.style.display = "block";
               if (!remoteContainer.querySelector("video")) remoteContainer.innerHTML = "";
-              user.videoTrack.play(remoteContainer, { fit: "cover" });
-              agoraRemoteVideoActive = true;
-              console.log(`[AGORA] Remote video playing in container #${remoteContainer.id}`);
+              try {
+                user.videoTrack.play(remoteContainer, { fit: "cover" });
+                agoraRemoteVideoActive = true;
+                console.log(`[AGORA] Remote video playing in container #${remoteContainer.id}`);
+              } catch (videoPlayErr) {
+                console.error(`[AGORA] Remote video play failed for UID ${user.uid}:`, videoPlayErr);
+                remoteContainer.style.display = "none";
+                agoraRemoteVideoActive = false;
+                if (mainCanvas) mainCanvas.style.display = "block";
+              }
             } else {
               // Last resort: create a video element and append to the main viewport
               console.warn("[AGORA] Remote video container not found â€” appending fallback video element");
@@ -6771,46 +6778,17 @@ async function joinAgoraRoomInternal(role) {
     }
 
     // Create and publish local video track for Agora RTC.
-    // Strategy 1: Use AgoraRTC.createCameraVideoTrack() â€” Agora owns the capture pipeline.
-    // Strategy 2: Wrap localWebcamStream track as a custom track (if cam already acquired).
+    // Strategy 1: Wrap localWebcamStream (if the browser already acquired the camera).
+    // Strategy 2: Ask AgoraRTC to acquire the camera.
     // Strategy 3: Wrap the virtual canvas stream as a custom track (simulated fallback).
     // This ensures a video track is ALWAYS published so the PIP never shows camera-off
     // unless the user explicitly pressed the camera toggle button.
     let videoTrack = null;
     let videoTrackSource = "none"; // "agora-hw" | "custom-hw" | "virtual" | "none"
 
-    // --- Strategy 1: Agora hardware camera track ---
-    try {
-      if (typeof AgoraRTC.createCameraVideoTrack === "function") {
-        videoTrack = await AgoraRTC.createCameraVideoTrack({
-          encoderConfig: {
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 360 },
-            frameRate: { ideal: 30, min: 15 },
-            bitrateMax: 2000
-          },
-          optimizationMode: "detail"
-        });
-        videoTrackSource = "agora-hw";
-        console.log("[AGORA] Created Agora camera video track (720p)");
-
-        // Mirror local preview from Agora's own video track so the PIP shows the camera
-        const agoraPrefix = getAgoraRolePrefix(role);
-        const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
-        const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
-        if (localContainer) {
-          localContainer.innerHTML = "";
-          videoTrack.play(localContainer, { mirror: true, fit: "cover" });
-          localContainer.style.display = "block";
-          if (localCanvas) localCanvas.style.display = "none";
-          console.log("[AGORA] Local video preview attached from Agora camera track");
-        }
-      }
-    } catch (vidErr) {
-      console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
-    }
-
-    // --- Strategy 2: Wrap already-acquired localWebcamStream as custom track ---
+    // --- Strategy 1: Wrap the live camera stream already acquired by the browser ---
+    // Reusing this track avoids requesting the camera a second time (which commonly
+    // returns NotReadableError while the first getUserMedia stream still owns it).
     if (!videoTrack) {
       try {
         if (localWebcamStream && localWebcamStream.getVideoTracks().length > 0) {
@@ -6818,11 +6796,49 @@ async function joinAgoraRoomInternal(role) {
           if (nativeTrack && nativeTrack.readyState === "live" && typeof AgoraRTC.createCustomVideoTrack === "function") {
             videoTrack = AgoraRTC.createCustomVideoTrack({ mediaStreamTrack: nativeTrack });
             videoTrackSource = "custom-hw";
-            console.log("[AGORA] Fallback S2: created custom video track from localWebcamStream");
+            console.log("[AGORA] Created custom video track from the acquired hardware webcam stream");
           }
         }
       } catch (fallbackErr) {
         console.warn("[AGORA] Fallback S2 video track also failed:", fallbackErr);
+      }
+    }
+
+    // --- Strategy 2: Ask Agora to acquire the camera only if no stream was acquired ---
+    if (!videoTrack) {
+      try {
+        if (typeof AgoraRTC.createCameraVideoTrack === "function") {
+          videoTrack = await AgoraRTC.createCameraVideoTrack({
+            encoderConfig: {
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 360 },
+              frameRate: { ideal: 30, min: 15 },
+              bitrateMax: 2000
+            },
+            optimizationMode: "detail"
+          });
+          videoTrackSource = "agora-hw";
+          console.log("[AGORA] Created Agora camera video track (720p)");
+        }
+      } catch (vidErr) {
+        console.warn("[AGORA] Camera video track creation failed:", vidErr.name, vidErr.message);
+      }
+    }
+
+    // Mirror any hardware or Agora video track locally
+    if (videoTrack && videoTrackSource !== "virtual") {
+      const agoraPrefix = getAgoraRolePrefix(role);
+      const localContainer = document.getElementById(`${agoraPrefix}-local-video-container`);
+      const localCanvas = document.getElementById(`${agoraPrefix}-local-canvas`);
+      if (localContainer) {
+        if (videoTrackSource === "custom-hw" && localWebcamStream) {
+          attachStreamToContainer(localWebcamStream, `${agoraPrefix}-local-video-container`, true);
+        } else {
+          localContainer.innerHTML = "";
+          videoTrack.play(localContainer, { mirror: true, fit: "cover" });
+        }
+        localContainer.style.display = "block";
+        if (localCanvas) localCanvas.style.display = "none";
       }
     }
 
@@ -10022,5 +10038,3 @@ function initTelehealthAutoSync() {
   }, 5000);
 }
 initTelehealthAutoSync();
-
-
